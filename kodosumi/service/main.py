@@ -43,24 +43,24 @@ class MainControl(litestar.Controller):
                     password: Optional[str]=None) -> Union[
                         Redirect, Template, Response]:
         t0 = helper.now()
+        form = await request.form()
         if not username or not password:
-            data = await request.form()
-            username = data.get("username", "")
-            password = data.get("password", "")
+            username = form.get("username", "")
+            password = form.get("password", "")
         if not username or not password:
             try:
-                data = await request.json()
-                username = data.get("username", "")
-                password = data.get("password", "")
+                js = await request.json()
+                username = js.get("username", "")
+                password = js.get("password", "")
             except:
                 pass
         inputs = Login(
             username=username or "", password=SecretStr(password or ""))
         username = await helper.verify_user(inputs.username, inputs.password)
-        if not username:
+        if not (username and password):
             if helper.wants(request, MediaType.HTML):
                 return Template("login.html", 
-                                context={"failure": username or password})
+                                context={"failure": bool(form.get("check"))})
             raise NotAuthorizedException("invalid credentials")
         token = encode_jwt_token(user_id=username)
         logger.info(
