@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     UVICORN_LEVEL: str = "WARNING"
     SECRET_KEY: str = "top secret -- change this in production"
 
-    WAIT_FOR_JOB: int = 10
+    WAIT_FOR_JOB: int = 30
     
     model_config = SettingsConfigDict(
         env_file=".env",

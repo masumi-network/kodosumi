@@ -61,23 +61,23 @@ class FlowControl(litestar.Controller):
             })
             entry = f"{settings.RAY_HTTP}{data["route_prefix"]}"
             target = f"{data["route_prefix"]}"
-            url = f"{target}/{OPEN_API_ENTRY}"
+            url = f"{entry}/{OPEN_API_ENTRY}"
             try:
                 logger.debug(f"contacting ray at {url}")
                 resp = await client.get(
                     url, headers={FORWARD_USER: user}, timeout=0.5)
                 elem = resp.json()["paths"].get("/")
-                data["openapi"] = f"{entry}/{OPEN_API_ENTRY}"
-                data["docs"] = f"{entry}/{DOCS_ENTRY}"
+                data["openapi"] = f"{target}/{OPEN_API_ENTRY}"
+                data["docs"] = f"{target}/{DOCS_ENTRY}"
                 if "get" in elem:
                     data.update({k: elem["get"].get(k, None) for k in _fields})
-                    data["entry_point"] = entry
+                    data["entry_point"] = target
                 else:
                     data.update({k: None for k in _fields})
                     data["entry_point"] = data["docs"]
                 endpoints.append(data)
-            except:
-                logger.error(f"failed to get {url}: {resp.status_code}")
+            except Exception as exc:
+                logger.error(f"failed to get {url}: {resp.status_code} - {exc}")
         state["app_host"] = host
         state["app_port"] = port
         logger.info(f"received ray application info in {helper.now() - t0}")
