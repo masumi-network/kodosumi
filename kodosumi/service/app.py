@@ -57,7 +57,10 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/", route_handlers=[FlowControl]),
             Router(path="/", route_handlers=[ExecutionControl]),
             create_static_files_router(
-                path="/static", directories=[Path(__file__).parent / "static"])
+                path="/static", 
+                directories=[Path(__file__).parent / "static"],
+                opt={"no_auth": True}
+            )
         ],
         template_config=TemplateConfig(
             directory=Path(__file__).parent / "templates", engine=JinjaTemplateEngine
