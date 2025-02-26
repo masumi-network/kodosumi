@@ -1,0 +1,94 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="google" content="notranslate">
+    <title>kodosumi</title>
+    <link 
+        href="/static/beer.css" rel="stylesheet">
+    <link 
+        href="/static/kodosumi.css" rel="stylesheet">
+    <script type="module"
+        src="/static/beer.min.js"></script>
+    <script type="module"
+        src="/static/material-dynamic-colors.min.js"></script>
+    {% block head %}
+    {% endblock %}
+</head>
+
+<body>
+    <header class="max fixed">
+        <p>kodosumi | admin</p>
+    </header>
+    <nav class="left l m">
+        <header class="">
+            <i>school</i>
+        </header>
+            <a>
+            <i>home</i>
+            <div>Home</div>
+        </a>
+        </a>
+        <a href="/-/flows">
+            <i>widgets</i>
+            <div>Services</div>
+        </a>
+        <a href="/-/executions">
+            <i>view_list</i>
+            <div>Jobs</div>
+        </a>
+        <a href="/-/help">
+            <i>help</i>
+            <div>Help</div>
+        </a>
+        <div class="divider"></div>
+        <a onclick="toggleTheme()">
+            <i id="theme-icon">dark_mode</i>
+        </a>
+    </nav>
+
+    <nav class="bottom s">
+        <a>
+            <i>widgets</i>
+        </a>
+        <a>
+            <i>view_list</i>
+        </a>
+        <a>
+            <i>monitor_heart</i>
+        </a>
+</nav>
+
+    <main class="responsive max">
+        <h3>{% block headline %}{% endblock %}</h3>
+        <hr class="large">
+        <page class="left">
+            {% block main %}
+            {% endblock %}
+        </page>
+    </main>
+    <script>
+        let theme;
+        
+        function toggleTheme() {
+            theme = theme === 'dark' ? 'light' : 'dark';
+            localStorage.setItem("theme", theme);
+            document.getElementById('theme-icon').innerText = theme + "_mode";
+            ui("mode", theme);
+        }
+        document.addEventListener('DOMContentLoaded', (event) => {
+            theme = localStorage.getItem("theme");
+            if (theme) {
+                ui("mode", theme);
+            }
+            else {
+                theme = ui("mode");
+            }
+            document.getElementById('theme-icon').innerText = theme + "_mode";
+        });
+    </script>
+    {% block foot %}
+    {% endblock %}
+</body>
+</html>

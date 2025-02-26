@@ -1,0 +1,95 @@
+{% extends "_main.html" %}
+
+{% block head %}
+<style>
+    .clickable {
+        cursor: pointer;
+    }
+    .clickable:hover {
+        color: var(--primary);
+    }
+</style>
+<script>
+    function go(fid) {
+        window.location.href = "/-/executions/" + fid;
+    }
+</script>
+{% endblock %}
+
+{% block headline %}
+Execution History
+{% endblock %}
+
+{% block main %}
+<page>
+    <div class="page top active">
+        <table class="border" style="table-layout: auto; width: 100%;">
+        <thead>
+            <tr>
+                <th nowrap colspan="2">TIMESTAMP</th>
+                <th nowrap colspan="3">STATUS</th>
+                <th nowrap>NAME</th>
+                <th nowrap>RUNTIME</th>
+                <th nowrap>TAGS</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for execution in executions %}
+            <tr>
+                <td>            
+                    <label class="checkbox m l">
+                        <input type="checkbox">
+                        <span></span>
+                    </label>
+                </td>
+                <td class="clickable" 
+                onclick="javascript: go('{{ execution.fid }}')" nowrap>
+                    {{ execution.tearup.strftime("%Y-%m-%d %H:%M:%S") if execution.tearup != none else "N/A" }}
+                </td>
+                <td nowrap class="clickable" 
+                onclick="javascript: go('{{ execution.fid }}')">
+                    {{ execution["status"]}}
+                </td>
+                <td nowrap class="clickable" 
+                onclick="javascript: go('{{ execution.fid }}')">
+                    {% if execution["status"] in ("finished", "error") %}
+                    {% else %}
+                    <progress class="circle small light-green-text"></progress>
+                    {% endif %}
+                </td>
+                <td nowrap class="clickable" 
+                onclick="javascript: go('{{ execution.fid }}')">
+                    <progress style="width: 180px;" value="0" max="80"></progress>
+                </td>
+                <td nowrap class="clickable" 
+                onclick="javascript: go('{{ execution.fid }}')">
+                    {% if execution["extra"] %}
+                    {{ execution["extra"]["name"]  }}
+                    {% else %}
+                    {{ execution["entry_point"]  }}
+                    {% endif %}
+                </td>
+                <td nowrap class="clickable" 
+                onclick="javascript: go('{{ execution.fid }}')">
+                    {{ execution["lifetime"] | round(1) if execution["lifetime"] else "N/A" }}s
+                </td>
+                <td style="width: 99%" class="clickable" 
+                onclick="javascript: go('{{ execution.fid }}')">
+                    {% if execution["extra"] %}
+                    {% for tag in execution["extra"]["tags"] %}
+                    <chip class="chip fill no-elevate small" style="height: 20px; margin: 0px; padding: 9px;"><span>
+                        <label>
+                            {{tag}}
+                        </label>
+                    </span></chip>
+                    {% endfor %}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        </table>
+    </div>
+</page>
+
+{% endblock %}

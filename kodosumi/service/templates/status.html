@@ -1,0 +1,139 @@
+{% extends "_main.html" %}
+
+{% block head %}
+<style>
+    .clickable {
+        cursor: pointer;
+    }
+    .clickable:hover {
+        color: var(--primary);
+    }
+    .field.label > label {
+        transition: none !important;
+    }
+</style>
+{% endblock %}
+
+{% block headline %}
+Execution Status and Results
+{% endblock %}
+
+{% block main %}
+<page>
+    <div class="page top active">
+        <div class="grid">
+            <div class="s12 m12 l6">
+                <div class="field border label">
+                    <input id="fid" type="text" value="{% if execution["extra"] %}{{ execution["extra"]["name"]  }}{% else %}{{ execution["entry_point"]  }}{% endif %}" readonly />
+                    <label>Name</label>
+                </div>
+                <div class="field border label">
+                    <input id="entry_point" type="text" value="{{ execution["entry_point"] }}" readonly />
+                    <label>Entry Point</label>
+                </div>
+                <div class="field border label suffix">
+                    <input id="status" type="text" value="unknown" readonly />
+                    <label>Job Status</label>
+                    <progress id="spinner" class="circle"></progress>
+                </div>
+                <div class="field border label">
+                    <input id="fid" type="text" value="{{ execution.fid }}" readonly />
+                    <label>Job ID</label>
+                </div>
+                <div class="field border label">
+                    <input id="tearup" type="text" value="{{ execution.tearup.strftime("%Y-%m-%d %H:%M:%S") if execution.tearup != none else "N/A" }}" readonly />
+                    <label>Startup</label>
+                </div>
+                <div class="field border label">
+                    <input id="teardown" type="text" value="{{ execution.teardown.strftime("%Y-%m-%d %H:%M:%S") if execution.teardown != none else "N/A" }}" readonly />
+                    <label>Shutdown</label>
+                </div>
+                <div class="field border label">
+                    <input id="runtime" type="text" value="{{ execution["lifetime"] | round(1) if execution["lifetime"] else "N/A" }}s" readonly/>
+                    <label>Runtime</label>
+                </div>
+                {% if execution["alive"]["actor"] != none %}
+                    {% set ray_state = execution["alive"]["actor"]["State"] %}
+                {% else %}
+                    {% set ray_state = "stopped" %}
+                {% endif %}
+                    <div class="field border label">
+                    <input id="ray_state" type="text" value="{{ ray_state }}" readonly />
+                    <label>Ray Status</label>
+                </div>
+            </div>
+            <div class="s12 m12 l6">
+                <div class="field border" style="width: 100%; height: 100%;">
+                    <textarea id="output" style="width: 100%; height: 100%; font-family: monospace; font-size: 0.9rem !important;" readonly></textarea>
+                </div>
+            </div>
+        </div>
+        <hr class="large"/>
+        <div id="final_result" class="s12 m12 l6" style="display: none;">
+            <h3>Result</h3>
+            <hr class="large"/>
+            <blockquote style="font-family: monospace; font-size: 0.9rem" id="result"></blockquote>
+        </div>
+    </div>
+</page>
+
+{% endblock %}
+
+{% block foot %}
+<script>
+    function report_runtime(data) {
+        const [runtime, message] = event.data.split(/\s(.+)/);
+        const input = document.getElementById('runtime');
+        if (runtime) {
+            input.value = parseFloat(runtime).toFixed(1);
+        }
+        return message;
+    }
+    function sse_stream() {
+        // Replace 'your_fid' with the actual fid you want to listen to
+        const eventSource = new EventSource("/-/executions/sse/{{execution.fid}}");
+        eventSource.addEventListener('status', function(event) {
+            const message = report_runtime(event.data);
+            const statusMessage = message.substring(1).trim();
+            document.getElementById('status').value = statusMessage;
+            if (statusMessage === "finished" || statusMessage === "error") {
+                document.getElementById('spinner').style.display = 'none';
+            }
+        });
+        eventSource.addEventListener('stdout', function(event) {
+            const message = report_runtime(event.data);
+            const outputTextarea = document.getElementById('output');
+            outputTextarea.value += message.substring(1).trim() + '\n';
+            outputTextarea.scrollTop = outputTextarea.scrollHeight; // Scroll to the bottom
+        });
+        eventSource.addEventListener('eof', function(event) {
+            const message = report_runtime(event.data);
+            eventSource.close();
+            fetch(`/-/executions/final/{{execution.fid}}`)
+                .then(response => response.text())
+                .then(data => {
+                    console.log("done")
+                    const finalResultElement = document.getElementById('final_result');
+                    if (finalResultElement) {
+                        console.log("Element found, making it visible");
+                        finalResultElement.style.display = 'block';
+                    } else {
+                        console.error("Element with ID 'final_result' not found");
+                    }
+                    document.getElementById('result').innerText = data;
+                })
+                .catch(error => {
+                    console.error('Error fetching final execution result:', error);
+                });
+
+        });
+        eventSource.onerror = function(event) {
+            console.error('SSE error:', event);
+        };
+    }
+
+    document.addEventListener('DOMContentLoaded', (event) => {
+        sse_stream();
+    });
+</script>
+{% endblock %}

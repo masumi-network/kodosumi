@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["kodosumi"]
+namespaces = false
+
+[project]
+name = "kodosumi"
+version = "0.0.0"
+description = "kodosumi framework to execute and orchestrate agentic services safe and at scale"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+dependencies = [
+    "click",
+    "pydantic",
+    "pydantic_settings",
+    "ray[serve]",
+    "litestar",
+    "fastapi",
+    "fastapi_utils",
+    "jinja2",
+    "uvicorn",
+    "python-jose",
+    "python-multipart",
+    "multipart",
+    "aiofiles",
+    "bson"
+]
+
+[project.optional-dependencies]
+tests = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-httpserver",
+    "isort",
+    "autopep8",
+    "debugpy",
+    "pytest_httpserver"
+]
+
+# [tool.setuptools.package-data]
+# "kodosumi.service" = ["static/**/*", "templates/*"]
