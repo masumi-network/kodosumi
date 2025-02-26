@@ -1,18 +1,17 @@
 import asyncio
 import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Union, Tuple
+from typing import AsyncGenerator, Union
 
 import aiofiles
 import ray
 from ray._private.state import actors
-import asyncio
 
 from kodosumi import helper
 from kodosumi.dtypes import DynamicModel
 from kodosumi.log import logger
-from kodosumi.runner import (EVENT_DATA, EVENT_FINAL, EVENT_RESULT, EVENT_STATUS,
-                         NAMESPACE)
+from kodosumi.runner import (EVENT_DATA, EVENT_FINAL, EVENT_RESULT,
+                             EVENT_STATUS, NAMESPACE)
 from kodosumi.spooler import EVENT_LOG_FILE, STDERR_FILE, STDOUT_FILE
 
 
@@ -190,43 +189,7 @@ class ExecutionResult:
 
         await task1
 
-    # async def read_stdout(self) -> AsyncGenerator[str, None]:
-    #     async for _, line in self._read_file(self.stdout_file):
-    #         yield line
-
-    # async def read_stderr(self) -> AsyncGenerator[str, None]:
-    #     async for _, line in self._read_file(self.stderr_file):
-    #         yield line
-
     async def follow(self) -> AsyncGenerator[str, None]:
         async for line in self._read_file(self.event_log):
             yield line
         logger.debug(f"stop following {self.event_log}")
-
-    # async def _read_all(self, file1, pre1, file2, pre2) -> AsyncGenerator[Tuple[str, str], None]:
-
-    #     queue: asyncio.Queue = asyncio.Queue()
-    #     task1 = asyncio.create_task(self._reader(file1, queue, pre1))
-    #     task2 = asyncio.create_task(self._reader(file2, queue, pre2))
-
-    #     while True:
-    #         prefix, line = await queue.get()
-    #         if line is None:
-    #             if task1.done() and task2.done():
-    #                 break
-    #             continue
-    #         yield prefix, line
-
-    #     await task1
-    #     await task2
-
-    # async def follow(self) -> AsyncGenerator[str, None]:
-    #     async for prefix, line in self._read_all(
-    #             self.event_log, "log", self.stdout_file, "out"):
-    #         yield f"{prefix}: {line}"
-
-    # async def follow_events(self) -> AsyncGenerator[Tuple[str, str], None]:
-    #     async for prefix, line in self._read_all(
-    #             self.event_log, "log", self.stdout_file, "out"):
-    #         yield prefix, line
-    #     yield "eof", ""

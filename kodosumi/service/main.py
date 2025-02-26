@@ -1,5 +1,7 @@
+from typing import Any, Optional, Union
+
 import litestar
-from litestar import Request, get, post, route
+from litestar import MediaType, Request, get, route
 from litestar.datastructures import State
 from litestar.exceptions import NotAuthorizedException
 from litestar.response import Redirect, Response, Template
@@ -30,42 +32,52 @@ class MainControl(litestar.Controller):
             "username": username
         })
 
-    @get("/", opt={"no_auth": True})
+    @get("/")
     async def home(self) -> Redirect:
-        return Redirect("/-/helo")
+        return Redirect("/-/flows")
 
-    @get("/favicon.ico", opt={"no_auth": True})
-    async def favicon(self) -> Response:
-        return Response(content=b"")
-
-    async def _login(self, method, data: Login):
+    @route("/-/login", opt={"no_auth": True}, http_method=["GET", "POST"])
+    async def login(self, 
+                    request: Request,
+                    username: Optional[str]=None, 
+                    password: Optional[str]=None) -> Union[
+                        Redirect, Template, Response]:
         t0 = helper.now()
-        username = await helper.verify_user(data.username, data.password)
+        if not username or not password:
+            data = await request.form()
+            username = data.get("username", "")
+            password = data.get("password", "")
+        if not username or not password:
+            try:
+                data = await request.json()
+                username = data.get("username", "")
+                password = data.get("password", "")
+            except:
+                pass
+        inputs = Login(
+            username=username or "", password=SecretStr(password or ""))
+        username = await helper.verify_user(inputs.username, inputs.password)
         if not username:
+            if helper.wants(request, MediaType.HTML):
+                return Template("login.html", 
+                                context={"failure": username or password})
             raise NotAuthorizedException("invalid credentials")
         token = encode_jwt_token(user_id=username)
-        response = Response(content={
-            "username": username, "success": True, HEADER_KEY: token})
+        logger.info(
+            f"{request.method} /-/login {username} in {helper.now() - t0}")
+        if helper.wants(request, MediaType.HTML):
+            response: Any = Redirect("/")
+        else:
+            response = Response(content={
+                "username": username, "success": True, HEADER_KEY: token})
         response.set_cookie(key=TOKEN_KEY, value=token)
-        logger.info(f"{method} /-/login {username} in {helper.now() - t0}")
         return response
 
-    @get("/-/login", opt={"no_auth": True})
-    async def login(self, username: str, password: str) -> Response:
-        data = Login(username=username, password=SecretStr(password))
-        return await self._login("GET", data)
-
-    @get("/-/help")
-    async def help(self) -> Response:
-        return Template("help.html", context={})
-
-
-    @post("/-/login", opt={"no_auth": True})
-    async def post_login(self, data: Login) -> Response:
-        return await self._login("POST", data)
-
     @route("/-/logout", http_method=["GET", "POST", "DELETE", "PUT"])
-    async def logout(self) -> Response:
-        response = Response(content={"username": None, "success": True})
+    async def logout(self, request: Request) -> Union[Response, Redirect]:
+        if helper.wants(request):
+            response: Any = Redirect("/")
+        else:
+            response = Response(content={"username": None, "success": True})
         response.delete_cookie(key=TOKEN_KEY)
         return response

@@ -1,16 +1,18 @@
-from pathlib import Path
-import datetime
 import asyncio
+import datetime
+from pathlib import Path
+
 import litestar
-from litestar import Request, get, MediaType
+from litestar import MediaType, Request, get
 from litestar.datastructures import State
 from litestar.response import Response, Stream, Template
 
 from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.log import logger
-from kodosumi.service.result import ExecutionResult
 from kodosumi.runner import EVENT_STDERR, EVENT_STDOUT
+from kodosumi.service.result import ExecutionResult
+
 
 fromisoformat = datetime.datetime.fromisoformat
 
@@ -28,22 +30,24 @@ class ExecutionControl(litestar.Controller):
             request: Request, 
             state: State) -> Response:
         t0 = helper.now()
-        executions = []
-        for exec_dir in self._exec_path(state, request).iterdir():
-            if not exec_dir.is_dir():
-                continue
-            result = ExecutionResult(exec_dir)
-            try:
-                await result.read_state()
-            except:
-                raise RuntimeError(f"failed to read {exec_dir}")
-            executions.append(result)
-        executions.sort(reverse=True)
-        data = [r.get_state() for r in executions]
+        exec_path = self._exec_path(state, request)
+        if exec_path.exists() and exec_path.is_dir():
+            executions = []
+            for exec_dir in exec_path.iterdir():
+                if not exec_dir.is_dir():
+                    continue
+                result = ExecutionResult(exec_dir)
+                try:
+                    await result.read_state()
+                except:
+                    raise RuntimeError(f"failed to read {exec_dir}")
+                executions.append(result)
+            executions.sort(reverse=True)
+            data = [r.get_state() for r in executions]
+        else:
+            data = []
         if helper.wants(request, MediaType.HTML):
-            return Template(
-                "executions.html", 
-                context={"executions": data})
+            return Template("executions.html", context={"executions": data})
         logger.info(f"GET /-/executions in {helper.now() - t0}")
         return Response(content=data)
 
@@ -103,67 +107,6 @@ class ExecutionControl(litestar.Controller):
         ret = await result.read_result()
         logger.info(f"GET /-/executions/results/{fid} in {helper.now() - t0}")
         return Response(content=ret)
-
-    # async def _stream_output(
-    #         self, 
-    #         fid: str,
-    #         state: State, 
-    #         request: Request, 
-    #         callback: str) -> Stream:
-    #     file = self._exec_path(state, request).joinpath(fid)
-    #     if not file.exists():
-    #         raise FileNotFoundError(f"{fid} not found")
-    #     result = ExecutionResult(file)
-    #     method = getattr(result, callback)
-    #     return Stream(method(), media_type="text/plain")
-
-    # @get("/-/executions/stdout/{fid:str}")
-    # async def stdout_stream(
-    #         self, 
-    #         fid: str,
-    #         request: Request, 
-    #         state: State) -> Stream:
-    #     logger.debug(f"streaming stdout for {fid}")
-    #     return await self._stream_output(fid, state, request, "read_stdout")
-    
-    # @get("/-/executions/stderr/{fid:str}")
-    # async def stderr_stream(
-    #         self, 
-    #         fid: str,
-    #         request: Request, 
-    #         state: State) -> Stream:
-    #     return await self._stream_output(fid, state, request, "read_stderr")
-    
-    # @get("/-/executions/follow/{fid:str}")
-    # async def stream_all(
-    #         self, 
-    #         fid: str,
-    #         request: Request, 
-    #         state: State) -> Stream:
-    #     logger.debug(f"streaming all for {fid}")
-    #     file = self._exec_path(state, request).joinpath(fid)
-    #     if not file.exists():
-    #         raise FileNotFoundError(f"{fid} not found")
-    #     result = ExecutionResult(file)
-    #     return Stream(result.follow(), media_type="text/plain")
-
-    # @get("/-/executions/sse/{fid:str}")
-    # async def sse_stream(
-    #         self, 
-    #         fid: str,
-    #         request: Request, 
-    #         state: State) -> Stream:
-    #     logger.debug(f"streaming SSE for {fid}")
-    #     file = self._exec_path(state, request).joinpath(fid)
-    #     if not file.exists():
-    #         raise FileNotFoundError(f"{fid} not found")
-    #     result = ExecutionResult(file)
-
-    #     async def event_generator():
-    #         async for event_type, data in result.follow_events():
-    #             yield f"event: {event_type}\ndata: {data}\n\n"
-
-    #     return Stream(event_generator(), media_type="text/event-stream")
 
     @get("/-/executions/follow/{fid:str}")
     async def follow(

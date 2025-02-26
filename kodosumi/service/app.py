@@ -1,8 +1,9 @@
 import traceback
-from typing import Any, Dict
+from typing import Any, Dict, Union
 from pathlib import Path
 
 from litestar import Litestar, Request, Response, Router
+from litestar.response import Template
 from litestar.config.cors import CORSConfig
 from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.datastructures import State
@@ -14,6 +15,7 @@ from litestar.static_files import create_static_files_router
 from litestar.template.config import TemplateConfig
 
 import kodosumi.core
+from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.log import app_logger, logger
 from kodosumi.service.jwt import JWTAuthenticationMiddleware
@@ -22,11 +24,14 @@ from kodosumi.service.flow import FlowControl
 from kodosumi.service.main import MainControl
 
 
-def app_exception_handler(request: Request, exc: Exception) -> Response:
+def app_exception_handler(request: Request, 
+                          exc: Exception) -> Union[Template, Response]:
     ret: Dict[str, Any] = {
         "error": "server error",
         "path": request.url.path,
     }
+    if isinstance(exc, NotAuthorizedException) and helper.wants(request):
+            return Template("login.html")
     if isinstance(exc, (NotFoundException, NotAuthorizedException)):
         ret["detail"] = exc.detail
         ret["status_code"] = exc.status_code

@@ -5,6 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <meta name="google" content="notranslate">
     <title>kodosumi</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <link 
         href="/static/beer.css" rel="stylesheet">
     <link 
@@ -23,13 +24,10 @@
     </header>
     <nav class="left l m">
         <header class="">
-            <i>school</i>
+            <a onclick="toggleTheme()">
+                <i id="theme-icon">dark_mode</i>
+            </a>
         </header>
-            <a>
-            <i>home</i>
-            <div>Home</div>
-        </a>
-        </a>
         <a href="/-/flows">
             <i>widgets</i>
             <div>Services</div>
@@ -38,27 +36,28 @@
             <i>view_list</i>
             <div>Jobs</div>
         </a>
-        <a href="/-/help">
+        <a target="_blank" href="/schema/swagger">
             <i>help</i>
             <div>Help</div>
         </a>
         <div class="divider"></div>
-        <a onclick="toggleTheme()">
-            <i id="theme-icon">dark_mode</i>
+        <a href="/-/logout">
+            <i>logout</i>
+            <div>Logout</div>
         </a>
     </nav>
 
     <nav class="bottom s">
-        <a>
+        <a href="/-/flows">
             <i>widgets</i>
         </a>
-        <a>
+        <a href="/-/executions">
             <i>view_list</i>
         </a>
-        <a>
-            <i>monitor_heart</i>
+        <a target="_blank" href="/schema/swagger">
+            <i>help</i>
         </a>
-</nav>
+    </nav>
 
     <main class="responsive max">
         <h3>{% block headline %}{% endblock %}</h3>
