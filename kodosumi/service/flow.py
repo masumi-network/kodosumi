@@ -59,7 +59,7 @@ class FlowControl(litestar.Controller):
                          "kodo_extra", k)
                 for k in ("author", "organization")
             })
-            entry = f"{settings.APP_SERVER}{data["route_prefix"]}"
+            entry = f"{settings.RAY_HTTP}{data["route_prefix"]}"
             target = f"http://{host}:{port}{data["route_prefix"]}"
             try:
                 resp = await client.get(

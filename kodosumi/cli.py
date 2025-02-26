@@ -41,6 +41,8 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir):
 
 @click.option("--address", default=None, 
               help="App server URL")
+@click.option("--ray-http", default=None, 
+              help="Ray http server URL")
 @click.option('--log-file', default=None, 
               help='App server log file path.')
 @click.option('--log-file-level', default=None, 
@@ -58,7 +60,7 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir):
               help='App server reload on file change.')
 
 def server(address, log_file, log_file_level, level, exec_dir, reload,
-           uvicorn_level):
+           uvicorn_level, ray_http):
     """Start the kodosumi app service."""
     kw = {}
     if address: kw["APP_SERVER"] = address
@@ -68,6 +70,7 @@ def server(address, log_file, log_file_level, level, exec_dir, reload,
     if exec_dir: kw["EXEC_DIR"] = exec_dir
     if reload: kw["APP_RELOAD"] = reload
     if uvicorn_level: kw["UVICORN_LEVEL"] = uvicorn_level
+    if ray_http: kw["RAY_HTTP"] = ray_http
     settings = Settings(**kw)
     kodosumi.service.server.run(settings)
 
