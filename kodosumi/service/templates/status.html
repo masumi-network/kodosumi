@@ -83,16 +83,22 @@ Execution Status and Results
         const eventSource = new EventSource("/-/executions/sse/{{execution.fid}}");
         eventSource.addEventListener('status', function(event) {
             const message = report_runtime(event.data);
-            const statusMessage = message.substring(1).trim();
-            document.getElementById('status').value = statusMessage;
-            if (statusMessage === "finished" || statusMessage === "error") {
+            console.log("have status", message)
+            document.getElementById('status').value = message;
+            if (message === "finished" || message === "error") {
                 document.getElementById('spinner').style.display = 'none';
             }
         });
         eventSource.addEventListener('stdout', function(event) {
             const message = report_runtime(event.data);
             const outputTextarea = document.getElementById('output');
-            outputTextarea.value += message.substring(1).trim() + '\n';
+            outputTextarea.value += message + '\n';
+            outputTextarea.scrollTop = outputTextarea.scrollHeight; // Scroll to the bottom
+        });
+        eventSource.addEventListener('except', function(event) {
+            const message = report_runtime(event.data);
+            const outputTextarea = document.getElementById('output');
+            outputTextarea.value += message + '\n';
             outputTextarea.scrollTop = outputTextarea.scrollHeight; // Scroll to the bottom
         });
         eventSource.addEventListener('eof', function(event) {
@@ -103,12 +109,7 @@ Execution Status and Results
                 .then(data => {
                     console.log("done")
                     const finalResultElement = document.getElementById('final_result');
-                    if (finalResultElement) {
-                        console.log("Element found, making it visible");
-                        finalResultElement.style.display = 'block';
-                    } else {
-                        console.error("Element with ID 'final_result' not found");
-                    }
+                    finalResultElement.style.display = 'block';
                     document.getElementById('result').innerText = data;
                 })
                 .catch(error => {
@@ -118,6 +119,11 @@ Execution Status and Results
         });
         eventSource.onerror = function(event) {
             console.error('SSE error:', event);
+            // console.error('Event type:', event.type);
+            // console.error('Event data:', event.data);
+            eventSource.close();
+            console.error("restart SSE stream");
+            setTimeout(sse_stream, 5000); // Retry after 5 seconds
         };
     }
 

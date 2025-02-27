@@ -1,7 +1,10 @@
 import asyncio
 import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Union
+from typing import AsyncGenerator, Union, Optional, Tuple
+import pickle
+
+fromisoformat = datetime.datetime.fromisoformat
 
 import aiofiles
 import ray
@@ -11,8 +14,10 @@ from kodosumi import helper
 from kodosumi.dtypes import DynamicModel
 from kodosumi.log import logger
 from kodosumi.runner import (EVENT_DATA, EVENT_FINAL, EVENT_RESULT,
-                             EVENT_STATUS, NAMESPACE)
-from kodosumi.spooler import EVENT_LOG_FILE, STDERR_FILE, STDOUT_FILE
+                             EVENT_STATUS, NAMESPACE, STATUS_FINAL,
+                             EVENT_STDERR, EVENT_STDOUT)
+from kodosumi.spooler import (EVENT_LOG_FILE, STDERR_FILE, STDOUT_FILE, 
+                              PICKLE_FILE)
 
 
 _fields = ('ActorID', 'ActorClassName', 'IsDetached', 'Name', 'JobID', 
@@ -28,6 +33,7 @@ class ExecutionResult:
         folder = Path(exec_dir)
         self.fid = folder.name
         self.event_log = folder.joinpath(EVENT_LOG_FILE)
+        self.pickle = folder.joinpath(PICKLE_FILE)
         self.stdout_file = folder.joinpath(STDOUT_FILE)
         self.stderr_file = folder.joinpath(STDERR_FILE)
         self.tearup = None
@@ -60,9 +66,14 @@ class ExecutionResult:
     def __ge__(self, other):
         return self._valid(other) and self.tearup >= other.tearup
 
-    async def _read_state(self) -> AsyncGenerator:
+    async def read_state(self, timeout: Union[int, None]) -> dict:
+        async for timestamp, action, value in self._read_state(timeout):
+            pass
+        return self.get_state()
+    
+    async def _read_state(self, timeout: Union[int, None]) -> AsyncGenerator:
         self.tearup = teardown = self.data.runtime = None
-        async for timestamp, action, value in self._read_event():
+        async for timestamp, action, value in self._read_event(timeout):
             if action == EVENT_STATUS:
                 self.status = value
             elif action == EVENT_DATA:
@@ -80,40 +91,17 @@ class ExecutionResult:
         else:
             self.lifetime = None
     
-    async def read_state(self) -> dict:
-        async for timestamp, action, value in self._read_state():
-            pass
-        return self.get_state()
-    
-    async def is_alive(self) -> dict:
-        t0 = helper.now()
-        try:
-            helper.ray_init(ignore_reinit_error=True)
-            a = ray.get_actor(self.fid, namespace=NAMESPACE)
-            aid = a._ray_actor_id.hex()
-            state = actors().get(aid, {})
-            info = {k: state.get(k, None) for k in _fields}
-        except ValueError:
-            info = None
-        finally:
-            #helper.ray_shutdown()
-            pass
-        return {
-            "actor": info,
-            "retrieval_time": (helper.now() - t0).total_seconds()
-        } 
+    async def _read_event(self, timeout: Union[int, None]) -> AsyncGenerator:
+        
+        if timeout is not None:
+            until = helper.now() + datetime.timedelta(seconds=timeout)
+            if not self.event_log.is_file():
+                logger.debug(f"waiting for {self.event_log}")
+                while not self.event_log.is_file():
+                    await asyncio.sleep(STREAM_INTERVAL)
+                    if helper.now() >= until:
+                        raise FileNotFoundError(f"{self.event_log} not found")
 
-    def get_state(self) -> dict:
-        state = self.data.copy()
-        state["status"] = self.status
-        state["tearup"] = self.tearup
-        state["teardown"] = self.teardown
-        state["lifetime"] = self.lifetime
-        return state
-
-    async def _read_event(self):
-        if not self.event_log.is_file():
-            return
         async with aiofiles.open(self.event_log, "r") as fh:
             async for line in fh:
                 line = line.rstrip()
@@ -127,69 +115,158 @@ class ExecutionResult:
                     data = DynamicModel.model_validate_json(sdata).model_dump()
                 yield timestamp, action, data
 
-    async def read_final(self) -> dict:
-        final = None
-        async for timestamp, action, value in self._read_state():
-            if action == EVENT_FINAL:
-                final = value
-        ret = self.get_state()
-        ret.update({"final": final})
-        return ret
+    async def is_alive(self) -> dict:
+        t0 = helper.now()
+        if self.status not in STATUS_FINAL:
+            try:
+                helper.ray_init(ignore_reinit_error=True)
+                a = ray.get_actor(self.fid, namespace=NAMESPACE)
+                aid = a._ray_actor_id.hex()
+                state = actors().get(aid, {})
+                info = {k: state.get(k, None) for k in _fields}
+            except ValueError:
+                info = None
+            finally:
+                #helper.ray_shutdown()
+                pass
+        else:
+            info = None
+        return {
+            "actor": info,
+            "retrieval_time": (helper.now() - t0).total_seconds()
+        } 
 
-    async def read_result(self) -> dict:
-        result = []
-        final = None
-        async for timestamp, action, value in self._read_state():
-            if action == EVENT_RESULT:
-                result.append(value)
-            elif action == EVENT_FINAL:
-                final = value
-        ret = self.get_state()
-        ret.update({"result": result, "final": final})
-        return ret
+    def get_state(self) -> dict:
+        state = self.data.copy()
+        state["status"] = self.status
+        state["tearup"] = self.tearup
+        state["teardown"] = self.teardown
+        state["lifetime"] = self.lifetime
+        return state
 
-    async def _reader(self, file, queue):
-        try:
-            check = None
-            async with aiofiles.open(file, "r") as fh:
-                while True:
-                    line = await fh.readline()
-                    now = helper.now()
-                    if not line:
-                        if ((not check) 
-                                or ((now - check).total_seconds() >= TIMEOUT)):
-                            check = now
-                            info = await self.is_alive()
-                            if not info.get("actor"):
-                                break
-                    else:
-                        check = now
-                        _, _, message = line.rstrip().split(" ", 2)
-                        await queue.put(line)
-                        if message.strip() in ("status *finished", "status *error"):
-                            break
-                    await asyncio.sleep(STREAM_INTERVAL)
-        except Exception as exc:
-            logger.error(f"streaming {file} failed: {exc}")
-        finally:
-            await queue.put(None)
+    def load(self):
+        if self.pickle.exists():
+            load = pickle.load(self.pickle.open("rb"))
+            self.data = load["data"]
+            self.status = load["status"]
+            self.tearup = load["tearup"]
+            self.teardown = load["teardown"]
+            self.lifetime = load["lifetime"]
+            return True
+        return False
 
-    async def _read_file(self, file) -> AsyncGenerator[str, None]:
+    def dump(self):
+        if self.status in STATUS_FINAL:
+            pickle.dump({
+                'data': self.data,
+                'status': self.status,
+                'tearup': self.tearup, 
+                'teardown': self.teardown,
+                'lifetime': self.lifetime
+            }, self.pickle.open("wb"), )        
+
+    async def follow(self, 
+                     timeout:Optional[int] = None,
+                     quick: bool=False) -> AsyncGenerator[Tuple, None]:
 
         queue: asyncio.Queue = asyncio.Queue()
-        task1 = asyncio.create_task(self._reader(file, queue))
+        self.tearup = None
+        hardcut = min(timeout, TIMEOUT) if timeout else TIMEOUT
+
+        async def _reader():
+            try:
+                check = helper.now()
+                async with aiofiles.open(self.event_log, "r") as fh:
+                    while True:
+                        line = await fh.readline()
+                        now = helper.now()
+                        if not line:
+                            if (((now - check).total_seconds() >= hardcut)):
+                                check = now
+                                info = await self.is_alive()
+                                if not info.get("actor"):
+                                    logger.warning(
+                                        f"actor {self.event_log} not found")
+                                    break
+                            continue
+                        t, _, event, payload = line.rstrip().split(" ", 3)
+                        if not self.tearup:
+                            self.tearup = fromisoformat(t)
+                        self.teardown = fromisoformat(t)
+                        runtime = (self.teardown - self.tearup).total_seconds()
+                        if payload.startswith("*"):
+                            payload = payload[1:] 
+                        if event in (EVENT_STDERR, EVENT_STDOUT):
+                            payload = payload.replace("\\n", "\n")
+                            payload = ''.join(
+                                c for c in payload if c.isprintable())
+                        elif event == EVENT_STATUS:
+                            self.status = payload
+                            if payload in STATUS_FINAL:
+                                await queue.put((runtime, event, payload))
+                                break
+                        elif event == EVENT_DATA:
+                            data = DynamicModel.model_validate_json(
+                                payload).model_dump()
+                            self.data.update(data)
+                        check = now
+                        await queue.put((runtime, event, payload))
+                        await asyncio.sleep(STREAM_INTERVAL)
+                        if quick and self.status and "fid" in self.data:
+                            logger.debug(
+                                f"quick return {self.event_log}")
+                            break
+            except Exception as exc:
+                logger.error(f"streaming {self.event_log} failed: {exc}")
+            finally:
+                await queue.put(None)
+
+        async def _wait():
+            until = helper.now() + datetime.timedelta(seconds=timeout)
+            if not self.event_log.is_file():
+                logger.debug(f"waiting for {self.event_log}")
+                while not self.event_log.is_file():
+                    await asyncio.sleep(STREAM_INTERVAL)
+                    if helper.now() >= until:
+                        logger.warning(f"{self.event_log} not found")
+                        return
+                    
+        if timeout:
+            await _wait()
+
+        task1 = asyncio.create_task(_reader())
 
         while True:
-            line = await queue.get()
-            if line is None:
+            data = await queue.get()
+            if data is None:
                 if task1.done():
+                    queue.task_done()
                     break
                 continue
-            yield line
+            yield data
+            queue.task_done()
 
+        await queue.join()
         await task1
 
-    async def follow(self) -> AsyncGenerator[str, None]:
-        async for line in self._read_file(self.event_log):
-            yield line
-        logger.debug(f"stop following {self.event_log}")
+        if self.tearup:
+            if self.teardown:
+                lifetime = self.teardown - self.tearup
+            else:
+                lifetime = helper.now() - self.tearup
+            self.lifetime = lifetime.total_seconds()
+        else:
+            self.lifetime = None
+
+        if self.status not in STATUS_FINAL:
+            try:
+                helper.ray_init(ignore_reinit_error=True)
+                a = ray.get_actor(self.fid, namespace=NAMESPACE)
+                aid = a._ray_actor_id.hex()
+                state = actors().get(aid, {})
+                info = {k: state.get(k, None) for k in _fields}
+            except ValueError:
+                info = None
+            finally:
+                #helper.ray_shutdown()
+                pass
