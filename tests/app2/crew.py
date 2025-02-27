@@ -1,11 +1,16 @@
+from pathlib import Path
 from typing import List
+
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
+from crewai_tools import FileReadTool, SerperDevTool, WebsiteSearchTool
+from pydantic import BaseModel, Field
+
 
 # Check our tools documentations for more information on how to use them
-from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool, FileReadTool
-from pydantic import BaseModel, Field
-from pathlib import Path
+
+# this example is based on
+# https://github.com/crewAIInc/crewAI-examples/tree/main/job-posting
 
 
 web_search_tool = WebsiteSearchTool()

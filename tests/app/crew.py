@@ -1,8 +1,5 @@
-from crewai import Agent, Task, Crew, Process
-from crewai_tools import tool
+from crewai import Agent, Crew, Process, Task
 from langchain_openai import ChatOpenAI
-import datetime
-import httpx
 
 
 llm = ChatOpenAI()

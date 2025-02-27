@@ -1,9 +1,11 @@
+from pathlib import Path
+
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from ray.serve import deployment, ingress
-from pathlib import Path
-from kodosumi.serve import ServeAPI, Launch
+
+from kodosumi.serve import Launch, ServeAPI
 
 
 app = ServeAPI()
