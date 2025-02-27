@@ -1,10 +1,8 @@
 import asyncio
 import datetime
-from pathlib import Path
-from typing import AsyncGenerator, Union, Optional, Tuple
 import pickle
-
-fromisoformat = datetime.datetime.fromisoformat
+from pathlib import Path
+from typing import AsyncGenerator, Optional, Tuple, Union
 
 import aiofiles
 import ray
@@ -13,12 +11,14 @@ from ray._private.state import actors
 from kodosumi import helper
 from kodosumi.dtypes import DynamicModel
 from kodosumi.log import logger
-from kodosumi.runner import (EVENT_DATA, EVENT_FINAL, EVENT_RESULT,
-                             EVENT_STATUS, NAMESPACE, STATUS_FINAL,
-                             EVENT_STDERR, EVENT_STDOUT)
-from kodosumi.spooler import (EVENT_LOG_FILE, STDERR_FILE, STDOUT_FILE, 
-                              PICKLE_FILE)
+from kodosumi.runner import (EVENT_DATA, EVENT_STATUS, EVENT_STDERR,
+                             EVENT_STDOUT, NAMESPACE, STATUS_ERROR,
+                             STATUS_FINAL)
+from kodosumi.spooler import (EVENT_LOG_FILE, PICKLE_FILE, STDERR_FILE,
+                              STDOUT_FILE)
 
+
+fromisoformat = datetime.datetime.fromisoformat
 
 _fields = ('ActorID', 'ActorClassName', 'IsDetached', 'Name', 'JobID', 
            'Address', 'OwnerAddress', 'State', 'NumRestarts', 'Timestamp', 
@@ -119,7 +119,7 @@ class ExecutionResult:
         t0 = helper.now()
         if self.status not in STATUS_FINAL:
             try:
-                helper.ray_init(ignore_reinit_error=True)
+                #helper.ray_init(ignore_reinit_error=True)
                 a = ray.get_actor(self.fid, namespace=NAMESPACE)
                 aid = a._ray_actor_id.hex()
                 state = actors().get(aid, {})
@@ -137,7 +137,7 @@ class ExecutionResult:
         } 
 
     def get_state(self) -> dict:
-        state = self.data.copy()
+        state = dict(self.data.copy())
         state["status"] = self.status
         state["tearup"] = self.tearup
         state["teardown"] = self.teardown
@@ -203,14 +203,14 @@ class ExecutionResult:
                         elif event == EVENT_STATUS:
                             self.status = payload
                             if payload in STATUS_FINAL:
-                                await queue.put((runtime, event, payload))
+                                await queue.put((t, runtime, event, payload))
                                 break
                         elif event == EVENT_DATA:
                             data = DynamicModel.model_validate_json(
                                 payload).model_dump()
                             self.data.update(data)
                         check = now
-                        await queue.put((runtime, event, payload))
+                        await queue.put((t, runtime, event, payload))
                         await asyncio.sleep(STREAM_INTERVAL)
                         if quick and self.status and "fid" in self.data:
                             logger.debug(
@@ -218,36 +218,47 @@ class ExecutionResult:
                             break
             except Exception as exc:
                 logger.error(f"streaming {self.event_log} failed: {exc}")
-            finally:
-                await queue.put(None)
+                await queue.put((None, 'error'))
+            else:
+                await queue.put((None, 'success'))
 
         async def _wait():
             until = helper.now() + datetime.timedelta(seconds=timeout)
             if not self.event_log.is_file():
-                logger.debug(f"waiting for {self.event_log}")
+                logger.debug(f"waiting {timeout} for {self.event_log}")
                 while not self.event_log.is_file():
                     await asyncio.sleep(STREAM_INTERVAL)
                     if helper.now() >= until:
-                        logger.warning(f"{self.event_log} not found")
-                        return
+                        return False
+            return True
                     
         if timeout:
-            await _wait()
+            if not await _wait():
+                logger.warning(f"{self.event_log} not found")
+                yield (None, 'error')
 
         task1 = asyncio.create_task(_reader())
 
+        success = None
         while True:
             data = await queue.get()
-            if data is None:
-                if task1.done():
-                    queue.task_done()
-                    break
-                continue
+            if data[0] is None:
+                queue.task_done()
+                if data[1] == 'error':
+                    success = False
+                elif data[1] == 'success':
+                    success = True
+                else:
+                    logger.error(f"unexpected queue result: {data}")
+                break
             yield data
             queue.task_done()
 
         await queue.join()
         await task1
+
+        if not success:
+            self.status = STATUS_ERROR
 
         if self.tearup:
             if self.teardown:
@@ -257,16 +268,3 @@ class ExecutionResult:
             self.lifetime = lifetime.total_seconds()
         else:
             self.lifetime = None
-
-        if self.status not in STATUS_FINAL:
-            try:
-                helper.ray_init(ignore_reinit_error=True)
-                a = ray.get_actor(self.fid, namespace=NAMESPACE)
-                aid = a._ray_actor_id.hex()
-                state = actors().get(aid, {})
-                info = {k: state.get(k, None) for k in _fields}
-            except ValueError:
-                info = None
-            finally:
-                #helper.ray_shutdown()
-                pass

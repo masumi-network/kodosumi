@@ -75,7 +75,7 @@ Execution History
                 </td>
                 <td style="width: 99%" class="clickable" 
                 onclick="javascript: go('{{ execution.fid }}')">
-                    {% if execution["extra"] %}
+                    {% if "extra" in execution and execution["extra"]["tags"] %}
                     {% for tag in execution["extra"]["tags"] %}
                     <chip class="chip fill no-elevate small" style="height: 20px; margin: 0px; padding: 9px;"><span>
                         <label>

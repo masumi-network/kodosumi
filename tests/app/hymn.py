@@ -1,37 +1,36 @@
+from pathlib import Path
+from  typing import Union
 from fastapi import Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from ray.serve import deployment, ingress
 
-from kodosumi.serve import ServeAPI
+from kodosumi.serve import ServeAPI, Launch
 
 
 app = ServeAPI()
 
-
+templates = Jinja2Templates(
+    directory=Path(__file__).parent.joinpath("templates"))
 
 @deployment
 @ingress(app)
 class HymnTest:
 
     @app.get("/", 
-             name="A simple Hymn Generator", 
-             description="This is a simple test crew.")
-    async def get(self) -> HTMLResponse:
-        return HTMLResponse(content="""
-<html>
-    <body>
-        <h1>Hymn Creator</h1>
-        <form method="POST"><input type="text" name="topic"/>
-    </body>
-</html>'
-""")
+             name="Hymn Generator", 
+             description="Creates a short hymn using openai and crewai.")
 
-    @app.post("/")
-    async def post(self, request: Request) -> JSONResponse:
+    async def get(self, request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request=request, name="hymn.html", context={})
+
+    @app.post("/", response_model=None)
+    async def post(self, request: Request):
         form_data = await request.form()
-        topic = form_data.get("topic")
-        fid = await request.state.execute_flow("tests.app.crew:crew", {"topic": topic})
-        return JSONResponse(content={}, headers={"kodosumi_launch": fid})
-
+        topic: str = str(form_data.get("topic", ""))
+        if topic.strip():
+            return Launch(request, "app.crew:crew", {"topic": topic})
+        return await self.get(request)
 
 fast_app = HymnTest.bind()  # type: ignore

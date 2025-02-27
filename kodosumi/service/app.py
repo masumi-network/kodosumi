@@ -1,16 +1,16 @@
 import traceback
-from typing import Any, Dict, Union
 from pathlib import Path
+from typing import Any, Dict, Union
 
 from litestar import Litestar, Request, Response, Router
-from litestar.response import Template
 from litestar.config.cors import CORSConfig
 from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.datastructures import State
-from litestar.exceptions import (NotFoundException, NotAuthorizedException)
+from litestar.exceptions import NotAuthorizedException, NotFoundException
 from litestar.middleware import DefineMiddleware
 from litestar.openapi.config import OpenAPIConfig
-from litestar.openapi.plugins import SwaggerRenderPlugin, JsonRenderPlugin
+from litestar.openapi.plugins import JsonRenderPlugin, SwaggerRenderPlugin
+from litestar.response import Template
 from litestar.static_files import create_static_files_router
 from litestar.template.config import TemplateConfig
 
@@ -18,9 +18,9 @@ import kodosumi.core
 from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.log import app_logger, logger
-from kodosumi.service.jwt import JWTAuthenticationMiddleware
 from kodosumi.service.execution import ExecutionControl
 from kodosumi.service.flow import FlowControl
+from kodosumi.service.jwt import JWTAuthenticationMiddleware
 from kodosumi.service.main import MainControl
 
 
@@ -84,6 +84,7 @@ def create_app(**kwargs) -> Litestar:
             "app_port": None
         })
     )
+    helper.ray_init()
     app_logger(settings)
     logger.info(f"app server started at {settings.APP_SERVER}")
     logger.debug(f"screen log level: {settings.APP_STD_LEVEL}, "

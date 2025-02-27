@@ -26,15 +26,15 @@ Execution Status and Results
                     <progress id="spinner" class="circle"></progress>
                 </div>
                 <div class="field border label">
-                    <input id="fid" type="text" value="{{ execution.fid }}" readonly />
+                    <input id="fid" type="text" value="{{ execution["fid"] }}" readonly />
                     <label>Job ID</label>
                 </div>
                 <div class="field border label">
-                    <input id="tearup" type="text" value="{{ execution.tearup.strftime("%Y-%m-%d %H:%M:%S") if execution.tearup != none else "N/A" }}" readonly />
+                    <input id="tearup" type="text" value="" readonly />
                     <label>Startup</label>
                 </div>
                 <div class="field border label">
-                    <input id="teardown" type="text" value="{{ execution.teardown.strftime("%Y-%m-%d %H:%M:%S") if execution.teardown != none else "N/A" }}" readonly />
+                    <input id="teardown" type="text" value="" readonly />
                     <label>Shutdown</label>
                 </div>
                 <div class="field border label">
@@ -70,17 +70,36 @@ Execution Status and Results
 
 {% block foot %}
 <script>
+    let tearup = null;
     function report_runtime(data) {
-        const [runtime, message] = event.data.split(/\s(.+)/);
-        const input = document.getElementById('runtime');
-        if (runtime) {
-            input.value = parseFloat(runtime).toFixed(1);
+        const parts = event.data.split(" ");
+        const timestamp = parts[0];
+        const date = new Date(timestamp);
+        const formattedTimestamp = date.getFullYear() + '-' +
+            ('0' + (date.getMonth() + 1)).slice(-2) + '-' +
+            ('0' + date.getDate()).slice(-2) + ' ' +
+            ('0' + date.getHours()).slice(-2) + ':' +
+            ('0' + date.getMinutes()).slice(-2) + ':' +
+            ('0' + date.getSeconds()).slice(-2);
+        if (timestamp) {
+            const runtime = parseFloat(parts[1]);
+            document.getElementById('runtime').value = parseFloat(runtime).toFixed(1);
+            const message = parts.slice(2).join(" ");
+            if (tearup == null) {
+                document.getElementById('tearup').value = formattedTimestamp;
+                tearup = formattedTimestamp;
+            }
+            document.getElementById('teardown').value = formattedTimestamp;
+            return message;
         }
-        return message;
+        return "";
     }
     function sse_stream() {
         // Replace 'your_fid' with the actual fid you want to listen to
-        const eventSource = new EventSource("/-/executions/sse/{{execution.fid}}");
+        const eventSource = new EventSource("/-/executions/sse/{{execution['fid']}}")
+        eventSource.onopen = function(event) {
+            console.log('SSE stream opened:', event);
+        };
         eventSource.addEventListener('status', function(event) {
             const message = report_runtime(event.data);
             console.log("have status", message)
@@ -102,15 +121,16 @@ Execution Status and Results
             outputTextarea.scrollTop = outputTextarea.scrollHeight; // Scroll to the bottom
         });
         eventSource.addEventListener('eof', function(event) {
+            console.log("eof event")
             const message = report_runtime(event.data);
             eventSource.close();
-            fetch(`/-/executions/final/{{execution.fid}}`)
+            fetch(`/-/executions/final/{{execution["fid"]}}`)
                 .then(response => response.text())
                 .then(data => {
-                    console.log("done")
                     const finalResultElement = document.getElementById('final_result');
                     finalResultElement.style.display = 'block';
                     document.getElementById('result').innerText = data;
+                    console.log("done")
                 })
                 .catch(error => {
                     console.error('Error fetching final execution result:', error);
@@ -122,8 +142,8 @@ Execution Status and Results
             // console.error('Event type:', event.type);
             // console.error('Event data:', event.data);
             eventSource.close();
-            console.error("restart SSE stream");
-            setTimeout(sse_stream, 5000); // Retry after 5 seconds
+            console.error("SSE stream ERROR");
+            //setTimeout(sse_stream, 5000); // Retry after 5 seconds
         };
     }
 

@@ -1,19 +1,16 @@
-import asyncio
-import datetime
 from pathlib import Path
-from typing import Union, AsyncGenerator
+from typing import AsyncGenerator
 
 import litestar
 from litestar import MediaType, Request, get
 from litestar.datastructures import State
-from litestar.response import Response, Stream, Template
 from litestar.exceptions import NotFoundException
+from litestar.response import Response, Stream, Template
 
 from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.log import logger
-from kodosumi.runner import (EVENT_STDERR, EVENT_STDOUT, STATUS_FINAL, 
-                             EVENT_RESULT, EVENT_FINAL)
+from kodosumi.runner import EVENT_FINAL, EVENT_RESULT
 from kodosumi.service.result import ExecutionResult
 
 
@@ -62,7 +59,8 @@ class ExecutionControl(litestar.Controller):
         result = ExecutionResult(file)
 
         timeout = state["settings"].WAIT_FOR_JOB
-        async for _, event, payload in result.follow(timeout, quick=True): pass
+        async for _, _, event, payload in result.follow(timeout, quick=True): 
+            pass
 
         execution = result.get_state()
         execution["alive"] = await result.is_alive()
@@ -116,7 +114,7 @@ class ExecutionControl(litestar.Controller):
         items = []
         final = None
 
-        async for _, event, payload in result.follow():
+        async for _, _, event, payload in result.follow():
             if event == EVENT_RESULT:
                 items.append(payload)
             elif event == EVENT_FINAL:
@@ -138,8 +136,8 @@ class ExecutionControl(litestar.Controller):
         result = ExecutionResult(file)
 
         async def _follow() -> AsyncGenerator[str, None]:
-            async for runtime, event, payload in result.follow():
-                yield f"{runtime} - {event}: {payload}\n"
+            async for timestamp, runtime, event, payload in result.follow():
+                yield f"{timestamp} {runtime} - {event}: {payload}\n"
             d = (helper.now() - t0).total_seconds()
             logger.info(f"GET /-/executions/follow/{fid} - closed in {d}")
 
@@ -158,12 +156,11 @@ class ExecutionControl(litestar.Controller):
         result = ExecutionResult(file)
 
         timeout = state["settings"].WAIT_FOR_JOB
-
         async def _follow() -> AsyncGenerator[str, None]:
-            async for runtime, event, payload in result.follow(timeout):
+            async for ts, runtime, event, payload in result.follow(timeout):
                 if event == "error":
                     event = "except"
-                yield f"event: {event}\ndata: {runtime} {payload}\n\n"
+                yield f"event: {event}\ndata: {ts} {runtime} {payload}\n\n"
             yield f"event: eof\ndata:\n\n"
             d = (helper.now() - t0).total_seconds()
             logger.info(f"GET /-/executions/sse/{fid} - closed in {d}")

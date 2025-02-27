@@ -2,13 +2,14 @@ from typing import Optional
 
 import litestar
 from httpx import AsyncClient
-from litestar import Request, get, route, MediaType
+from litestar import MediaType, Request, get, route
 from litestar.datastructures import State
-from litestar.response import Response, Template, Redirect
+from litestar.response import Redirect, Response, Template
 
 from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.log import logger
+
 
 TIMEOUT: int = 30
 FORWARD_USER = "KODO_USER"
@@ -69,6 +70,7 @@ class FlowControl(litestar.Controller):
                 elem = resp.json()["paths"].get("/")
                 data["openapi"] = f"{target}/{OPEN_API_ENTRY}"
                 data["docs"] = f"{target}/{DOCS_ENTRY}"
+
                 if "get" in elem:
                     data.update({k: elem["get"].get(k, None) for k in _fields})
                     data["entry_point"] = target
@@ -133,5 +135,6 @@ class FlowControl(litestar.Controller):
             if fid:
                 return Redirect(f"/-/executions/{fid}")
             return Response(
-                    content=response.content, status_code=response.status_code,
+                    content=response.content, 
+                    status_code=response.status_code,
                     headers=response_headers)

@@ -17,13 +17,6 @@ DB_USER = {
     "user1": "user1"
 }
 
-# ?format=json
-
-# accept
-
-# format defined: use it if correct
-# return negotiation
-
 format_map = {"html": MediaType.HTML, "json": MediaType.JSON}
 
 def wants(request: Request, format: MediaType = MediaType.HTML) -> bool:

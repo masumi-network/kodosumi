@@ -1,15 +1,35 @@
 import traceback
-from typing import Union
+from typing import Any
 
 from bson.objectid import ObjectId
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from kodosumi.runner import NAMESPACE, Runner
 from kodosumi.service.flow import FORWARD_USER
 
+
+def Launch(request, entry_point, inputs: Any=None) -> JSONResponse:
+        fid = str(ObjectId())
+        actor = Runner.options(  # type: ignore
+            namespace=NAMESPACE, 
+            name=fid, 
+            lifetime="detached").remote()
+        extra = {}
+        for route in request.app.routes:
+            if route.path == "/" and "GET" in route.methods:
+                extra = {
+                    "name": route.name,
+                    "summary": route.summary,
+                    "description": route.description,
+                    "tags": route.tags,
+                    "deprecated": route.deprecated
+                }
+        actor.run.remote(
+            request.state.user, fid, entry_point, inputs, extra)
+        return JSONResponse(content={"fid": fid}, 
+                                     headers={"kodosumi_launch": fid})
 
 class ServeAPI(FastAPI):
 
@@ -21,33 +41,10 @@ class ServeAPI(FastAPI):
 
         @self.middleware("http")
         async def add_custom_method(request: Request, call_next):
-            async def execute_flow(entry_point, inputs: Union[BaseModel, dict]):
-                #helper.debug()
-                fid = str(ObjectId())
-                actor = Runner.options(  # type: ignore
-                    namespace=NAMESPACE, 
-                    name=fid, 
-                    lifetime="detached").remote()
-                # collect openapi specs
-                extra = {}
-                for route in request.app.routes:
-                    # filter: entry points
-                    if route.path == "/" and "GET" in route.methods:
-                        extra = {
-                            "name": route.name,
-                            "summary": route.summary,
-                            "description": route.description,
-                            "tags": route.tags,
-                            "deprecated": route.deprecated
-                        }
-                actor.run.remote(
-                    request.state.user, fid, entry_point, inputs, extra)
-                return fid
             user = request.headers[FORWARD_USER]
             prefix_route = request.base_url.path.rstrip("/")
             request.state.user = user
             request.state.prefix_route = prefix_route           
-            request.state.execute_flow = execute_flow 
             response = await call_next(request)
             return response
 
