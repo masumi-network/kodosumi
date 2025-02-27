@@ -130,9 +130,9 @@ Login with test user `admin` (password `admin`).
 
 If all went well, then you see three agentic test services:
 
-1. Test App (a simple runner for testing purposes)
-2. Hymn Creator
-3. Job Posting Creator
+1. [Test App](./tests/app/main.py) (a simple runner for testing purposes)
+2. [Hymn Creator](./tests/app/hymn.py)
+3. [Job Posting Creator](./tests/app2/app.py)
 
 Stop the kodosumi services and spooler by hitting `CNTRL+C` in the corresponding terminal. Stop the ray daemon with command `ray stop`.
 
@@ -181,7 +181,7 @@ class HymnTest:
 fast_app = HymnTest.bind()
 ```
 
-Component `kodosumi.serve.ServeAPI` inherits from `fastapi.FastAPI` and represents the deployment (`@deployment`) and entry point (`@ingress`) for ray serve. The deployment implements one endpoint `/` with methods `GET` and `POST`. For user interaction the `GET` method delivers a form (see template `hymn.html`). The `POST` method consumes the form data and launches _CrewAI_ object `crew` in module `app.crew` in folder `tests`. Please note that the `config.yaml` file includes the `./tests` directory as a `PYTHONPATH`.
+Component [`kodosumi.serve.ServeAPI`](./kodosumi/serve.py#ServeAPI) inherits from `fastapi.FastAPI` and represents the deployment (`@deployment`) and entry point (`@ingress`) for ray serve. The deployment implements one endpoint `/` with methods `GET` and `POST`. For user interaction the `GET` method delivers a form (see template [`hymn.html`](./tests/app/templates/hymn.html)). The `POST` method consumes the form data and launches _CrewAI_ object `crew` in module [`app.crew`](./tests/app/crew.py) in folder [`tests`](./tests/). Please note that the `config.yaml` file includes the [`./tests`](./tests/) directory as a `PYTHONPATH`.
 
 # further reads
 
