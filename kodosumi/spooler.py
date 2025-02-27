@@ -1,4 +1,3 @@
-import base64
 import asyncio
 import os
 import sys
@@ -9,10 +8,10 @@ import ray
 from ray.util.state import list_actors
 
 import kodosumi.config
-import kodosumi.runner
 from kodosumi import helper
 from kodosumi.log import logger, spooler_logger
-from kodosumi.runner import NAMESPACE
+from kodosumi.runner import (NAMESPACE, STATUS_FINAL, EVENT_STATUS, 
+                             STATUS_RUNNING)
 import string
 
 
@@ -20,6 +19,7 @@ SLEEP_LONG = 0.25
 SLEEP_SHORT = 0.01
 FINISH_TIMEOUT = 20
 EVENT_LOG_FILE = "event.log"
+PICKLE_FILE = "cache.pickle"
 STDERR_FILE = "stderr.log"
 STDOUT_FILE = "stdout.log"
 
@@ -31,28 +31,17 @@ class Spooler:
         return True
 
 def finished(name, timestamp, key, data):
-    return (key == kodosumi.runner.EVENT_STATUS 
-            and data == f"*{kodosumi.runner.STATUS_END}")
+    return key == EVENT_STATUS and data[1:] in STATUS_FINAL
 
 
 def running(name, timestamp, key, data):
-    return (key == kodosumi.runner.EVENT_STATUS 
-            and data == f"*{kodosumi.runner.STATUS_RUNNING}")
+    return key == EVENT_STATUS and data[1:] == STATUS_RUNNING
 
 
 async def save(exec_dir, user, name, timestamp, key, data):
     folder = exec_dir.joinpath(user, name)
     folder.mkdir(parents=True, exist_ok=True)
     parent = folder.joinpath
-    # if key in (kodosumi.runner.EVENT_STDERR, kodosumi.runner.EVENT_STDOUT):
-    #     filename = parent(STDERR_FILE if key == "stderr" else STDOUT_FILE)
-    #     if key == kodosumi.runner.EVENT_STDERR:
-    #         log = logger.warning
-    #     else:
-    #         log = logger.debug
-    #     dump = data[1:].rstrip()
-    #     log(f"{user}/{name[-6:]} <{key}> {dump}")
-    # else:
     filename = parent(EVENT_LOG_FILE)
     dump = f"{timestamp} {helper.now().isoformat()} {key} {data}"
     logger.debug(f"{user}/{name[-6:]} {key} {data}")
@@ -70,6 +59,7 @@ async def loop(settings: kodosumi.config.Settings):
     logger.info(f"Process ID {os.getpid()}")
     lock = Spooler.options(name="Spooler").remote()  # type: ignore
     assert await lock.ready.remote()
+    last = -1
     while True:
         try:
             wait = True
@@ -117,9 +107,15 @@ async def loop(settings: kodosumi.config.Settings):
             else:
                 await asyncio.sleep(SLEEP_SHORT)
                 end = " ...   "
-            print(progress[i], "active actors:", len(states), 
-                    end=end + "\r", flush=True)
-            i = 0 if i >= len(progress) - 1 else i + 1
+            size = len(states)
+            if sys.stdout.isatty():
+                print(progress[i], "active actors:", size, 
+                      end=end + "\r", flush=True)
+                i = 0 if i >= len(progress) - 1 else i + 1
+            else:
+                if size != last:
+                    logger.info(f"active actors: {size}")
+                last = size
         except KeyboardInterrupt:
             raise
         except Exception as exc:

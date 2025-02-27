@@ -115,13 +115,13 @@ class Runner:
         #helper.debug()
         t0 = helper.now()
         await self.set_user(user)
+        final_state = None
         try:
             if not isinstance(entry_point, str):
                 rep_ep = f"{entry_point.__module__}:{entry_point.__name__}"
             else:
                 rep_ep = entry_point
             await self.set_entry_point(rep_ep)
-            await self.async_enqueue(EVENT_STATUS, STATUS_STARTING)
             await self.async_enqueue(EVENT_DATA, {
                 "entry_point": rep_ep,
                 "user": user,
@@ -129,17 +129,20 @@ class Runner:
                 "pid": os.getpid(),
                 "extra": extra
             })
+            await self.async_enqueue(EVENT_STATUS, STATUS_STARTING)
             await self.start(entry_point, inputs)
         except Exception as exc:
             await self.async_enqueue(EVENT_ERROR, {
                 "exception": exc.__class__.__name__, 
                 "traceback": format_exc()})
-            await self.async_enqueue(EVENT_STATUS, STATUS_ERROR)
+            final_state = STATUS_ERROR
+        else:
+            final_state = STATUS_END
         finally:
             runtime = helper.now() - t0
             await self.async_enqueue(
                 EVENT_DATA, {"runtime": runtime.total_seconds()})
-            await self.async_enqueue(EVENT_STATUS, STATUS_END)
+        await self.async_enqueue(EVENT_STATUS, final_state)
 
     async def get_user(self):
         return self._user
