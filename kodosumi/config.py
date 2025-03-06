@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "top secret -- change this in production"
 
     WAIT_FOR_JOB: int = 30
+    SPOOLER_INTERVAL: float = 0.25
+    SPOOLER_BATCH_SIZE: int = 10
+    SPOOLER_BATCH_TIMEOUT: float = 0.1
     
     model_config = SettingsConfigDict(
         env_file=".env",

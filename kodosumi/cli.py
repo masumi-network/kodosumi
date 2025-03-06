@@ -11,7 +11,6 @@ def cli():
 
 
 @cli.command("spool")
-
 @click.option("--ray-server", default=None, 
               help="Ray server URL")
 @click.option('--log-file', default=None, 
@@ -24,8 +23,19 @@ def cli():
               type=click.Choice(LOG_LEVELS, case_sensitive=False))
 @click.option('--exec-dir', default=None, 
               help='Execution directory.')
-
-def spooler(ray_server, log_file, log_file_level, level, exec_dir):
+@click.option('--interval', default=None, 
+              help='Spooler polling interval.',
+              type=click.FloatRange(min=0, min_open=True))
+@click.option('--batch-size', default=None, 
+              help='Batch size for spooling.',
+              type=click.IntRange(min=1))
+@click.option('--timeout', default=None, 
+              help='Batch retrieval timeout.',
+              type=click.FloatRange(min=0, min_open=True))
+@click.option('--force', is_flag=True, default=False, 
+              help='Force spooler to start.')
+def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
+            batch_size, timeout, force):
     """Start the kodosumi spooler."""
     kw = {}
     if ray_server: kw["RAY_SERVER"] = ray_server
@@ -33,12 +43,14 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir):
     if log_file_level: kw["SPOOLER_LOG_FILE_LEVEL"] = log_file_level
     if level: kw["SPOOLER_STD_LEVEL"] = level
     if exec_dir: kw["EXEC_DIR"] = exec_dir
+    if interval: kw["SPOOLER_INTERVAL"] = interval
+    if batch_size: kw["SPOOLER_BATCH_SIZE"] = batch_size
+    if timeout: kw["SPOOLER_BATCH_TIMEOUT"] = timeout
     settings = Settings(**kw)
-    kodosumi.spooler.main(settings)
+    kodosumi.spooler.main(settings, force=force)
 
 
 @cli.command("serve")
-
 @click.option("--address", default=None, 
               help="App server URL")
 @click.option("--ray-http", default=None, 

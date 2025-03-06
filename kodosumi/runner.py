@@ -1,51 +1,129 @@
 import asyncio
 import inspect
-import os
+import queue
 import sys
+import threading
+import time
 from traceback import format_exc
-from typing import Any, Optional
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import ray
-from pydantic import BaseModel
-from ray.util.queue import Queue
+from bson.objectid import ObjectId
+from pydantic import BaseModel, RootModel
 
-from kodosumi import helper
-from kodosumi.dtypes import DynamicModel
-
-
-NAMESPACE = "kodosumi"
-SLEEP = 0.01
+EVENT_META    = "meta"
+EVENT_DEBUG   = "debug"
+EVENT_STATUS  = "status"
+EVENT_ERROR   = "error"
+EVENT_DATA    = "data"
+EVENT_RESULT  = "result"
+EVENT_INPUTS  = "inputs"
+EVENT_FINAL   = "final"
+EVENT_STDOUT  = "stdout"
+EVENT_STDERR  = "stderr"
 
 STATUS_STARTING = "starting"
-STATUS_RUNNING = "running"
-STATUS_END = "finished"
-STATUS_ERROR = "error"
-STATUS_FINAL = (STATUS_END, STATUS_ERROR)
+STATUS_RUNNING  = "running"
+STATUS_END      = "finished"
+STATUS_ERROR    = "error"
 
-EVENT_STDOUT = "stdout"
-EVENT_STDERR = "stderr"
-EVENT_DEBUG = "debug"
-EVENT_INPUTS = "inputs"
-EVENT_STATUS = "status"
-EVENT_DATA = "data"
-EVENT_META = "meta"
-EVENT_ACTION = "action"
-EVENT_RESULT = "result"
-EVENT_FINAL = "final"
-EVENT_ERROR = "error"
+NAMESPACE = "kodosumi"
+
+
+def now():
+    return time.time()
+
+
+class LoggingPipeline:
+    def __init__(self, target, loop, size=10, timeout=0.1):
+        self.target = target
+        self.loop = loop
+        self.size = size
+        self.timeout = timeout
+        self.queue = queue.Queue()
+        self.shutdown = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.shutdown.set()
+        self.thread.join()
+
+    def log(self, message: dict):
+        self.queue.put(message)
+
+    def run(self):
+        batch = []
+        last_flush = time.time()
+
+        def push(batch):
+            future = asyncio.run_coroutine_threadsafe(
+                self.target(batch), self.loop)
+            try:
+                future.result(timeout=1)
+            except Exception as e:
+                print(f"LoggingPipeline push error: {e}")
+
+        while not self.shutdown.is_set():
+            try:
+                msg = self.queue.get(timeout=self.timeout)
+                batch.append(msg)
+            except queue.Empty:
+                pass
+            if (batch and (len(batch) >= self.size
+                           or (time.time() - last_flush) >= self.timeout)):
+                push(batch)
+                batch = []
+                last_flush = time.time()
+        if batch:
+            push(batch)
+
+
+def _get_event_loop():
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop
+
+
+class DynamicModel(RootModel[Dict[str, Any]]):
+    pass
+
+
+def _serialize(data):
+    if isinstance(data, BaseModel):
+        dump = {data.__class__.__name__: data.model_dump()}
+    elif isinstance(data, (dict, str, int, float, bool)):
+        dump = {data.__class__.__name__: data}
+    elif hasattr(data, "__dict__"):
+        dump = {data.__class__.__name__: data.__dict__}
+    elif hasattr(data, "__slots__"):
+        dump = {data.__class__.__name__: {
+            k: getattr(data, k) for k in data.__slots__}}
+    else:
+        dump = {"TypeError": str(data)}
+    return DynamicModel(dump).model_dump_json()
 
 
 class StdOutHandler:
-
     prefix = EVENT_STDOUT
 
     def __init__(self, runner):
-        self.runner = runner
+        self._runner = runner
+        self._loop = _get_event_loop()
 
     def write(self, message):
         if message.rstrip():
-            self.runner.enqueue(
-                self.prefix, "\\n".join(message.rstrip().splitlines()))
+            log_entry = {
+                "timestamp": now(),
+                "kind": self.prefix,
+                "payload": message.rstrip()
+            }
+            self._runner.sync_enqueue(log_entry)
 
     def flush(self):
         pass
@@ -64,191 +142,177 @@ class RunHandler:
         self.runner = runner
 
     async def debug(self, message):
-        await self.runner.async_enqueue(EVENT_DEBUG, message)
+        await self.runner.enqueue({
+            "timestamp": now(),
+            "kind": EVENT_DEBUG,
+            "payload": f"{message}"
+        })
 
     async def result(self, message):
-        await self.runner.async_enqueue(EVENT_RESULT, message)
-
-    async def final(self, message):
-        await self.runner.async_enqueue(EVENT_FINAL, message)
+        await self.runner.enqueue({
+            "timestamp": now(),
+            "kind": EVENT_RESULT,
+            "payload": _serialize(message)
+        })
 
 
 @ray.remote
 class Runner:
-
-    def __init__(self):
-        self._entry_point = None
-        self._user = None
-        self._queue = Queue()
-        self._loop = asyncio.get_event_loop()
+    def __init__(self, fid, username, entry_point, inputs, extra=None):
+        self.fid = fid
+        self.username = username
+        self.entry_point = entry_point
+        self.inputs = inputs
+        self.extra = extra
+        self.queue = asyncio.Queue()
+        self.active = True
+        self.loop = _get_event_loop()
+        self.logging_pipeline = LoggingPipeline(self.enqueue_batch, self.loop)
+        self.logging_pipeline.start()
         self._original_stdout = sys.stdout
         self._original_stderr = sys.stderr
         sys.stdout = StdOutHandler(self)
         sys.stderr = StdErrHandler(self)
 
-    async def empty(self):
-        return self._queue.empty()
+    def is_active(self):
+        return self.active
+    
+    async def enqueue_batch(self, batch):
+        for msg in batch:
+            await self.queue.put(msg)
 
-    async def stop(self):
-        sys.stdout = self._original_stdout
-        sys.stderr = self._original_stderr
-        while not self._queue.empty():
-            await asyncio.sleep(SLEEP)
-        self._queue.shutdown()
+    async def enqueue(self, payload: dict):
+        await self.queue.put(payload)
 
-    def action(self, *args, **kwargs):
-        self.enqueue(EVENT_ACTION, args[0])
+    def sync_enqueue(self, payload: dict):
+        self.logging_pipeline.log(payload)
 
-    def result(self, *args, **kwargs):
-        self.enqueue(EVENT_RESULT, args[0])
-
-    def final(self, *args, **kwargs):
-        self.enqueue(EVENT_FINAL, args[0])
-
-    async def run(
-            self, 
-            user: str, 
-            fid: str, 
-            entry_point: str, 
-            inputs: BaseModel,
-            extra: Optional[dict] = None):
-        #helper.debug()
-        t0 = helper.now()
-        await self.set_user(user)
-        final_state = None
+    async def get_batch(self, size: int = 10, timeout: float = 0.1):
+        payload = []
         try:
-            if not isinstance(entry_point, str):
-                rep_ep = f"{entry_point.__module__}:{entry_point.__name__}"
+            load = await asyncio.wait_for(self.queue.get(), timeout=timeout)
+            payload.append(load)
+        except asyncio.TimeoutError:
+            return payload
+        for _ in range(size - 1):
+            try:
+                load = self.queue.get_nowait()
+                payload.append(load)
+            except asyncio.QueueEmpty:
+                break
+        return payload
+
+    async def final(self, payload):
+        await self.enqueue({
+            "timestamp": now(),
+            "kind": EVENT_FINAL,
+            "payload": _serialize(payload)
+        })
+
+    async def run(self):
+        # helper.debug()
+        open("debug.log", "w").write(f"actor {self.fid} started\n")
+        final_kind = STATUS_END
+        try:
+            if not isinstance(self.entry_point, str):
+                ep = self.entry_point
+                rep_entry_point = f"{ep.__module__}:{ep.__name__}"
             else:
-                rep_ep = entry_point
-            await self.set_entry_point(rep_ep)
-            await self.async_enqueue(EVENT_DATA, {
-                "entry_point": rep_ep,
-                "user": user,
-                "fid": fid,
-                "pid": os.getpid(),
-                "extra": extra
+                rep_entry_point = self.entry_point
+            # Log metadata and starting status.
+            await self.enqueue({
+                "timestamp": now(),
+                "kind": EVENT_META,
+                "payload": _serialize({
+                    "fid": self.fid,
+                    "username": self.username,
+                    "entry_point": rep_entry_point,
+                    "extra": self.extra
+                })
             })
-            await self.async_enqueue(EVENT_STATUS, STATUS_STARTING)
-            await self.start(entry_point, inputs)
+            await self.enqueue({
+                "timestamp": now(),
+                "kind": EVENT_STATUS,
+                "payload": STATUS_STARTING
+            })
+            await self.start()
         except Exception as exc:
-            await self.async_enqueue(EVENT_ERROR, {
-                "exception": exc.__class__.__name__, 
-                "traceback": format_exc()})
-            final_state = STATUS_ERROR
-        else:
-            final_state = STATUS_END
+            final_kind = STATUS_ERROR
+            await self.enqueue({
+                "timestamp": now(),
+                "kind": EVENT_ERROR,
+                "payload": format_exc()
+            })
         finally:
-            runtime = helper.now() - t0
-            await self.async_enqueue(
-                EVENT_DATA, {"runtime": runtime.total_seconds()})
-        await self.async_enqueue(EVENT_STATUS, final_state)
+            await self.enqueue({
+                "timestamp": now(),
+                "kind": EVENT_STATUS,
+                "payload": final_kind
+            })
+            open("debug.log", "a").write(f"actor {self.fid} waits\n")
+            while not self.queue.empty():
+                await asyncio.sleep(0.1)
+            self.active = False
+        open("debug.log", "a").write(f"actor {self.fid} stopped\n")
 
-    async def get_user(self):
-        return self._user
-
-    async def set_user(self, user):
-        self._user = user
-
-    async def get_entry_point(self):
-        return self._entry_point
-
-    async def set_entry_point(self, entry_point):
-        self._entry_point = entry_point
-
-    async def start(self, entry_point: Any, inputs: BaseModel):
-        await self.async_enqueue(EVENT_INPUTS, inputs)
-        await self.async_enqueue(EVENT_STATUS, STATUS_RUNNING)
-        if isinstance(entry_point, str):
-            flow = helper.parse_factory(entry_point)
+    async def start(self):
+        await self.enqueue({
+            "timestamp": now(),
+            "kind": EVENT_INPUTS,
+            "payload": _serialize(self.inputs)
+        })
+        await self.enqueue({
+            "timestamp": now(),
+            "kind": EVENT_STATUS,
+            "payload": STATUS_RUNNING
+        })
+        if isinstance(self.entry_point, str):
+            module_name, func_name = self.entry_point.split(":")
+            module = __import__(module_name)
+            func = getattr(module, func_name)
         else:
-            flow = entry_point
-        if hasattr(flow, "is_crew_class"):
-            flow = flow().crew()
-        if hasattr(flow, "kickoff_async"):
-            flow.step_callback = self.action  # type: ignore
-            flow.task_callback = self.result  # type: ignore
-            if isinstance(inputs, BaseModel):
-                data = inputs.model_dump()
-            else:
-                data = inputs
-            await self.summary(flow)
-            result = await flow.kickoff_async(inputs=data)
+            func = self.entry_point
+
+        run_handler = RunHandler(self)
+        sig = inspect.signature(func)
+        bound_args = sig.bind_partial()
+        if 'inputs' in sig.parameters:
+            bound_args.arguments['inputs'] = self.inputs
+        if 'handler' in sig.parameters:
+            bound_args.arguments['handler'] = run_handler
+        bound_args.apply_defaults()
+        if asyncio.iscoroutinefunction(func):
+            result = await func(*bound_args.args, **bound_args.kwargs)
         else:
-            run_handler = RunHandler(self)
-            sig = inspect.signature(flow)
-            bound_args = sig.bind_partial()
-            if 'inputs' in sig.parameters:
-                bound_args.arguments['inputs'] = inputs
-            if 'handler' in sig.parameters:
-                bound_args.arguments['handler'] = run_handler
-            bound_args.apply_defaults()
-            result = await flow(*bound_args.args, **bound_args.kwargs)
-        self.final(result)
+            result = await self.loop.run_in_executor(
+                None, func, *bound_args.args, **bound_args.kwargs)
+
+        await self.final(result)
         return result
 
-    async def summary(self, flow):
-        for agent in flow.agents:
-            dump = {
-                "role": agent.role,
-                "goal": agent.goal,
-                "backstory": agent.backstory,
-                "tools": []
-            }
-            for tool in agent.tools:
-                dump["tools"].append({
-                    "name": tool.name,
-                    "description": tool.description
-                })
-            await self.async_enqueue(EVENT_META, {"agent": dump})
-        for task in flow.tasks:
-            dump = {
-                "name": task.name,
-                "description": task.description,
-                "expected_output": task.expected_output,
-                "agent": task.agent.role,
-                "tools": []
-            }
-            for tool in agent.tools:
-                dump["tools"].append({
-                    "name": tool.name,
-                    "description": tool.description
-                })
-            await self.async_enqueue(EVENT_META, {"task": dump})
+    async def shutdown(self):
+        self.logging_pipeline.stop()
+        sys.stdout = self._original_stdout
+        sys.stderr = self._original_stderr
+        return "Runner shutdown complete."
 
-    def enqueue(self, key, data):
-        self._loop.create_task(self.async_enqueue(key, data))
 
-    def dequeue(self):
-        return self._loop.create_task(self.async_dequeue())
-
-    async def async_enqueue(self, key, data):
-        await asyncio.sleep(SLEEP)
-        await self._queue.put_async(
-            (helper.now().isoformat(), key, self.serialize(data)))
-
-    def serialize(self, data):
-        # helper.debug()
-        if isinstance(data, (str, int, float, bool)):
-            return f"*{data}"
-        if isinstance(data, BaseModel):
-            dump = {data.__class__.__name__: data.model_dump()}
-        elif isinstance(data, dict):
-            dump = data
-        elif hasattr(data, "__dict__"):
-            dump = {data.__class__.__name__: data.__dict__}
-        elif hasattr(data, "__slots__"):
-            dump = {data.__class__.__name__: {
-                k: getattr(data, k) for k in data.__slots__}}
-        else:
-            dump = {"TypeError": str(data)}
-        return DynamicModel(dump).model_dump_json()        
-
-    async def async_dequeue(self):
-        ret = None
-        try:
-            if self._queue and not self._queue.empty():
-                ret = await self._queue.get_async(block=False)
-        except: pass
-        await asyncio.sleep(SLEEP)
-        return ret
+def create_runner(username: str, 
+                  entry_point: Union[str, Callable],
+                  inputs: Union[BaseModel, dict], 
+                  extra: Optional[dict] = None,
+                  fid: Optional[str]= None) -> Tuple[str, Runner]:
+    if fid is None:
+        fid = str(ObjectId())
+    actor = Runner.options(  # type: ignore
+        namespace=NAMESPACE, 
+        name=fid, 
+        enable_task_events=False,
+        lifetime="detached").remote(
+            fid=fid, 
+            username=username, 
+            entry_point=entry_point, 
+            inputs=inputs, 
+            extra=extra
+    )
+    return fid, actor

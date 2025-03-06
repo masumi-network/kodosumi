@@ -1,142 +1,184 @@
 import asyncio
-import os
-import sys
+import sqlite3
 from pathlib import Path
-
-import aiofiles
+from typing import Dict, List, Union
+import sys
 import ray
+from ray.actor import ActorHandle
 from ray.util.state import list_actors
+from ray.util.state.common import ActorState
 
 import kodosumi.config
-from kodosumi import helper
 from kodosumi.log import logger, spooler_logger
-from kodosumi.runner import (NAMESPACE, STATUS_FINAL, EVENT_STATUS, 
-                             STATUS_RUNNING)
-import string
+from kodosumi.runner import NAMESPACE
+from kodosumi import helper
 
 
-SLEEP_LONG = 0.25
-SLEEP_SHORT = 0.01
-FINISH_TIMEOUT = 20
-EVENT_LOG_FILE = "event.log"
-PICKLE_FILE = "cache.pickle"
-STDERR_FILE = "stderr.log"
-STDOUT_FILE = "stdout.log"
+DB_FILE = "sqlite3.db"
 
 
 @ray.remote
-class Spooler:
+class SpoolerLock:
 
     async def ready(self):
         return True
 
-def finished(name, timestamp, key, data):
-    return key == EVENT_STATUS and data[1:] in STATUS_FINAL
 
+class Spooler:
+    def __init__(self, 
+                 exec_dir: Union[str, Path],
+                 interval: float=5.,
+                 batch_size: int=10,
+                 batch_timeout: float=0.1,
+                 force: bool = False):
+        self.exec_dir = Path(exec_dir)
+        self.exec_dir.mkdir(parents=True, exist_ok=True)
+        self.interval = interval  
+        self.batch_size = batch_size
+        self.batch_timeout = batch_timeout
+        self.force = force
+        self.shutdown_event = asyncio.Event()
+        self.monitor: dict = {}  
+        self.lock = None
 
-def running(name, timestamp, key, data):
-    return key == EVENT_STATUS and data[1:] == STATUS_RUNNING
-
-
-async def save(exec_dir, user, name, timestamp, key, data):
-    folder = exec_dir.joinpath(user, name)
-    folder.mkdir(parents=True, exist_ok=True)
-    parent = folder.joinpath
-    filename = parent(EVENT_LOG_FILE)
-    dump = f"{timestamp} {helper.now().isoformat()} {key} {data}"
-    logger.debug(f"{user}/{name[-6:]} {key} {data}")
-    fh = await aiofiles.open(filename, "a")
-    await fh.write(f"{dump}\n")
-    await fh.close()
-
-
-async def loop(settings: kodosumi.config.Settings):
-
-    i = 0
-    progress = """|/-\\|/-\\"""
-    exec_dir = Path(settings.EXEC_DIR)
-    actor_memo = {}
-    logger.info(f"Process ID {os.getpid()}")
-    lock = Spooler.options(name="Spooler").remote()  # type: ignore
-    assert await lock.ready.remote()
-    last = -1
-    while True:
-        try:
-            wait = True
-            states = list_actors(filters=[
-                ("class_name", "=", "Runner"), ("state", "=", "ALIVE")])
-            for state in states:
-                actor = ray.get_actor(state.name, namespace=NAMESPACE)
-                if state.name not in actor_memo:
-                    user = ray.get(actor.get_user.remote())
-                    if user is None:
-                        continue
-                    actor_memo[state.name] = user
-                user = actor_memo[state.name]
-                ready, _ = ray.wait([actor.async_dequeue.remote()])
-                if ready:
-                    ret = await asyncio.gather(*ready)
-                    for r in ret:
-                        if not r:
-                            continue
-                        try: await save(exec_dir, user, state.name, *r)
-                        except TypeError as exc:
-                            logger.critical(
-                                f"{user}/{state.name[-6:]}: {exc}", exc_info=exc)
-                        if running(state.name, *r):
-                            entry_point = await actor.get_entry_point.remote()
-                            logger.info(
-                                f"{user}/{state.name[-6:]} started at {entry_point}")
-                        if finished(state.name, *r):
-                            entry_point = await actor.get_entry_point.remote()
-                            ready, _ = ray.wait(
-                                [actor.stop.remote()], timeout=FINISH_TIMEOUT)
-                            if not ready:
-                                logger.error(
-                                    f"{user}/{state.name[-6:]} {entry_point} finish failed")
-                            else:
-                                await asyncio.gather(*ready)
-                                logger.info(
-                                    f"{user}/{state.name[-6:]} {entry_point} finished")
-                            del actor_memo[state.name]
-                            ray.kill(actor)
-                        wait = False
-            if wait:
-                await asyncio.sleep(SLEEP_LONG)
-                end = "       "
-            else:
-                await asyncio.sleep(SLEEP_SHORT)
-                end = " ...   "
-            size = len(states)
-            if sys.stdout.isatty():
-                print(progress[i], "active actors:", size, 
-                      end=end + "\r", flush=True)
-                i = 0 if i >= len(progress) - 1 else i + 1
-            else:
-                if size != last:
-                    logger.info(f"active actors: {size}")
-                last = size
-        except KeyboardInterrupt:
-            raise
-        except Exception as exc:
-            logger.critical(f"failed while spooling", exc_info=exc)
+    def setup_database(self, fid: str):
+        dir_path = self.exec_dir.joinpath(fid)
+        dir_path.mkdir(parents=True, exist_ok=True)
+        db_path = dir_path.joinpath(DB_FILE)
+        conn = sqlite3.connect(
+            str(db_path), isolation_level=None, autocommit=True)
+        conn.execute('pragma journal_mode=wal;')
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS monitor (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                kind TEXT NOT NULL,
+                message TEXT NOT NULL
+            )
+        """)
+        return conn
     
-def main(settings: kodosumi.config.Settings):
+    def save(self, conn: sqlite3.Connection, fid: str, payload: List[Dict]):
+        if not payload:
+            return
+        try:
+            cursor = conn.cursor()
+            values = [
+                (val.get("timestamp"), val.get("kind"), val.get("payload")) 
+                for val in payload
+            ]
+            cursor.executemany(
+                """
+                INSERT INTO monitor 
+                (timestamp, kind, message) 
+                VALUES (?, ?, ?)
+                """,
+                values
+            )
+        except Exception:
+            logger.critical(f"Failed to save {fid}", exc_info=True)
 
-    helper.ray_init(settings)
+    async def retrieve(self, runner: ActorHandle, state: ActorState):
+        if state.name is None:
+            logger.critical(f"Actor {state.actor_id} has no name.")
+        fid: str = str(state.name)
+        conn = self.setup_database(fid)
+        n = 0
+        try:
+            while not (self.shutdown_event.is_set() 
+                       or not ray.get(runner.is_active.remote())):
+                batch = ray.get(
+                    runner.get_batch.remote(
+                        self.batch_size, self.batch_timeout))
+                if batch:
+                    self.save(conn, fid, batch)
+                    n += len(batch)
+                await asyncio.sleep(0)
+            ray.get(runner.shutdown.remote())
+            ray.kill(runner)
+            logger.info(f"Finished {fid} with {n} records")
+        except Exception as e:
+            logger.critical(f"Failed to retrieve from {fid}", exc_info=True)
+        finally:
+            conn.close()
+
+    async def start(self):
+        try:
+            ray.get_actor("Spooler", namespace=NAMESPACE)
+            if self.force:
+                logger.warning(f"Spooler already exists. force restart.")
+                state = ray.get_actor("Spooler", namespace=NAMESPACE)
+                ray.kill(state)
+            else:
+                logger.warning(f"Spooler already exists. Exiting.")
+                return
+        except Exception:
+            pass
+        self.lock = SpoolerLock.options(
+            name="Spooler", 
+            lifetime="detached", 
+            enable_task_events=False,
+            namespace=NAMESPACE).remote()
+        assert await self.lock.ready.remote()
+        logger.info(f"Spooler started")
+        total = 0
+        progress = """|/-\\|/-\\"""
+        # progress = '⡿⣟⣯⣷⣾⣽⣻⢿'
+        # progress = '⠟⠯⠷⠾⠽⠻'
+        # progress = '▙▛▜▟'
+        # progress = '▖▘▝▗'
+        # progress = ' ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁'
+        p = 0
+        while not self.shutdown_event.is_set():
+            try:
+                states = list_actors(filters=[
+                    ("class_name", "=", "Runner"), 
+                    ("state", "=", "ALIVE")])
+            except Exception as e:
+                logger.critical(f"Failed listing names actors", exc_info=True)
+                states = []
+            for state in states:
+                if state.name not in self.monitor:
+                    try:
+                        runner = ray.get_actor(state.name, namespace=NAMESPACE)
+                        task = asyncio.create_task(self.retrieve(runner, state))
+                        self.monitor[state.name] = task
+                        logger.info(f"Streaming {state.name}")
+                        total += 1
+                    except Exception as e:
+                        logger.critial(
+                            f"Failed to stream {state.name}", exc_info=True)
+            dead = [name for name, task in self.monitor.items() if task.done()]
+            for state in dead:
+                del self.monitor[state]
+            if sys.stdout.isatty():
+                print(f"{progress[p]} Actors active ({len(self.monitor)}) - "
+                      f"total: ({total})", " "*20, end="\r", flush=True)
+                p = 0 if p >= len(progress) - 1 else p + 1
+            await asyncio.sleep(self.interval)
+        logger.info(f"Spooler shutdown complete")
+
+    async def shutdown(self):
+        logger.info(f"Spooler shutdown, please wait.")
+        self.shutdown_event.set()
+        ray.kill(self.lock)
+        await asyncio.gather(*self.monitor.values())
+
+
+def main(settings: kodosumi.config.Settings, force: bool=False):
     spooler_logger(settings)
-    logger.info(f"Ray server at {settings.RAY_SERVER}")
-    states = list_actors(filters=[("class_name", "=", "Spooler"),
-                                  ("state", "=", "ALIVE")])
-    if states:
-        logger.warning("Spooler is already running.")
-        sys.exit(1)
+    helper.ray_init(settings)
+    spooler = Spooler(
+        exec_dir=settings.EXEC_DIR, 
+        interval=settings.SPOOLER_INTERVAL, 
+        batch_size=settings.SPOOLER_BATCH_SIZE, 
+        batch_timeout=settings.SPOOLER_BATCH_TIMEOUT, 
+        force=force)
     try:
-        asyncio.run(loop(settings))
+        asyncio.run(spooler.start())
     except KeyboardInterrupt:
-        logger.warning("Keyboard interrupt")
-    finally:
-        ray.shutdown()
+        asyncio.run(spooler.shutdown())
 
 
 if __name__ == "__main__":
