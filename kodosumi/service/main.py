@@ -62,7 +62,7 @@ class MainControl(litestar.Controller):
                 return Template("login.html", 
                                 context={"failure": bool(form.get("check"))})
             raise NotAuthorizedException("invalid credentials")
-        token = encode_jwt_token(user_id=username)
+        token = encode_jwt_token(role_id=username)
         logger.info(
             f"{request.method} /-/login {username} in {helper.now() - t0}")
         if helper.wants(request, MediaType.HTML):

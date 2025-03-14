@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from jose import JWTError, jwt
 from litestar.connection import ASGIConnection
 from litestar.exceptions import NotAuthorizedException
@@ -8,12 +6,12 @@ from litestar.middleware import (AbstractAuthenticationMiddleware,
 
 from kodosumi import helper
 from kodosumi.config import InternalSettings
-from kodosumi.dtypes import Token, User
+from kodosumi.dtypes import Token
 
 
 TOKEN_KEY = "kodosumi_jwt"
 HEADER_KEY = "KODOSUMI_API_KEY"
-DEFAULT_TIME_DELTA = timedelta(days=1)
+DEFAULT_TIME_DELTA = 86400  # 1 day in seconds
 ALGORITHM = "HS256"
 JWT_SECRET = InternalSettings().SECRET_KEY
 
@@ -27,11 +25,11 @@ def decode_jwt_token(encoded_token: str) -> Token:
         raise NotAuthorizedException("Invalid token") from e
 
 
-def encode_jwt_token(user_id: str) -> str:
+def encode_jwt_token(role_id: str) -> str:
     token = Token(
         exp=helper.now() + DEFAULT_TIME_DELTA, 
         iat=helper.now(), 
-        sub=user_id)
+        sub=role_id)
     return jwt.encode(token.model_dump(), JWT_SECRET, algorithm=ALGORITHM)
 
 
@@ -44,13 +42,9 @@ def parse_token(scope) -> Token:
     return decode_jwt_token(encoded_token=auth)
 
 
-def verify_user(username, password) -> None:
-    pass
-
 class JWTAuthenticationMiddleware(AbstractAuthenticationMiddleware):
     async def authenticate_request(
             self, connection: ASGIConnection) -> AuthenticationResult:
         token = parse_token(connection)
-        return AuthenticationResult(user=User(username=token.sub), auth=token)
+        return AuthenticationResult(user=token.sub, auth=token)
     
-

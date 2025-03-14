@@ -1,12 +1,10 @@
 import logging
-from datetime import datetime, timezone
+import time
 from typing import Callable, Optional
-from pydantic import SecretStr  
-from typing import Literal
-from litestar import Request
-from litestar import Litestar, MediaType, Request, Response, get
 
 import ray
+from litestar import MediaType, Request
+from pydantic import SecretStr
 
 from kodosumi.config import InternalSettings, Settings
 from kodosumi.log import LOG_FORMAT, get_log_level
@@ -31,7 +29,7 @@ def wants(request: Request, format: MediaType = MediaType.HTML) -> bool:
 
 def ray_init(
         settings: Optional[Settings]=None, 
-        ignore_reinit_error: bool=False):
+        ignore_reinit_error: bool=True):
     if settings is None:
         settings = InternalSettings()
     ray.init(
@@ -62,10 +60,6 @@ def parse_factory(entry_point: str) -> Callable:
     for comp in components[1:]:
         module = getattr(module, comp)
     return getattr(module, obj)
-
-
-def now():
-    return datetime.now(timezone.utc)
 
 
 def debug():
@@ -103,3 +97,7 @@ async def verify_user(username: str, password: SecretStr) -> str | None:
     if username in DB_USER and plain_text == DB_USER[username]:
         return username
     return None
+
+
+def now():
+    return time.time()

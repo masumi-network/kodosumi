@@ -1,17 +1,18 @@
 import asyncio
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Dict, List, Union
-import sys
+
 import ray
 from ray.actor import ActorHandle
 from ray.util.state import list_actors
 from ray.util.state.common import ActorState
 
 import kodosumi.config
+from kodosumi import helper
 from kodosumi.log import logger, spooler_logger
 from kodosumi.runner import NAMESPACE
-from kodosumi import helper
 
 
 DB_FILE = "sqlite3.db"
@@ -41,8 +42,8 @@ class Spooler:
         self.monitor: dict = {}  
         self.lock = None
 
-    def setup_database(self, fid: str):
-        dir_path = self.exec_dir.joinpath(fid)
+    def setup_database(self, username: str, fid: str):
+        dir_path = self.exec_dir.joinpath(username, fid)
         dir_path.mkdir(parents=True, exist_ok=True)
         db_path = dir_path.joinpath(DB_FILE)
         conn = sqlite3.connect(
@@ -70,11 +71,8 @@ class Spooler:
             ]
             cursor.executemany(
                 """
-                INSERT INTO monitor 
-                (timestamp, kind, message) 
-                VALUES (?, ?, ?)
-                """,
-                values
+                INSERT INTO monitor (timestamp, kind, message) VALUES (?, ?, ?)
+                """, values
             )
         except Exception:
             logger.critical(f"Failed to save {fid}", exc_info=True)
@@ -83,7 +81,8 @@ class Spooler:
         if state.name is None:
             logger.critical(f"Actor {state.actor_id} has no name.")
         fid: str = str(state.name)
-        conn = self.setup_database(fid)
+        username = await runner.get_username.remote()
+        conn = self.setup_database(username, fid)
         n = 0
         try:
             while not (self.shutdown_event.is_set() 
@@ -179,6 +178,8 @@ def main(settings: kodosumi.config.Settings, force: bool=False):
         asyncio.run(spooler.start())
     except KeyboardInterrupt:
         asyncio.run(spooler.shutdown())
+    finally:
+        helper.ray_shutdown()
 
 
 if __name__ == "__main__":

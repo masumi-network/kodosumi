@@ -5,11 +5,15 @@ import sys
 import threading
 import time
 from traceback import format_exc
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
 import ray
 from bson.objectid import ObjectId
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel
+
+from kodosumi.dtypes import DynamicModel
+from kodosumi.helper import now
+
 
 EVENT_META    = "meta"
 EVENT_DEBUG   = "debug"
@@ -26,13 +30,10 @@ STATUS_STARTING = "starting"
 STATUS_RUNNING  = "running"
 STATUS_END      = "finished"
 STATUS_ERROR    = "error"
+STATUS_FINAL    = (STATUS_END, STATUS_ERROR)
 
 NAMESPACE = "kodosumi"
-
-
-def now():
-    return time.time()
-
+KODOSUMI_LAUNCH = "kodosumi_launch"
 
 class LoggingPipeline:
     def __init__(self, target, loop, size=10, timeout=0.1):
@@ -90,10 +91,6 @@ def _get_event_loop():
     return loop
 
 
-class DynamicModel(RootModel[Dict[str, Any]]):
-    pass
-
-
 def _serialize(data):
     if isinstance(data, BaseModel):
         dump = {data.__class__.__name__: data.model_dump()}
@@ -136,7 +133,7 @@ class StdErrHandler(StdOutHandler):
     prefix = EVENT_STDERR
 
 
-class RunHandler:
+class Tracer:
 
     def __init__(self, runner):
         self.runner = runner
@@ -155,16 +152,22 @@ class RunHandler:
             "payload": _serialize(message)
         })
 
-
 @ray.remote
 class Runner:
-    def __init__(self, fid, username, entry_point, inputs, extra=None):
+    def __init__(self, 
+                 fid: str, 
+                 username: str, 
+                 base_url: str, 
+                 entry_point: Union[Callable, str], 
+                 inputs: Any=None, 
+                 extra: Optional[dict]=None):
         self.fid = fid
         self.username = username
+        self.base_url = base_url
         self.entry_point = entry_point
         self.inputs = inputs
         self.extra = extra
-        self.queue = asyncio.Queue()
+        self.queue: asyncio.Queue = asyncio.Queue()
         self.active = True
         self.loop = _get_event_loop()
         self.logging_pipeline = LoggingPipeline(self.enqueue_batch, self.loop)
@@ -173,6 +176,9 @@ class Runner:
         self._original_stderr = sys.stderr
         sys.stdout = StdOutHandler(self)
         sys.stderr = StdErrHandler(self)
+
+    async def get_username(self):
+        return self.username
 
     def is_active(self):
         return self.active
@@ -210,8 +216,8 @@ class Runner:
         })
 
     async def run(self):
+        # from kodosumi import helper
         # helper.debug()
-        open("debug.log", "w").write(f"actor {self.fid} started\n")
         final_kind = STATUS_END
         try:
             if not isinstance(self.entry_point, str):
@@ -226,6 +232,7 @@ class Runner:
                 "payload": _serialize({
                     "fid": self.fid,
                     "username": self.username,
+                    "base_url": self.base_url,
                     "entry_point": rep_entry_point,
                     "extra": self.extra
                 })
@@ -249,11 +256,9 @@ class Runner:
                 "kind": EVENT_STATUS,
                 "payload": final_kind
             })
-            open("debug.log", "a").write(f"actor {self.fid} waits\n")
             while not self.queue.empty():
                 await asyncio.sleep(0.1)
             self.active = False
-        open("debug.log", "a").write(f"actor {self.fid} stopped\n")
 
     async def start(self):
         await self.enqueue({
@@ -273,13 +278,13 @@ class Runner:
         else:
             func = self.entry_point
 
-        run_handler = RunHandler(self)
+        trace = Tracer(self)
         sig = inspect.signature(func)
         bound_args = sig.bind_partial()
         if 'inputs' in sig.parameters:
             bound_args.arguments['inputs'] = self.inputs
-        if 'handler' in sig.parameters:
-            bound_args.arguments['handler'] = run_handler
+        if 'trace' in sig.parameters:
+            bound_args.arguments['trace'] = trace
         bound_args.apply_defaults()
         if asyncio.iscoroutinefunction(func):
             result = await func(*bound_args.args, **bound_args.kwargs)
@@ -298,6 +303,7 @@ class Runner:
 
 
 def create_runner(username: str, 
+                  base_url: str,
                   entry_point: Union[str, Callable],
                   inputs: Union[BaseModel, dict], 
                   extra: Optional[dict] = None,
@@ -311,6 +317,7 @@ def create_runner(username: str,
         lifetime="detached").remote(
             fid=fid, 
             username=username, 
+            base_url=base_url,
             entry_point=entry_point, 
             inputs=inputs, 
             extra=extra

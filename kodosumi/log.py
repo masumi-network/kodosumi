@@ -16,11 +16,14 @@ def get_log_level(level: str):
 
 def _log_setup(settings: Settings, prefix: str):
     global logger
-    _log = logging.getLogger()
+    _log = logging.getLogger("kodo")
     _log.setLevel(logging.DEBUG)
  
-    for handler in _log.handlers[:]:
-        _log.removeHandler(handler)
+    # for handler in _log.handlers[:]:
+    #     _log.removeHandler(handler)
+
+    if _log.hasHandlers():
+        _log.handlers.clear()
 
     _log = logger
     _log.propagate = False
@@ -51,7 +54,11 @@ def spooler_logger(settings: Settings):
 
 def app_logger(settings: Settings):
     ch, fh = _log_setup(settings, "APP")
+
     uvicorn_logger = logging.getLogger("uvicorn")
     uvicorn_logger.addHandler(fh)
     uvicorn_logger.addHandler(ch)
     uvicorn_logger.setLevel(settings.UVICORN_LEVEL)
+
+    httpx_logger = logging.getLogger("httpx")
+    httpx_logger.setLevel(60)
