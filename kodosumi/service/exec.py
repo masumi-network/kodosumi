@@ -26,7 +26,7 @@ async def _query(
     cursor = conn.cursor()
     cursor.execute("""
         SELECT kind, message FROM monitor 
-        WHERE kind IN ('meta', 'status', 'inputs', 'final')
+        WHERE kind IN ('meta', 'status', 'inputs', 'final', 'error')
         ORDER BY timestamp ASC
     """)
     status = None
@@ -34,6 +34,7 @@ async def _query(
     summary = None
     description = None
     author = None
+    error = []
     organization = None
     final = None
     fid = db_file.parent.name
@@ -50,6 +51,8 @@ async def _query(
                 organization = endpoint.organization
         elif kind == "status":
             status = message
+        elif kind == "error":
+            error.append(message)
         elif kind == "inputs":
             model = DynamicModel.model_validate_json(message)
             inputs = DynamicModel(**model.root).model_dump_json()[:80]
@@ -64,7 +67,7 @@ async def _query(
         fid=fid, status=status, started_at=first, last_update=last, 
         inputs=inputs, summary=summary, description=description, 
         author=author, organization=organization, runtime=runtime,
-        final=final)
+        final=final, error=error or None)
 
 async def _follow(base, 
                   state, 
@@ -107,12 +110,14 @@ async def _stream(base: str,
         cursor.execute("""
             SELECT id, timestamp, kind, message 
             FROM monitor 
-            WHERE kind IN (?, 'status') AND id > ?
+            WHERE kind IN (?, 'status', 'error') AND id > ?
             ORDER BY timestamp ASC
         """, (event, offset))
-        for _id, timestamp, kind, message in cursor.fetchall():
+        for _id, _, kind, message in cursor.fetchall():
             if kind == "status":
                 status = message
+            elif kind == "error":
+                yield f"ERROR: {message}\n"
             else:
                 yield f"{message}\n"
             offset = _id
@@ -205,9 +210,13 @@ class ExecutionControl(litestar.Controller):
                     f"Execution {fid} not found after {waitfor}s.")
         if loop:
             logger.warning(f"{fid} - found after {now() - t0:.2f}s")
-        return await _query(db_file, state, with_final=False)
+        return await _query(db_file, state, with_final=True)
 
-    async def _stream(self, event, fid, state: State, request: Request) -> Stream:
+    async def _stream(self, 
+                      event, 
+                      fid, 
+                      state: State, 
+                      request: Request) -> Stream:
         base = f"GET /-/{event}/{fid}"
         db_file = Path(state["settings"].EXEC_DIR).joinpath(
             request.user, fid, DB_FILE)
