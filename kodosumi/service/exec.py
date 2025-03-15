@@ -52,7 +52,7 @@ async def _query(
             status = message
         elif kind == "inputs":
             model = DynamicModel.model_validate_json(message)
-            inputs = DynamicModel(**model.root["dict"]).model_dump_json()[:80]
+            inputs = DynamicModel(**model.root).model_dump_json()[:80]
         elif kind == "final" and with_final:
             model = DynamicModel.model_validate_json(message)
             final = DynamicModel(**model.root).model_dump()
@@ -183,6 +183,29 @@ class ExecutionControl(litestar.Controller):
             _follow(base, state, listing, with_final=True), 
             media_type="text/plain"
         )
+
+    @get("/state/{fid:str}")
+    async def execution_state(
+            self, 
+            fid: str,
+            request: Request, 
+            state: State) -> Execution:
+        base = f"GET /-/state/{fid}"
+        db_file = Path(state["settings"].EXEC_DIR).joinpath(
+            request.user, fid, DB_FILE)
+        t0 = now()
+        loop = False
+        waitfor = state["settings"].WAIT_FOR_JOB
+        while not db_file.exists():
+            if not loop:
+                loop = True
+            await asyncio.sleep(0.25)
+            if now() > t0 + waitfor:
+                raise NotFoundException(
+                    f"Execution {fid} not found after {waitfor}s.")
+        if loop:
+            logger.warning(f"{fid} - found after {now() - t0:.2f}s")
+        return await _query(db_file, state, with_final=False)
 
     async def _stream(self, event, fid, state: State, request: Request) -> Stream:
         base = f"GET /-/{event}/{fid}"
