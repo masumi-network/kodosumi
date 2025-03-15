@@ -148,7 +148,8 @@ def create_app(**kwargs) -> Litestar:
         on_shutdown=[shutdown],
         state=State({
             "settings": settings,
-            "endpoints": {}
+            "endpoints": {},
+            "routing": {}
         })
     )
     # helper.ray_init()

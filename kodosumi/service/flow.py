@@ -21,7 +21,7 @@ class FlowControl(litestar.Controller):
     @get("/flow", response_model=List[EndpointResponse])
     async def list_flows(self, state: State) -> List[EndpointResponse]:
         return sorted(kodosumi.endpoint.get_endpoints(state), 
-                      key=lambda ep: ep.path)
+                      key=lambda ep: ep.url)
     
     @get("/flow/tags")
     async def list_tags(self, state: State) -> dict[str, int]:

@@ -55,9 +55,10 @@ class ProxyControl(litestar.Controller):
         base, relpath = path.split("/-/", 1)
         base += "/-/"
         relpath = relpath.rstrip("/")
-        endpoint = kodosumi.endpoint.find_endpoint(state, base)
-        if not endpoint:
+        target = state["routing"].get(base)
+        if not target:
             raise NotFoundException(path)
+        # endpoint = kodosumi.endpoint.find_endpoint(state, base)
         timeout = state["settings"].PROXY_TIMEOUT
         async with AsyncClient(timeout=timeout) as client:
             meth = request.method.lower()
@@ -65,13 +66,18 @@ class ProxyControl(litestar.Controller):
             request_headers[KODOSUMI_USER] = request.user
             request_headers[KODOSUMI_BASE] = base
             host = request.headers.get("host", None)
+            contact = target + "/"
+            if relpath:
+                contact += relpath
             response = await client.request(
                 method=meth,
-                url=endpoint.url.rstrip("/") + "/" + relpath.strip("/"),
+                url=contact,
                 headers=request_headers,
                 content=await request.body(),
                 params=request.query_params,
                 follow_redirects=True)
+            logger.info(f"proxy {meth.upper()} {path} to {contact} - "
+                        f"{response.reason_phrase} ({response.status_code})")
             response_headers = dict(response.headers)
             if host:
                 response_headers["host"] = host
@@ -81,14 +87,11 @@ class ProxyControl(litestar.Controller):
                 if fid1:
                     fid2 = response.json().get("fid", "")
                     if fid1 == fid2:
-                        return Redirect(f"/-/out/{fid1}")
-                        #return Response(content=f"launch {fid1}")
+                        return Redirect(f"/-/state/{fid1}")
             response_content = response.content
             if response.headers.get("content-type", "").startswith("text/html"):
                 response_content = update_links(base, response.content.decode(
                     "utf-8")).encode("utf-8")
-        logger.info(f"proxy {meth.upper()} {base}{relpath} - "
-                    f"{response.reason_phrase} ({response.status_code})")
         return Response(
                 content=response_content,
                 status_code=response.status_code,

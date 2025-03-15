@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 import bcrypt
 from bcrypt import checkpw
@@ -80,7 +80,7 @@ class Role(Base):
 
 class EndpointResponse(BaseModel):
     uid: str
-    path: str
+    method: Literal["GET", "POST", "PUT", "DELETE"]
     url: str
     source: str
     summary: Optional[str]
