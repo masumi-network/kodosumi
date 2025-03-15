@@ -1,12 +1,15 @@
 from collections import Counter
 from typing import List
+from dataclasses import dataclass
+from typing import Generic, List, Optional, TypeVar
 
 import litestar
 from litestar import get, post
 from litestar.datastructures import State
 
 import kodosumi.endpoint
-from kodosumi.dtypes import EndpointResponse, RegisterFlow
+from kodosumi.dtypes import EndpointResponse, RegisterFlow, Pagination
+from litestar.pagination import AbstractSyncClassicPaginator, ClassicPagination
 
 
 class FlowControl(litestar.Controller):
@@ -18,10 +21,15 @@ class FlowControl(litestar.Controller):
             data: RegisterFlow) -> List[EndpointResponse]:
         return await kodosumi.endpoint.register(state, data.url)
         
-    @get("/flow", response_model=List[EndpointResponse])
-    async def list_flows(self, state: State) -> List[EndpointResponse]:
-        return sorted(kodosumi.endpoint.get_endpoints(state), 
-                      key=lambda ep: ep.url)
+    @get("/flow")
+    async def list_flows(self,
+                         state: State, 
+                         pp: int = 10, 
+                         p: int = 0) -> Pagination[EndpointResponse]:
+        data = kodosumi.endpoint.get_endpoints(state)
+        start = p * pp
+        end = start + pp
+        return Pagination(items=data[start:end], total=len(data), p=p, pp=pp)
     
     @get("/flow/tags")
     async def list_tags(self, state: State) -> dict[str, int]:

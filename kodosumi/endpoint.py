@@ -88,11 +88,11 @@ async def register(state: State, source: str) -> List[EndpointResponse]:
 
 
 def get_endpoints(state: State) -> List[EndpointResponse]:
-    return [
+    return sorted([
         EndpointResponse.model_validate(item) 
             for nest in state["endpoints"].values() 
                 for item in nest
-    ]
+    ], key=lambda ep: ep.url)
 
 
 def find_endpoint(state: State, base: str) -> Union[EndpointResponse, None]:

@@ -6,6 +6,7 @@ from bcrypt import checkpw
 from pydantic import BaseModel, EmailStr, RootModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from typing import Generic, TypeVar
 
 
 class DynamicModel(RootModel[Dict[str, Any]]):
@@ -107,3 +108,26 @@ class Execution(BaseModel):
     inputs: Optional[str]
     runtime: Optional[float]
     final: Optional[dict]
+    error: Optional[List[str]]
+
+
+T = TypeVar('T')
+
+class Pagination(BaseModel, Generic[T]):
+    items: List[T]
+    total: int
+    p: Optional[int] = 0
+    pp: Optional[int] = 10
+
+    @field_validator('p')
+    def validate_page(cls, v, values):
+        total = values.data.get('total', len(values.data.get('items', [])))
+        pp = values.data.get('pp', 10)
+        if pp <= 0:
+            raise ValueError("pp must be greater than 0")
+        max_pages = (total + pp - 1) // pp
+        if v < 0:
+            raise ValueError("p must be greater than or equal to 0")
+        if v > max_pages:
+            raise ValueError(f"p must be less than or equal to {max_pages}")
+        return v
