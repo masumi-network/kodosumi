@@ -106,6 +106,19 @@ def _serialize(data):
     return DynamicModel(dump).model_dump_json()
 
 
+def parse_entry_point(entry_point: str) -> Callable:
+    if ":" in entry_point:
+        module_name, obj = entry_point.split(":", 1)
+    else:
+        *module_name, obj = entry_point.split(".")
+        module_name = ".".join(module_name)
+    module = __import__(module_name)
+    components = module_name.split('.')
+    for comp in components[1:]:
+        module = getattr(module, comp)
+    return getattr(module, obj)
+
+
 class StdOutHandler:
     prefix = EVENT_STDOUT
 
@@ -272,9 +285,7 @@ class Runner:
             "payload": STATUS_RUNNING
         })
         if isinstance(self.entry_point, str):
-            module_name, func_name = self.entry_point.split(":")
-            module = __import__(module_name)
-            func = getattr(module, func_name)
+            func = parse_entry_point(self.entry_point)
         else:
             func = self.entry_point
 

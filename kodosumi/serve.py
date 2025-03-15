@@ -9,6 +9,9 @@ from kodosumi.runner import KODOSUMI_LAUNCH, create_runner
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
 
 
+ANNONYMOUS_USER = "_annon_"
+
+
 def Launch(request: Request,
            entry_point: Union[Callable, str], 
            inputs: Any=None) -> JSONResponse:
@@ -29,7 +32,7 @@ class ServeAPI(FastAPI):
 
         @self.middleware("http")
         async def add_custom_method(request: Request, call_next):
-            user = request.headers.get(KODOSUMI_USER, "")
+            user = request.headers.get(KODOSUMI_USER, ANNONYMOUS_USER)
             prefix_route = request.headers.get(KODOSUMI_BASE, "")
             request.state.user = user
             request.state.prefix = prefix_route           
