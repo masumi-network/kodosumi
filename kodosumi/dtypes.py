@@ -123,11 +123,11 @@ class Pagination(BaseModel, Generic[T]):
     def validate_page(cls, v, values):
         total = values.data.get('total', len(values.data.get('items', [])))
         pp = values.data.get('pp', 10)
-        if pp <= 0:
+        if pp < 1:
             raise ValueError("pp must be greater than 0")
         max_pages = (total + pp - 1) // pp
         if v < 0:
             raise ValueError("p must be greater than or equal to 0")
-        if v > max_pages:
+        if v >= max_pages:
             raise ValueError(f"p must be less than or equal to {max_pages}")
         return v
