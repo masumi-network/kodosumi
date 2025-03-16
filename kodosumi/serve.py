@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from kodosumi.runner import KODOSUMI_LAUNCH, create_runner
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
+from kodosumi.service.endpoint import KODOSUMI_API
 
 
 ANNONYMOUS_USER = "_annon_"
@@ -35,7 +36,7 @@ class ServeAPI(FastAPI):
             user = request.headers.get(KODOSUMI_USER, ANNONYMOUS_USER)
             prefix_route = request.headers.get(KODOSUMI_BASE, "")
             request.state.user = user
-            request.state.prefix = prefix_route           
+            request.state.prefix = prefix_route
             response = await call_next(request)
             return response
 

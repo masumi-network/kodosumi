@@ -1,4 +1,5 @@
 import traceback
+import asyncio
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, Dict, Union
@@ -10,19 +11,22 @@ from litestar.contrib.sqlalchemy.plugins import (SQLAlchemyAsyncConfig,
 from litestar.datastructures import State
 from litestar.exceptions import (ClientException, NotAuthorizedException,
                                  NotFoundException, ValidationException)
+from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.middleware import DefineMiddleware
 from litestar.openapi.config import OpenAPIConfig
 from litestar.openapi.plugins import JsonRenderPlugin, SwaggerRenderPlugin
-from litestar.response import Template
+from litestar.response import Template, Redirect
 from litestar.static_files import create_static_files_router
 from litestar.status_codes import (HTTP_409_CONFLICT,
                                    HTTP_500_INTERNAL_SERVER_ERROR)
+from litestar.template.config import TemplateConfig
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import kodosumi.core
-import kodosumi.endpoint
+import kodosumi.service.endpoint
 from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.dtypes import Role, RoleCreate
@@ -32,6 +36,9 @@ from kodosumi.service.flow import FlowControl
 from kodosumi.service.jwt import JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
+from kodosumi.service.auth import LoginControl
+from kodosumi.service.admin.controller import AdminControl
+from kodosumi.service.jwt import TOKEN_KEY
 
 
 def app_exception_handler(request: Request, 
@@ -40,11 +47,19 @@ def app_exception_handler(request: Request,
         "error": exc.__class__.__name__,
         "path": request.url.path,
     }
-    if isinstance(exc, (NotFoundException, NotAuthorizedException)):
+    if isinstance(exc, NotFoundException):
         ret["detail"] = exc.detail
         ret["status_code"] = exc.status_code
         extra = ""
         meth = logger.warning
+    elif isinstance(exc, NotAuthorizedException):
+        ret["detail"] = exc.detail
+        ret["status_code"] = exc.status_code
+        extra = ""
+        meth = logger.warning
+        response = Redirect("/")
+        response.delete_cookie(key=TOKEN_KEY)
+        return response
     elif isinstance(exc, ValidationException):
         ret["detail"] = f"{exc.detail}: {exc.extra}"
         ret["status_code"] = exc.status_code
@@ -92,10 +107,15 @@ async def provide_transaction(
 async def startup(app: Litestar):
     helper.ray_init()
     for source in app.state["settings"].REGISTER_FLOW:
-        try:
-            await kodosumi.endpoint.register(app.state, source)
-        except:
-            logger.critical(f"failed to connect {source}")
+        trial = 3
+        while trial > 0:
+            trial -= 1
+            try:
+                await kodosumi.service.endpoint.register(app.state, source)
+                break
+            except:
+                logger.critical(f"failed to connect {source}")
+                await asyncio.sleep(1)
 
 
 async def shutdown(app):
@@ -113,22 +133,27 @@ def create_app(**kwargs) -> Litestar:
         before_send_handler="autocommit",
     )
 
+    admin_console = Path(kodosumi.service.admin.__file__).parent.joinpath
+
     app = Litestar(
         cors_config=CORSConfig(allow_origins=settings.CORS_ORIGINS),
         route_handlers=[
-            Router(path="/-/", route_handlers=[RoleControl]),
-            Router(path="/-/", route_handlers=[FlowControl]),
-            Router(path="/", route_handlers=[ProxyControl]),
-            Router(path="/-/", route_handlers=[ExecutionControl]),
+            Router(path="/", route_handlers=[LoginControl]),
+            Router(path="/role", route_handlers=[RoleControl]),
+            Router(path="/-/", route_handlers=[ProxyControl]),
+            Router(path="/admin", route_handlers=[AdminControl]),
+            Router(path="/flow", route_handlers=[FlowControl]),
+            Router(path="/exec", route_handlers=[ExecutionControl]),
             create_static_files_router(
                 path="/static", 
-                directories=[Path(__file__).parent / "static"],
+                directories=[admin_console("static"),],
                 opt={"no_auth": True}
-            )
+            ),
         ],
-        # template_config=TemplateConfig(
-        #     directory=Path(__file__).parent / "templates", engine=JinjaTemplateEngine
-        # ),
+        template_config=TemplateConfig(
+            directory=admin_console("templates"),
+                engine=JinjaTemplateEngine
+        ),
         dependencies={"transaction": provide_transaction},
         plugins=[SQLAlchemyPlugin(db_config)],
         middleware=[

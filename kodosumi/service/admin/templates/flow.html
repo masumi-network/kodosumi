@@ -1,0 +1,141 @@
+{% extends "_main.html" %}
+
+{% block head %}
+<style>
+    .scroller {
+        height: 150px;
+        max-height: 150px;
+        overflow-y: hidden;
+    }
+    .loading {
+        text-align: center;
+        padding: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block headline %}
+Agentic Services
+{% endblock %}
+
+{% block menu %}
+<div class="field prefix">
+    <i onclick="searchFlows()">search</i>
+    <input type="text" name="search" id="search-input" placeholder="search"
+           oninput="debouncedSearchFlows()" />
+    <a id="close-icon" style="display: none;" href="javascript: clearIcon()">
+        <i class="tiny">close</i>
+    </a>
+</div>
+{% endblock %}
+
+{% block main %}
+<div class="grid" id="flow-container">
+    <!-- Initial items will be loaded here -->
+</div>
+<div id="end-of-list"></div>
+
+<script>
+    const endOfList = document.getElementById('end-of-list');
+    const closeIcon = document.getElementById('close-icon');
+    const searchInput = document.getElementById('search-input');
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                loadFlows();
+            }
+        });
+    }, {
+        root: null,
+        rootMargin: '0px',
+        threshold: 1.0
+    });
+    observer.observe(endOfList);
+
+    let page = 0;
+    let lp = null;
+    let q = null;
+    const container = document.getElementById('flow-container');
+    const loading = document.getElementById('loading');
+
+    let debounceTimeout;
+    function debouncedSearchFlows() {
+        if (searchInput.value) {
+            closeIcon.style.display = 'inline';
+        } else {
+            closeIcon.style.display = 'none';
+        }
+        clearTimeout(debounceTimeout);
+        debounceTimeout = setTimeout(searchFlows, 750);
+    }
+    function clearIcon() {
+        searchInput.value = '';
+        closeIcon.style.display = 'none';
+        searchFlows();
+    }
+    async function searchFlows() {
+        observer.disconnect();
+        page = 0;
+        lp = null;
+        q = document.getElementById('search-input').value;
+        if (container.innerHTML == '') {
+            await loadFlows();
+        }
+        else {
+            container.innerHTML = '';
+        }
+        observer.observe(endOfList);
+    }
+    async function loadFlows() {
+        console.log("get page", page, lp, q)
+        if (lp != null && page > lp) {
+            console.log("no more items to load");
+            return;
+        }
+        try {
+            let param = `/flow?p=${page}&pp=3`;
+            if (q) {
+                param += `&q=${q}`;
+            }
+            const response = await fetch(param);
+            const data = await response.json();
+            lp = data.lp;
+            if (data.items) {
+                data.items.forEach(flow => {
+                    const flowElement = document.createElement('div');
+                    flowElement.classList.add('s12', 'l4');
+                    console.log("enter ", flow.uid);
+                    flowElement.innerHTML = `
+                    <a href="${flow.url}" style="display: block;">
+                        <article class="border scroller" onmouseover="this.classList.add('secondary')"
+                        onmouseout="this.classList.remove('secondary')">
+                        <h6>${flow.summary}</h6>
+                        <p>${flow.description}</p>
+                        <label class="small">
+                            ${flow.organization ? flow.organization : '-'}
+                            </label>
+                            </article>
+                            </a>
+                            `;
+                            container.appendChild(flowElement);
+                });
+                if (data.items.length === 0) {
+                    console.log('No more items to load');
+                } 
+                else {
+                    page++;
+                    if (page <= data.lp) {
+                        if (container.offsetHeight < window.innerHeight) {
+                            loadFlows(); 
+                        }
+                    } 
+                }
+            }
+        } 
+        catch (error) {
+            console.error('Error loading flows:', error);
+        }
+    }
+</script>
+{% endblock %}

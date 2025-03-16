@@ -37,41 +37,6 @@
     --surface-container-highest:#e3e3db;
 }
 
-:root, body.dark {
-    --primary:#9ed75b;
-    --on-primary:#1e3700;
-    --primary-container:#2e4f00;
-    --on-primary-container:#b9f474;
-    --secondary:#bfcbad;
-    --on-secondary:#2a331e;
-    --secondary-container:#404a33;
-    --on-secondary-container:#dbe7c8;
-    --tertiary:#a0d0cc;
-    --on-tertiary:#003735;
-    --tertiary-container:#1f4e4b;
-    --on-tertiary-container:#bbece8;
-    --error:#ffb4ab;
-    --on-error:#690005;
-    --error-container:#93000a;
-    --on-error-container:#ffb4ab;
-    --background:#1b1c18;
-    --on-background:#e3e3db;
-    --surface:#121410;
-    --on-surface:#e3e3db;
-    --surface-variant:#44483d;
-    --on-surface-variant:#c5c8ba;
-    --outline:#8e9285;
-    --outline-variant:#44483d;
-    --shadow:#000000;
-    --scrim:#000000;
-    --inverse-surface:#e3e3db;
-    --inverse-on-surface:#30312c;
-    --inverse-primary:#3e6a00;
-    --surface-dim:#121410;
-    --surface-bright:#383a35;
-    --surface-container-lowest:#0d0f0b;
-    --surface-container-low:#1b1c18;
-    --surface-container:#1f201c;
-    --surface-container-high:#292a26;
-    --surface-container-highest:#343530;
+body {
+    font-family: sans-serif;
 }

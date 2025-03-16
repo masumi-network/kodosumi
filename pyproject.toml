@@ -33,7 +33,10 @@ dependencies = [
     "sqlalchemy",
     "advanced-alchemy",
     "aiosqlite",
-    "bs4"
+    "bs4",
+    "ansi2html",
+    "pyyaml",
+    "markdown"
 ]
 
 [project.optional-dependencies]

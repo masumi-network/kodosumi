@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Union
 
 from kodosumi import helper
-from kodosumi.endpoint import (KODOSUMI_API, KODOSUMI_AUTHOR,
+from kodosumi.service.endpoint import (KODOSUMI_API, KODOSUMI_AUTHOR,
                                KODOSUMI_ORGANIZATION)
 from kodosumi.serve import Launch, ServeAPI
 

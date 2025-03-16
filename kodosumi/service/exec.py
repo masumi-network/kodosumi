@@ -1,20 +1,107 @@
 import asyncio
 import sqlite3
+import markdown
 from pathlib import Path
 from typing import AsyncGenerator, Optional, Union
-
+from ansi2html import Ansi2HTMLConverter
+import yaml
 import litestar
+from litestar.response import ServerSentEvent
 from litestar import Request, get
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
 from litestar.response import Response, Stream
+from litestar.types import SSEData
 
 from kodosumi.dtypes import DynamicModel, Execution
-from kodosumi.endpoint import find_endpoint
 from kodosumi.helper import now
 from kodosumi.log import logger
-from kodosumi.runner import STATUS_FINAL
+from kodosumi.runner import EVENT_STATUS, STATUS_FINAL
 from kodosumi.spooler import DB_FILE
+
+DEFAULT_FORMATTER = {
+    "action": None, # class specific rendering of tool actions
+    "result": None, # class specific rendering of tool results
+    "final": None, # class specific rendering of final results
+}
+
+class Formatter: 
+
+    def convert(self, kind: str, message: str) -> str:
+        raise NotImplementedError()
+    
+
+class DefaultFormatter(Formatter):
+
+    def __init__(self):
+        self.ansi = Ansi2HTMLConverter()
+
+    def md(self, text: str) -> str:
+        return markdown.markdown(text)
+
+    def dict2yaml(self, message: str) -> str:
+        model = DynamicModel.model_validate_json(message)
+        return yaml.safe_dump(model.model_dump(), allow_unicode=True)
+
+    def ansi2html(self, message: str) -> str:
+        return self.ansi.convert(message, full=False)
+
+    def AgentFinish(self, values) -> str:
+        ret = ['<div class="info-l1">Agent Finish</div>']
+        if values.get("thought", None):
+            ret.append(
+                f'<div class="info-l2">Thought</div>"' + self.md(
+                    values['thought']))
+        if values.get("text", None):
+            ret.append(self.md(values['text']))
+        elif values.get("output", None):
+            ret.append(self.md(values['output']))
+        return "\n".join(ret)
+
+    def TaskOutput(self, values) -> str:
+        ret = ['<div class="info-l1">Task Output</div>']
+        agent = values.get("agent", "unnamed agent")
+        if values.get("name", None):
+            ret.append(
+                f'<div class="info-l2">{values["name"]} ({agent})</div>')
+        else:
+            ret.append(f'<div class="info-l2">{agent}</div>')
+        if values.get("description", None):
+            ret.append(
+                f'<div class="info-l3">Task Description: </div>'
+                f'<em>{values["description"]}</em>')
+        if values.get("raw", None):
+            ret.append(self.md(values['raw']))
+        return "\n".join(ret)
+
+    def CrewOutput(self, values) -> str:
+        ret = ['<div class="info-l1">Crew Output</div>']
+        if values.get("raw", None):
+            ret.append(self.md(values['raw']))
+        else:
+            ret.append("no output found")
+        return "\n".join(ret)
+
+    def obj2html(self, message: str) -> str:
+        model = DynamicModel.model_validate_json(message)
+        ret = []
+        for elem, values in model.root.items():
+            meth = getattr(self, elem, None)
+            if meth:
+                ret.append(meth(values))
+            else:
+                ret.append(f'<div class="info-l1">{elem}</div>')
+                ret.append(f"<pre>{values}</pre>")
+        return "\n".join(ret)
+
+    def convert(self, kind: str, message: str) -> str:
+        if kind == "inputs":
+            return self.dict2yaml(message)
+        if kind in ("stdout", "stderr"):
+            return self.ansi2html(message)
+        if kind in ("action", "result", "final"):
+            return self.obj2html(message)
+        return message
 
 
 async def _query(
@@ -31,24 +118,21 @@ async def _query(
     """)
     status = None
     inputs = None
-    summary = None
-    description = None
-    author = None
     error = []
-    organization = None
     final = None
-    fid = db_file.parent.name
+    fields = {
+        "fid": db_file.parent.name,
+        "summary": None,
+        "description": None,
+        "author": None,
+        "organization": None,
+    }
     for kind, message in cursor.fetchall():
         if kind == "meta":
             model = DynamicModel.model_validate_json(message)
-            base_url = model.root["dict"].get("base_url")
-            fid = model.root["dict"].get("fid")
-            endpoint = find_endpoint(state, base_url)
-            if endpoint:
-                summary = endpoint.summary
-                description = endpoint.description
-                author = endpoint.author
-                organization = endpoint.organization
+            for field in fields:
+                if field in model.root["dict"]:
+                    fields[field] = model.root["dict"].get(field)
         elif kind == "status":
             status = message
         elif kind == "error":
@@ -63,19 +147,16 @@ async def _query(
     first, last = cursor.fetchone()
     conn.close()
     runtime = last - first if last and first else None
-    return Execution(
-        fid=fid, status=status, started_at=first, last_update=last, 
-        inputs=inputs, summary=summary, description=description, 
-        author=author, organization=organization, runtime=runtime,
-        final=final, error=error or None)
+    return Execution(**fields,  # type: ignore
+        status=status, started_at=first, last_update=last, 
+        inputs=inputs, runtime=runtime, final=final, error=error or None)
 
-async def _follow(base, 
-                  state, 
+
+async def _follow(state, 
                   listing, 
                   start: Optional[int]=None, 
                   end: Optional[int]=None,
                   with_final: bool=False) -> AsyncGenerator[str, None]:
-    logger.info(f"{base} - start streaming")
     follow = []
     start = start if start else 0
     end = end if end else len(listing)
@@ -92,13 +173,12 @@ async def _follow(base,
             follow.append(db_file)
         yield f"UPDATE: {result.model_dump_json()}\n\n"
         await asyncio.sleep(0.25)
-    logger.info(f"{base} - streaming closed")
 
 
-async def _stream(base: str,
-                  event: str, 
-                  db_file: Path) -> AsyncGenerator[str, None]:
-    logger.info(f"{base} - start streaming")
+async def _event(
+        db_file: Path, 
+        filter_events=None,
+        formatter:Optional[Formatter]=None) -> AsyncGenerator[SSEData, None]:
     status = None
     offset = 0
     conn = sqlite3.connect(str(db_file), isolation_level=None)
@@ -110,37 +190,53 @@ async def _stream(base: str,
         cursor.execute("""
             SELECT id, timestamp, kind, message 
             FROM monitor 
-            WHERE kind IN (?, 'status', 'error') AND id > ?
+            WHERE id > ?
             ORDER BY timestamp ASC
-        """, (event, offset))
-        for _id, _, kind, message in cursor.fetchall():
-            if kind == "status":
-                status = message
-            elif kind == "error":
-                yield f"ERROR: {message}\n"
-            else:
-                yield f"{message}\n"
+        """, (offset, ))
+        for _id, stamp, kind, msg in cursor.fetchall():
+            t0 = now()
+            if kind == EVENT_STATUS:
+                status = msg
+            if filter_events is None or kind in filter_events:
+                out = f"{stamp}:"
+                out += formatter.convert(kind, msg) if formatter else msg
+                yield {
+                    "event": kind,
+                    "id": _id,
+                    "data": out
+                }
+                # yield f"{kind}: {timestamp}:{message}\n\n"
             offset = _id
         if status in STATUS_FINAL:
             break
         await asyncio.sleep(0.25)
+        if now() > t0 + 1:
+            t0 = now()
+            logger.debug("looping")
+            yield {
+                "id": 0,
+                "event": "alive",
+                "data": f"{now()}:alive"
+            }
+    yield {
+        "id": 0,
+        "event": "eof",
+        "data": ""
+    }
     conn.close()
-    logger.info(f"{base} - streaming closed")
 
 
 class ExecutionControl(litestar.Controller):
 
-    @get("/exec")
+    @get("/")
     async def list_executions(
             self, 
             request: Request, 
             state: State,
             p: int=0,
             pp: int=10) -> Union[Stream, Response]:
-        base = f"GET /-/exec"
         exec_dir = Path(state["settings"].EXEC_DIR).joinpath(request.user)
         if not exec_dir.exists():
-            logger.info(f"{base} - not found")
             return Response(
                 content="No executions found.", media_type="text/plain")
         listing = []
@@ -151,23 +247,21 @@ class ExecutionControl(litestar.Controller):
             listing.append(db_file)
         listing.sort(reverse=True)
         if not listing:
-            logger.info(f"{base} - empty")
             return Response(
                 content="No executions found.", media_type="text/plain")
         start = p * pp
         end = start + pp
         return Stream(
-            _follow(base, state, listing, start, end), 
+            _follow(state, listing, start, end), 
             media_type="text/plain"
         )
 
-    @get("/exec/{fid:str}")
+    @get("/{fid:str}")
     async def execution_detail(
             self, 
             fid: str,
             request: Request, 
             state: State) -> Union[Stream, Response]:
-        base = f"GET /-/exec/{fid}"
         db_file = Path(state["settings"].EXEC_DIR).joinpath(
             request.user, fid, DB_FILE)
         t0 = now()
@@ -185,7 +279,7 @@ class ExecutionControl(litestar.Controller):
             logger.warning(f"{fid} - found after {now() - t0:.2f}s")
         listing = [db_file]
         return Stream(
-            _follow(base, state, listing, with_final=True), 
+            _follow(state, listing, with_final=True), 
             media_type="text/plain"
         )
 
@@ -195,7 +289,6 @@ class ExecutionControl(litestar.Controller):
             fid: str,
             request: Request, 
             state: State) -> Execution:
-        base = f"GET /-/state/{fid}"
         db_file = Path(state["settings"].EXEC_DIR).joinpath(
             request.user, fid, DB_FILE)
         t0 = now()
@@ -213,11 +306,11 @@ class ExecutionControl(litestar.Controller):
         return await _query(db_file, state, with_final=True)
 
     async def _stream(self, 
-                      event, 
                       fid, 
                       state: State, 
-                      request: Request) -> Stream:
-        base = f"GET /-/{event}/{fid}"
+                      request: Request,
+                      filter_events=None,
+                      formatter=None) -> ServerSentEvent:
         db_file = Path(state["settings"].EXEC_DIR).joinpath(
             request.user, fid, DB_FILE)
         t0 = now()
@@ -232,26 +325,35 @@ class ExecutionControl(litestar.Controller):
                     f"Execution {fid} not found after {waitfor}s.")
         if loop:
             logger.warning(f"{fid} - found after {now() - t0:.2f}s")
-        return Stream(
-            _stream(base, event, db_file), 
-            media_type="text/plain",
-            headers={
-                "Cache-Control": "no-cache", 
-                "Transfer-Encoding": "chunked"
-            }
+        return ServerSentEvent(
+            _event(db_file, filter_events, formatter), 
         )
+        # return Stream(
+        #     _event(db_file, filter_events, formatter), 
+        #     media_type="text/event-stream",
+        #     headers={
+        #         "Cache-Control": "no-cache", 
+        #         "Transfer-Encoding": "chunked"
+        #     }
+        # )
 
     @get("/out/{fid:str}")
     async def execution_stdout(
-            self, fid: str, request: Request, state: State) -> Stream:
-        return await self._stream("stdout", fid, state, request)
+            self, fid: str, request: Request, state: State) -> ServerSentEvent:
+        return await self._stream(fid, state, request, ("stdout", ))
 
     @get("/err/{fid:str}")
     async def execution_stderr(
-            self, fid: str, request: Request, state: State) -> Stream:
-        return await self._stream("stderr", fid, state, request)
+            self, fid: str, request: Request, state: State) -> ServerSentEvent:
+        return await self._stream(fid, state, request, ("stderr", ))
 
-    @get("/debug/{fid:str}")
-    async def execution_debug(
-            self, fid: str, request: Request, state: State) -> Stream:
-        return await self._stream("debug", fid, state, request)    
+    @get("/event/{fid:str}")
+    async def execution_event(
+            self, fid: str, request: Request, state: State) -> ServerSentEvent:
+        return await self._stream(fid, state, request)    
+    
+    @get("/format/{fid:str}")
+    async def execution_format(
+            self, fid: str, request: Request, state: State) -> ServerSentEvent:
+        return await self._stream(fid, state, request, filter_events=None,
+                                  formatter=DefaultFormatter())

@@ -16,11 +16,13 @@ from kodosumi.helper import now
 
 
 EVENT_META    = "meta"
+EVENT_AGENT   = "agent"
 EVENT_DEBUG   = "debug"
 EVENT_STATUS  = "status"
 EVENT_ERROR   = "error"
 EVENT_DATA    = "data"
 EVENT_RESULT  = "result"
+EVENT_ACTION  = "action"
 EVENT_INPUTS  = "inputs"
 EVENT_FINAL   = "final"
 EVENT_STDOUT  = "stdout"
@@ -151,17 +153,45 @@ class Tracer:
     def __init__(self, runner):
         self.runner = runner
 
-    async def debug(self, message):
+    async def async_debug(self, message):
         await self.runner.enqueue({
             "timestamp": now(),
             "kind": EVENT_DEBUG,
             "payload": f"{message}"
         })
 
-    async def result(self, message):
+    async def async_result(self, message):
         await self.runner.enqueue({
             "timestamp": now(),
             "kind": EVENT_RESULT,
+            "payload": _serialize(message)
+        })
+
+    async def async_action(self, message):
+        await self.runner.enqueue({
+            "timestamp": now(),
+            "kind": EVENT_ACTION,
+            "payload": _serialize(message)
+        })
+
+    def debug(self, message):
+        self.runner.sync_enqueue({
+            "timestamp": now(),
+            "kind": EVENT_DEBUG,
+            "payload": f"{message}"
+        })
+
+    def result(self, message):
+        self.runner.sync_enqueue({
+            "timestamp": now(),
+            "kind": EVENT_RESULT,
+            "payload": _serialize(message)
+        })
+
+    def action(self, message):
+        self.runner.sync_enqueue({
+            "timestamp": now(),
+            "kind": EVENT_ACTION,
             "payload": _serialize(message)
         })
 
@@ -233,28 +263,6 @@ class Runner:
         # helper.debug()
         final_kind = STATUS_END
         try:
-            if not isinstance(self.entry_point, str):
-                ep = self.entry_point
-                rep_entry_point = f"{ep.__module__}:{ep.__name__}"
-            else:
-                rep_entry_point = self.entry_point
-            # Log metadata and starting status.
-            await self.enqueue({
-                "timestamp": now(),
-                "kind": EVENT_META,
-                "payload": _serialize({
-                    "fid": self.fid,
-                    "username": self.username,
-                    "base_url": self.base_url,
-                    "entry_point": rep_entry_point,
-                    "extra": self.extra
-                })
-            })
-            await self.enqueue({
-                "timestamp": now(),
-                "kind": EVENT_STATUS,
-                "payload": STATUS_STARTING
-            })
             await self.start()
         except Exception as exc:
             final_kind = STATUS_ERROR
@@ -274,37 +282,126 @@ class Runner:
             self.active = False
 
     async def start(self):
+        # from kodosumi import helper
+        # helper.debug()
+        await self.enqueue({
+            "timestamp": now(),
+            "kind": EVENT_STATUS,
+            "payload": STATUS_STARTING
+        })
         await self.enqueue({
             "timestamp": now(),
             "kind": EVENT_INPUTS,
             "payload": _serialize(self.inputs)
         })
+        if not isinstance(self.entry_point, str):
+            ep = self.entry_point
+            rep_entry_point = f"{ep.__module__}:{ep.__name__}"
+        else:
+            rep_entry_point = self.entry_point
+
+        if isinstance(self.entry_point, str):
+            obj = parse_entry_point(self.entry_point)
+        else:
+            obj = self.entry_point
+        
+        origin = {
+            "summary": None, 
+            "description": None, 
+            "author": None, 
+            "organization": None
+        }
+        if hasattr(obj, "__brief__"):
+            for field in origin:
+                origin[field] = obj.__brief__.get(field, None)
+        elif hasattr(obj, "__doc__") and obj.__doc__:
+            origin["summary"] = obj.__doc__.strip().split("\n")[0]
+            origin["description"] = obj.__doc__
+
+        await self.enqueue({
+            "timestamp": now(),
+            "kind": EVENT_META,
+            "payload": _serialize({
+                **{
+                    "fid": self.fid,
+                    "username": self.username,
+                    "base_url": self.base_url,
+                    "entry_point": rep_entry_point,
+                    "extra": self.extra
+                }, **origin
+            })
+        })
+
         await self.enqueue({
             "timestamp": now(),
             "kind": EVENT_STATUS,
             "payload": STATUS_RUNNING
         })
-        if isinstance(self.entry_point, str):
-            func = parse_entry_point(self.entry_point)
+        tracer = Tracer(self)
+        if hasattr(obj, "is_crew_class"):
+            obj = obj().crew()
+        if hasattr(obj, "kickoff_async"):
+            obj.step_callback = tracer.action # type: ignore
+            obj.task_callback = tracer.result  # type: ignore
+            if isinstance(self.inputs, BaseModel):
+                data = self.inputs.model_dump()
+            else:
+                data = self.inputs
+            await self.summary(obj)
+            result = await obj.kickoff_async(inputs=data)
         else:
-            func = self.entry_point
-
-        trace = Tracer(self)
-        sig = inspect.signature(func)
-        bound_args = sig.bind_partial()
-        if 'inputs' in sig.parameters:
-            bound_args.arguments['inputs'] = self.inputs
-        if 'trace' in sig.parameters:
-            bound_args.arguments['trace'] = trace
-        bound_args.apply_defaults()
-        if asyncio.iscoroutinefunction(func):
-            result = await func(*bound_args.args, **bound_args.kwargs)
-        else:
-            result = await self.loop.run_in_executor(
-                None, func, *bound_args.args, **bound_args.kwargs)
+            sig = inspect.signature(obj)
+            bound_args = sig.bind_partial()
+            if 'inputs' in sig.parameters:
+                bound_args.arguments['inputs'] = self.inputs
+            if 'trace' in sig.parameters:
+                bound_args.arguments['trace'] = tracer
+            bound_args.apply_defaults()
+            if asyncio.iscoroutinefunction(obj):
+                result = await obj(*bound_args.args, **bound_args.kwargs)
+            else:
+                result = await self.loop.run_in_executor(
+                    None, obj, *bound_args.args, **bound_args.kwargs)
 
         await self.final(result)
         return result
+    
+    async def summary(self, flow):
+        for agent in flow.agents:
+            dump = {
+                "role": agent.role,
+                "goal": agent.goal,
+                "backstory": agent.backstory,
+                "tools": []
+            }
+            for tool in agent.tools:
+                dump["tools"].append({
+                    "name": tool.name,
+                    "description": tool.description
+                })
+            await self.enqueue({
+                "timestamp": now(),
+                "kind": EVENT_AGENT,
+                "payload": _serialize({"agent": dump})
+            })
+        for task in flow.tasks:
+            dump = {
+                "name": task.name,
+                "description": task.description,
+                "expected_output": task.expected_output,
+                "agent": task.agent.role,
+                "tools": []
+            }
+            for tool in agent.tools:
+                dump["tools"].append({
+                    "name": tool.name,
+                    "description": tool.description
+                })
+            await self.enqueue({
+                "timestamp": now(),
+                "kind": EVENT_AGENT,
+                "payload": _serialize({"task": dump})
+            })
 
     async def shutdown(self):
         self.logging_pipeline.stop()
@@ -328,7 +425,7 @@ def create_runner(username: str,
         lifetime="detached").remote(
             fid=fid, 
             username=username, 
-            base_url=base_url,
+            base_url="/-" + base_url,
             entry_point=entry_point, 
             inputs=inputs, 
             extra=extra

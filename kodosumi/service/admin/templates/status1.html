@@ -1,0 +1,250 @@
+{% extends "_main.html" %}
+
+{% block head %}
+<style>
+    .ansi1 { font-weight: bold; }
+    .ansi92 { color: var(--primary); }
+    .ansi95 { color: var(--secondary); }
+    .ansi94 { color: var(--tertiary); }
+    .info-l1 {
+        color: var(--primary);
+        font-weight: bold;
+    }
+    .info-l2 {
+        color: var(--secondary);
+        font-weight: normal;
+    }
+    .info-l2 {
+        color: var(--tertiary);
+        font-weight: normal;
+    }
+</style>
+{% endblock %}
+
+{% block headline %}
+Job: <span id="summary">summary</span>
+{% endblock %}
+
+{% block menu %}
+<div class="tabs right-align">
+    <a data-ui="#page-input" class="active">Input</a>
+    <a data-ui="#page-output">Output</a>
+    <a data-ui="#page-reasoning">Reasoning</a>
+    <a data-ui="#page-process">Process</a>
+    <a id="start-trace" data-ui="#page-trace">Trace</a>
+</div>
+{% endblock %}
+
+{% block extra_header %}
+<div class="max" style="height: 14px;"></div>
+<div style="padding-left: 16px; padding-right: 16px;">
+    <div class="grid">
+        <div class="s12 m12 l3">
+            <div class="field border prefix suffix">
+                <a href=""><i id="action-icon" class="small">close</i></a>
+                <input id="status" type="text" value="-" readonly />
+                <progress id="status-spinner" class="circle"></progress>
+            </div>
+        </div>
+        <div class="s12 m12 l2">
+            <div class="field border label">
+                <input id="startup" type="text" value="-" readonly />
+                <label>Startup</label>
+            </div>
+        </div>
+        <div class="s12 m12 l2">
+            <div class="field border label">
+                <input id="shutdown" type="text" value="-" readonly />
+                <label>Shutdown</label>
+            </div>
+        </div>
+        <div class="s12 m12 l2">
+            <div class="field border label">
+                <input id="runtime" type="text" value="-" readonly />
+                <label>Time</label>
+            </div>
+        </div>
+        <div class="s12 m12 l3">
+            <div class="field border label">
+                <input id="fid" type="text" value="{{ fid }}" readonly />
+                <label>Identifier</label>
+            </div>
+        </div>
+    </div>
+</div>
+<div  style="margin-left: 16px;">
+    <hr class="small"/>
+</div>
+{% endblock %}
+
+{% block main %}
+<div class="page active" id="page-input">
+<pre id="inputs" style="height: 100%; font-family: monospace; overflow-y: scroll;"></pre>    
+</div>
+<div class="page" id="page-output">
+    <article id="output" 
+         style="height: 100%; overflow-y: scroll;">
+    </article>    
+</div>
+<div class="page" id="page-reasoning">
+    <article id="stdout" 
+         style="height: 100%; overflow-y: scroll; font-family: monospace;">
+    </article>    
+</div>
+<div class="page" id="page-process">
+    <article id="process" 
+         style="height: 100%; overflow-y: scroll;">
+    </article>    
+</div>
+<div class="page" id="page-trace">
+<pre id="trace" style="height: 100%; font-family: monospace; overflow-y: scroll;"></pre>    
+</div>
+
+{% endblock %}
+
+{% block foot %}
+<script>
+    const fid = "{{ fid }}"
+
+    const elmStatus = document.getElementById('status');
+    const elmStatusSpinner = document.getElementById('status-spinner');
+    const elmStartup = document.getElementById('startup');
+    const elmShutdown = document.getElementById('shutdown');
+    const elmRuntime = document.getElementById('runtime');
+    const elmActionIcon = document.getElementById('action-icon');
+    const elmInputs = document.getElementById('inputs');
+    const elmStdout = document.getElementById('stdout');
+    const elmProcess = document.getElementById('process');
+    const elmOutput = document.getElementById('output');
+    const elmTrace = document.getElementById('trace');
+
+    let startup = null;
+
+    function secondsToHHMMSS(seconds) {
+        seconds = Math.round(seconds);
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function splitData(data) {
+        const parts = data.split(":");
+        const ts = parts[0];
+        console.log("got data ", ts);
+        if (startup) {
+            elmRuntime.value = secondsToHHMMSS(ts - startup);
+        }
+        return [ts, parts.slice(1).join(":")];
+    }
+
+    function formatUnixTime(unixTime) {
+        const date = new Date(unixTime * 1000);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    }
+
+    function convertDivToButton() {
+        const infoClasses = ['info-l1', 'info-l2', 'info-l3'];
+        const headerTags = ['h5', 'h6', 'p'];
+        infoClasses.forEach((infoClass, index) => {
+            const divElement = document.querySelector(`.${infoClass}`);
+            if (divElement) {
+                const headerElement = document.createElement(headerTags[index]);
+                headerElement.classList.add('small');
+                headerElement.style.color = 'var(--error)';
+                headerElement.innerHTML = divElement.innerHTML;
+                divElement.parentNode.replaceChild(headerElement, divElement);
+            }
+        });
+    }
+
+    function showTrace() {
+        fetch(`/exec/event/{{ fid }}`)
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                function read() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            console.log('Stream complete');
+                            return;
+                        }
+                        const text = decoder.decode(value);
+                        elmTrace.textContent += text + "\n";
+                        read();
+                    }).catch(error => {
+                        console.error('Stream error:', error);
+                    });
+                }
+                read();
+            })
+            .catch(error => {
+                console.error('Fetch error:', error);
+            });
+        };
+
+    const ev = new EventSource(`/exec/format/${fid}`);
+
+    ev.addEventListener('status', function(event) {
+        const [timestamp, status] = splitData(event.data);
+        elmStatus.value = status;
+        if (status == "starting") {
+            elmStartup.value = formatUnixTime(timestamp);
+            startup = timestamp;
+        }
+        else if (status == "finished") {
+            elmShutdown.value = formatUnixTime(timestamp);
+        }
+    });
+    ev.addEventListener('eof', function(event) {
+        console.log("closing");
+        elmStatusSpinner.style.display = 'none';
+        elmActionIcon.textContent = 'delete';
+        ev.close();
+    });
+    ev.addEventListener('inputs', function(event) {
+        const [timestamp, data] = splitData(event.data);
+        elmInputs.textContent = data;
+    });
+    ev.addEventListener('stdout', function(event) {
+        const [timestamp, data] = splitData(event.data);
+        elmStdout.innerHTML += data + "<br/>";
+    });
+    ev.addEventListener('stderr', function(event) {
+        const [timestamp, data] = splitData(event.data);
+    });
+    ev.addEventListener('debug', function(event) {
+        const [timestamp, data] = splitData(event.data);
+    });
+    ev.addEventListener('action', function(event) {
+        const [timestamp, data] = splitData(event.data);
+        elmProcess.innerHTML += data + "<br/>";
+        convertDivToButton();
+    });
+    ev.addEventListener('result', function(event) {
+        const [timestamp, data] = splitData(event.data);
+        elmProcess.innerHTML += data;
+        convertDivToButton();
+    });
+    ev.addEventListener('final', function(event) {
+        const [timestamp, data] = splitData(event.data);
+        elmOutput.innerHTML += data;
+        convertDivToButton();
+    });
+    ev.addEventListener('alive', function(event) {
+        const [timestamp, data] = splitData(event.data);
+    });
+    ev.onerror = function() {
+        console.error('EventSource failed.');
+    };
+
+    document.querySelector('#start-trace').addEventListener('click', showTrace);
+
+</script>
+{% endblock %}

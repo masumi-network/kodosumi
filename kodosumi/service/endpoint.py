@@ -1,5 +1,5 @@
 from hashlib import md5
-from typing import List, Union
+from typing import List, Union, Optional
 from urllib.parse import urlparse
 
 from httpx import AsyncClient
@@ -14,8 +14,8 @@ KODOSUMI_API = "x-kodosumi"
 KODOSUMI_AUTHOR = "x-author"
 KODOSUMI_ORGANIZATION = "x-organization"
 
-_fields: tuple = ("summary", "description", "tags", "deprecated",
-                  KODOSUMI_AUTHOR, KODOSUMI_ORGANIZATION)
+API_FIELDS: tuple = ("summary", "description", "tags", "deprecated",
+                     KODOSUMI_AUTHOR, KODOSUMI_ORGANIZATION)
 
 
 async def _get_openapi(url: str) -> dict:
@@ -48,12 +48,12 @@ def _extract(openapi_url, js, state: State) -> dict:
                     meta.get(KODOSUMI_API, False)))
             if in_scope:
                 details = {"method": meth.upper()}
-                for key in _fields:
+                for key in API_FIELDS:
                     target = key[2:] if key.startswith("x-") else key
                     details[target] = meta.get(key, None)
                 details["tags"] = sorted(details["tags"] or [])
                 ext = path.strip("/")
-                details["url"] = root + ext
+                details["url"] = "/-" + root + ext
                 details["uid"] = md5(details["url"].encode()).hexdigest()
                 details["source"] = openapi_url
                 ep = EndpointResponse.model_validate(details)
@@ -84,15 +84,25 @@ async def register(state: State, source: str) -> List[EndpointResponse]:
         state["endpoints"][source] = ret["register"]
         state["routing"][ret["root"]] = ret["base_url"]
     logger.info(f'registered {len(state["endpoints"][source])} from {source}')
-    return sorted(state["endpoints"][source], key=lambda ep: ep.url)
+    return sorted(
+        state["endpoints"][source], key=lambda ep: ep.summary or "None")
 
 
-def get_endpoints(state: State) -> List[EndpointResponse]:
-    return sorted([
-        EndpointResponse.model_validate(item) 
-            for nest in state["endpoints"].values() 
-                for item in nest
-    ], key=lambda ep: ep.url)
+def get_endpoints(state: State, 
+                  query: Optional[str]=None) -> List[EndpointResponse]:
+
+    def find(item):
+        if query is None:
+            return True
+        return query.lower() in "".join([
+            str(i) for i in [item.uid, item.method, item.url, item.summary, 
+                             item.description, item.author, item.organization, 
+                             "".join(item.tags)] if i]).lower()
+
+    scope = [item for nest in state["endpoints"].values() 
+             for item in nest if find(item)]
+    scope = sorted(scope, key=lambda ep: ep.summary or "None")
+    return scope
 
 
 def find_endpoint(state: State, base: str) -> Union[EndpointResponse, None]:

@@ -1,9 +1,9 @@
 import uuid
-from typing import Any, Dict, List, Optional, Literal
-
+from typing import Any, Dict, List, Optional, Literal, Self
+import math
 import bcrypt
 from bcrypt import checkpw
-from pydantic import BaseModel, EmailStr, RootModel, field_validator
+from pydantic import BaseModel, EmailStr, RootModel, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from typing import Generic, TypeVar
@@ -47,6 +47,7 @@ class RoleEdit(BaseModel):
 class RoleLogin(BaseModel):
     name: str
     password: str
+    redirect: Optional[str] = None
 
 class RoleResponse(BaseModel):
     id: uuid.UUID
@@ -116,18 +117,24 @@ T = TypeVar('T')
 class Pagination(BaseModel, Generic[T]):
     items: List[T]
     total: int
-    p: Optional[int] = 0
-    pp: Optional[int] = 10
+    p: int
+    pp: int
+    lp: int
 
-    @field_validator('p')
-    def validate_page(cls, v, values):
-        total = values.data.get('total', len(values.data.get('items', [])))
-        pp = values.data.get('pp', 10)
-        if pp < 1:
-            raise ValueError("pp must be greater than 0")
-        max_pages = (total + pp - 1) // pp
-        if v < 0:
+
+    def __init__(self, **data: Any) -> None:
+        data["pp"] = data.get("pp", 10)
+        data["p"] = data.get("p", 0)
+        data["total"] = data.get("total", 0)
+        data["lp"] = math.ceil(data["total"] / data["pp"]) - 1
+        super().__init__(**data)
+
+    @model_validator(mode='after')
+    def validate_pager(self) -> Self:
+        if self.p < 0:
             raise ValueError("p must be greater than or equal to 0")
-        if v >= max_pages:
-            raise ValueError(f"p must be less than or equal to {max_pages}")
-        return v
+        if self.p > self.lp:
+            raise ValueError(f"p must be less than or equal to {self.lp}")
+        if self.pp < 1:
+            raise ValueError("pp must be greater than or equal to 1")
+        return self

@@ -3,15 +3,15 @@ from typing import Optional, Union
 import litestar
 from bs4 import BeautifulSoup
 from httpx import AsyncClient
-from litestar import Request, route
+from litestar import Request, route, MediaType
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
 from litestar.response import Redirect, Response
 
-import kodosumi.endpoint
 from kodosumi.log import logger
 from kodosumi.runner import KODOSUMI_LAUNCH
-
+from kodosumi import helper
+from kodosumi.service.endpoint import API_FIELDS
 
 KODOSUMI_USER = "x-kodosumi_user"
 KODOSUMI_BASE = "x-kodosumi_base"
@@ -20,7 +20,7 @@ KODOSUMI_BASE = "x-kodosumi_base"
 def update_links(base_url, html_content) -> str:
     soup = BeautifulSoup(html_content, 'html.parser')
     for tag in soup.find_all(['a', 'link', 'script', 'img', 'form']):
-        if tag.name == 'a':
+        if tag.name == 'a' or tag.name == 'link':
             href = tag.get('href')
             if href and not href.startswith(('http://', 'https://')):
                 if href.startswith("/"):
@@ -40,7 +40,7 @@ def update_links(base_url, html_content) -> str:
 
 class ProxyControl(litestar.Controller):
 
-    @route("{path:path}",
+    @route("/{path:path}",
            http_method=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def forward(
             self,
@@ -87,11 +87,14 @@ class ProxyControl(litestar.Controller):
                 if fid1:
                     fid2 = response.json().get("fid", "")
                     if fid1 == fid2:
-                        return Redirect(f"/-/state/{fid1}")
+                        if helper.wants(request, MediaType.HTML):
+                           return Redirect(f"/admin/exec/{fid1}")
+                        return Redirect(f"/exec/event/{fid1}")
             response_content = response.content
             if response.headers.get("content-type", "").startswith("text/html"):
-                response_content = update_links(base, response.content.decode(
-                    "utf-8")).encode("utf-8")
+                response_content = update_links(
+                    "/-" + base, response.content.decode("utf-8")).encode(
+                        "utf-8")
         return Response(
                 content=response_content,
                 status_code=response.status_code,
