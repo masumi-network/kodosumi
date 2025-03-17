@@ -410,6 +410,11 @@ class Runner:
         return "Runner shutdown complete."
 
 
+def kill_runner(fid: str):
+    runner = ray.get_actor(fid, namespace=NAMESPACE)
+    ray.kill(runner)
+
+
 def create_runner(username: str, 
                   base_url: str,
                   entry_point: Union[str, Callable],

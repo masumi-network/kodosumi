@@ -1,13 +1,14 @@
 import asyncio
 import sqlite3
 import markdown
+import shutil
 from pathlib import Path
 from typing import AsyncGenerator, Optional, Union
 from ansi2html import Ansi2HTMLConverter
 import yaml
 import litestar
 from litestar.response import ServerSentEvent
-from litestar import Request, get
+from litestar import Request, get, delete
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
 from litestar.response import Response, Stream
@@ -16,8 +17,9 @@ from litestar.types import SSEData
 from kodosumi.dtypes import DynamicModel, Execution
 from kodosumi.helper import now
 from kodosumi.log import logger
-from kodosumi.runner import EVENT_STATUS, STATUS_FINAL
+from kodosumi.runner import EVENT_STATUS, STATUS_FINAL, kill_runner
 from kodosumi.spooler import DB_FILE
+
 
 DEFAULT_FORMATTER = {
     "action": None, # class specific rendering of tool actions
@@ -453,3 +455,26 @@ class ExecutionControl(litestar.Controller):
             p: int=0,
             pp: int=10) -> ServerSentEvent:
         return ServerSentEvent(_listing(state, request, p, pp))
+
+    @delete("/{fid:str}")
+    async def delete_execution(
+            self, 
+            fid: str, 
+            request: Request, 
+            state: State) -> None:
+        db_file = Path(state["settings"].EXEC_DIR).joinpath(
+            request.user, fid, DB_FILE)
+        if not db_file.exists():
+            raise NotFoundException(fid)
+        job = await _query(db_file, state, with_final=False)
+        if job.status not in STATUS_FINAL:
+            kill_runner(job.fid)
+            logger.warning(f"killed {fid}")
+        if db_file.parent.exists():
+            shutil.rmtree(str(db_file.parent))
+            logger.warning(f"deleted {fid}")
+        else:
+            logger.warning(f"{fid} not found")
+        # if db_file.exists():
+        #     db_file.unlink()
+        # return Response(status_code=204)
