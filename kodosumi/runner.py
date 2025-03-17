@@ -316,7 +316,7 @@ class Runner:
                 origin[field] = obj.__brief__.get(field, None)
         elif hasattr(obj, "__doc__") and obj.__doc__:
             origin["summary"] = obj.__doc__.strip().split("\n")[0]
-            origin["description"] = obj.__doc__
+            origin["description"] = obj.__doc__.strip()
 
         await self.enqueue({
             "timestamp": now(),

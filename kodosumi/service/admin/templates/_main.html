@@ -1,0 +1,77 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="google" content="notranslate">
+    <title>kodosumi</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link 
+        href="/static/beer.css" rel="stylesheet">
+    <link 
+        href="/static/kodosumi.css" rel="stylesheet">
+    <script type="module"
+        src="/static/beer.min.js"></script>
+    <script type="module"
+        src="/static/material-dynamic-colors.min.js"></script>
+    {% block head %}
+    {% endblock %}
+</head>
+
+<body class="light">
+    <header class="max fixed">
+        <div>
+            <img src="/static/word.png" style="margin-left: 4px; margin-bottom: -18px;">
+            <nav class="responsive margin">
+                <h3>{% block headline %}{% endblock %}</h3>
+                <div class="max"></div>
+                {% block menu %}{% endblock %}
+            </nav>
+            <hr style="margin-top: -16px; margin-bottom: 3px; margin-left: 16px; margin-right: -2px;"/>
+        </div>
+        <div class="max" style="height: 6px;"></div>
+        {% block extra_header %}{% endblock %}
+    </header>
+    <nav class="left l m" style="margin-left: 12px;">
+        <header class="">
+            <img src="/static/logo.png" alt="kodosumi" width="32">
+        </header>
+        <a href="/admin/flow">
+            <i>widgets</i>
+            <div>Services</div>
+        </a>
+        <a href="/admin/exec">
+            <i>view_list</i>
+            <div>Jobs</div>
+        </a>
+        <a target="_blank" href="/schema/swagger">
+            <i>help</i>
+            <div>Help</div>
+        </a>
+        <div class="divider"></div>
+        <a href="/admin/logout">
+            <i>logout</i>
+            <div>Logout</div>
+        </a>
+    </nav>
+    <nav class="bottom s">
+        <a href="/admin/flow">
+            <i>widgets</i>
+        </a>
+        <a href="/admin/exec">
+            <i>view_list</i>
+        </a>
+        <a target="_blank" href="/schema/swagger">
+            <i>help</i>
+        </a>
+    </nav>
+    <main class="responsive max " style="margin-left: 28px; margin-right: 28px;">
+        <page class="left">
+            {% block main %}
+            {% endblock %}
+        </page>
+    </main>
+    {% block foot %}
+    {% endblock %}
+</body>
+</html>

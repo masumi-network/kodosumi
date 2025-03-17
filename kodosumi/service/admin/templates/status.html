@@ -104,8 +104,6 @@ Job: <span id="summary">summary</span>
 
 {% block foot %}
 <script>
-    const fid = "{{ fid }}"
-
     const elmStatus = document.getElementById('status');
     const elmStatusSpinner = document.getElementById('status-spinner');
     const elmStartup = document.getElementById('startup');
@@ -189,7 +187,7 @@ Job: <span id="summary">summary</span>
             });
         };
 
-    const ev = new EventSource(`/exec/format/${fid}`);
+    const ev = new EventSource('/exec/format/{{ fid }}');
 
     ev.addEventListener('status', function(event) {
         const [timestamp, status] = splitData(event.data);

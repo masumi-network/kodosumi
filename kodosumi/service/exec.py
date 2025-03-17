@@ -186,44 +186,139 @@ async def _event(
     conn.execute('pragma synchronous=normal;')
     conn.execute('pragma read_uncommitted=true;')
     cursor = conn.cursor()
-    while True:
-        cursor.execute("""
-            SELECT id, timestamp, kind, message 
-            FROM monitor 
-            WHERE id > ?
-            ORDER BY timestamp ASC
-        """, (offset, ))
-        for _id, stamp, kind, msg in cursor.fetchall():
-            t0 = now()
-            if kind == EVENT_STATUS:
-                status = msg
-            if filter_events is None or kind in filter_events:
-                out = f"{stamp}:"
-                out += formatter.convert(kind, msg) if formatter else msg
+    try:
+        t0 = now()
+        while True:
+            cursor.execute("""
+                SELECT id, timestamp, kind, message 
+                FROM monitor 
+                WHERE id > ?
+                ORDER BY timestamp ASC
+            """, (offset, ))
+            for _id, stamp, kind, msg in cursor.fetchall():
+                t0 = now()
+                if kind == EVENT_STATUS:
+                    status = msg
+                if filter_events is None or kind in filter_events:
+                    out = f"{stamp}:"
+                    out += formatter.convert(kind, msg) if formatter else msg
+                    yield {
+                        "event": kind,
+                        "id": _id,
+                        "data": out
+                    }
+                    # yield f"{kind}: {timestamp}:{message}\n\n"
+                offset = _id
+            if status in STATUS_FINAL:
+                break
+            await asyncio.sleep(0.25)
+            if now() > t0 + 1:
+                t0 = now()
+                logger.debug("looping")
                 yield {
-                    "event": kind,
-                    "id": _id,
-                    "data": out
+                    "id": 0,
+                    "event": "alive",
+                    "data": f"{now()}:alive"
                 }
-                # yield f"{kind}: {timestamp}:{message}\n\n"
-            offset = _id
-        if status in STATUS_FINAL:
-            break
-        await asyncio.sleep(0.25)
-        if now() > t0 + 1:
-            t0 = now()
-            logger.debug("looping")
-            yield {
-                "id": 0,
-                "event": "alive",
-                "data": f"{now()}:alive"
-            }
-    yield {
-        "id": 0,
-        "event": "eof",
-        "data": ""
-    }
-    conn.close()
+        yield {
+            "id": 0,
+            "event": "eof",
+            "data": ""
+        }
+    finally:
+        conn.close()
+
+
+async def _listing(state: State, 
+                   request: Request, 
+                   p: int, 
+                   pp: int) -> AsyncGenerator[SSEData, None]:
+    exec_dir = Path(state["settings"].EXEC_DIR).joinpath(request.user)
+    previous_state:dict = {} 
+
+    try:
+        initial = True
+        while True:
+            await asyncio.sleep(1.)
+
+            if not exec_dir.exists():
+                continue
+
+            listing = []
+            for db_file in exec_dir.iterdir():
+                db_file = db_file.joinpath(DB_FILE)
+                if not db_file.is_file():
+                    continue
+                listing.append(db_file)
+            if not listing:
+                continue
+
+            listing.sort(reverse=True)
+            logger.info(f"show page: {p}")
+            total_pages = (len(listing) + pp - 1) // pp
+            if p < 0:
+                p = 0
+            if p >= total_pages:
+                p = total_pages - 1
+
+            start = p * pp
+            end = start + pp
+            current_state = {}  
+            event_triggered = False
+
+            if initial:
+                yield {
+                    "id": now(),
+                    "event": "info",
+                    "data": DynamicModel({
+                        "total": len(listing),
+                        "page": p,
+                        "pp": pp,
+                        "total_pages": total_pages
+                    }).model_dump_json()
+                }
+
+            for db_file in listing[start:end]:
+                result = await _query(db_file, state)
+                current_state[result.fid] = result.status
+
+                if result.fid in previous_state:
+                    if previous_state[result.fid] not in STATUS_FINAL:
+                        yield {
+                            "id": now(),
+                            "event": "update",
+                            "data": result.model_dump_json()
+                        }
+                        event_triggered = True
+                else:
+                    yield {
+                        "id": now(),
+                        "event": "append" if initial else "prepend",
+                        "data": result.model_dump_json()
+                    }
+                    event_triggered = True
+
+            for fid in previous_state.keys():
+                if fid not in current_state:
+                    yield {
+                        "id": now(),
+                        "event": "delete",
+                        "data": fid
+                    }
+                    event_triggered = True
+
+            if not event_triggered:
+                yield {
+                    "id": now(),
+                    "event": "alive",
+                    "data": "No updates or deletes"
+                }
+
+            previous_state = current_state
+            initial = False
+
+    finally:
+        logger.info("done streaming, finally closed")
 
 
 class ExecutionControl(litestar.Controller):
@@ -328,14 +423,6 @@ class ExecutionControl(litestar.Controller):
         return ServerSentEvent(
             _event(db_file, filter_events, formatter), 
         )
-        # return Stream(
-        #     _event(db_file, filter_events, formatter), 
-        #     media_type="text/event-stream",
-        #     headers={
-        #         "Cache-Control": "no-cache", 
-        #         "Transfer-Encoding": "chunked"
-        #     }
-        # )
 
     @get("/out/{fid:str}")
     async def execution_stdout(
@@ -357,3 +444,12 @@ class ExecutionControl(litestar.Controller):
             self, fid: str, request: Request, state: State) -> ServerSentEvent:
         return await self._stream(fid, state, request, filter_events=None,
                                   formatter=DefaultFormatter())
+
+    @get("/stream")
+    async def execution_stream(
+            self, 
+            request: Request, 
+            state: State,
+            p: int=0,
+            pp: int=10) -> ServerSentEvent:
+        return ServerSentEvent(_listing(state, request, p, pp))

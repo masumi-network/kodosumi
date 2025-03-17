@@ -26,11 +26,6 @@ async def _get_openapi(url: str) -> dict:
 
 
 def _extract(openapi_url, js, state: State) -> dict:
-    # if "servers" in js:
-    #     server = js['servers'][0]['url']
-    #     base_elm = urlparse(openapi_url)
-    #     base_url = f"/{base_elm.hostname}/{base_elm.port}{server}"
-    # else:
     base_url = openapi_url
     if base_url.endswith("/"):
         base_url = base_url[:-1]

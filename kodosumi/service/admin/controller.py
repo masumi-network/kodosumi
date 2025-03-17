@@ -20,11 +20,15 @@ class AdminControl(litestar.Controller):
     async def flow(self, state: State) -> Template:
         data = kodosumi.service.endpoint.get_endpoints(state)
         return Template("flow.html", context={"items": data})
-    
+
+    @get("/exec")
+    async def exec_list(self, state: State) -> Template: 
+        return Template("exec.html", context={})
+
     @get("/exec/{fid:str}")
-    async def exec(self, fid: str, state: State) -> Union[Template, Response]: 
-        return Template("status1.html", context={"fid": fid})
-    
+    async def exec(self, fid: str, state: State) -> Template: 
+        return Template("status.html", context={"fid": fid})
+
     @get("/logout", status_code=200)
     async def logout(self, request: Request) -> Redirect:
         if request.user:
@@ -32,4 +36,3 @@ class AdminControl(litestar.Controller):
             response.delete_cookie(key=TOKEN_KEY)
             return response
         raise NotAuthorizedException(detail="Invalid name or password")
-
