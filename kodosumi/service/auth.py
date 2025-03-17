@@ -12,7 +12,7 @@ from typing import Annotated, Optional, Union, Any
 from kodosumi.dtypes import Role, RoleCreate, RoleEdit, RoleLogin, RoleResponse
 from kodosumi.log import logger
 from kodosumi.service.jwt import HEADER_KEY, TOKEN_KEY, encode_jwt_token
-
+from kodosumi import helper
 
 class LoginControl(litestar.Controller):
 
@@ -27,8 +27,7 @@ class LoginControl(litestar.Controller):
     async def login_role_post(
             self, 
             data: Annotated[
-                RoleLogin, Body(media_type=RequestEncodingType.URL_ENCODED)
-            ],
+                RoleLogin, Body(media_type=RequestEncodingType.URL_ENCODED)],
             transaction: AsyncSession) -> Response:
         return await self._get_role(
             transaction, data.name, data.password, data.redirect)
@@ -71,5 +70,7 @@ class LoginControl(litestar.Controller):
     async def home(self, request: Request) -> Union[Redirect, Template]:
         if TOKEN_KEY in request.cookies:
             return Redirect("/admin/flow")
-        return Template("login.html")
+        if helper.wants(request):
+            return Template("login.html")
+        raise NotAuthorizedException(detail="Login requited")
     

@@ -57,9 +57,10 @@ def app_exception_handler(request: Request,
         ret["status_code"] = exc.status_code
         extra = ""
         meth = logger.warning
-        response = Redirect("/")
-        response.delete_cookie(key=TOKEN_KEY)
-        return response
+        if helper.wants(request):
+            response = Redirect("/")
+            response.delete_cookie(key=TOKEN_KEY)
+            return response
     elif isinstance(exc, ValidationException):
         ret["detail"] = f"{exc.detail}: {exc.extra}"
         ret["status_code"] = exc.status_code

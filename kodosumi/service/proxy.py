@@ -89,6 +89,8 @@ class ProxyControl(litestar.Controller):
                     if fid1 == fid2:
                         if helper.wants(request, MediaType.HTML):
                            return Redirect(f"/admin/exec/{fid1}")
+                        if helper.wants(request, MediaType.TEXT):
+                            return Redirect(f"/exec/state/{fid1}")
                         return Redirect(f"/exec/event/{fid1}")
             response_content = response.content
             if response.headers.get("content-type", "").startswith("text/html"):
