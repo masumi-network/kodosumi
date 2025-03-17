@@ -130,7 +130,6 @@ class LoggingMiddleware(MiddlewareProtocol):
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
 
-        request_id = str(uuid.uuid4())
         t0 = time()
         status = None
 
@@ -142,19 +141,18 @@ class LoggingMiddleware(MiddlewareProtocol):
 
         if scope["type"] == "http":
             req = Request(scope)
-            logger.debug(f"{req.method} {req.url} - start (-/{request_id})")
 
         await self.app(scope, receive, send_wrapper)
        
         if scope["type"] == "http":
             req = Request(scope)
             try:
-                user = getattr(req, "user", None)
+                user = req.user
             except:
-                user = None
+                user = "-"
             logger.info(
-                f"{req.method} {req.url} - {status} in {time() - t0:.4f}s "
-                f"({user}/{request_id})")
+                f"{req.method} {req.url.path} - {status} "
+                f"in {time() - t0:.4f}s ({user})")
 
 
 def create_app(**kwargs) -> Litestar:

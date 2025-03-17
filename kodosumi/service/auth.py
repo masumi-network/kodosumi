@@ -1,18 +1,19 @@
-import uuid
+from typing import Annotated, Any, Optional, Union
 
 import litestar
-from litestar import Request, Response, delete, get, post, put, route
-from litestar.response import Template, Redirect
+from litestar import Request, Response, get, post, route
 from litestar.enums import RequestEncodingType
-from litestar.exceptions import NotAuthorizedException, NotFoundException
+from litestar.exceptions import NotAuthorizedException
 from litestar.params import Body
+from litestar.response import Redirect, Template
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Annotated, Optional, Union, Any
-from kodosumi.dtypes import Role, RoleCreate, RoleEdit, RoleLogin, RoleResponse
+
+from kodosumi import helper
+from kodosumi.dtypes import Role, RoleLogin
 from kodosumi.log import logger
 from kodosumi.service.jwt import HEADER_KEY, TOKEN_KEY, encode_jwt_token
-from kodosumi import helper
+
 
 class LoginControl(litestar.Controller):
 
