@@ -88,9 +88,8 @@ Agentic Services
         observer.observe(endOfList);
     }
     async function loadFlows() {
-        console.log("get page", page, lp, q)
         if (lp != null && page > lp) {
-            console.log("no more items to load");
+            console.log("No more items to load");
             return;
         }
         try {
@@ -105,7 +104,6 @@ Agentic Services
                 data.items.forEach(flow => {
                     const flowElement = document.createElement('div');
                     flowElement.classList.add('s12', 'l4');
-                    console.log("enter ", flow.uid);
                     flowElement.innerHTML = `
                     <a href="${flow.url}" style="display: block;">
                         <article class="border scroller" onmouseover="this.classList.add('secondary')"
