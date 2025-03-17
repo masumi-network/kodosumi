@@ -129,7 +129,6 @@ Job: <span id="summary">summary</span>
     function splitData(data) {
         const parts = data.split(":");
         const ts = parts[0];
-        console.log("got data ", ts);
         if (startup) {
             elmRuntime.value = secondsToHHMMSS(ts - startup);
         }
@@ -170,7 +169,6 @@ Job: <span id="summary">summary</span>
                 function read() {
                     reader.read().then(({ done, value }) => {
                         if (done) {
-                            console.log('Stream complete');
                             return;
                         }
                         const text = decoder.decode(value);
@@ -196,7 +194,7 @@ Job: <span id="summary">summary</span>
             elmStartup.value = formatUnixTime(timestamp);
             startup = timestamp;
         }
-        else if (status == "finished") {
+        else if (status == "finished" || status == "error") {
             elmShutdown.value = formatUnixTime(timestamp);
         }
     });
@@ -216,6 +214,12 @@ Job: <span id="summary">summary</span>
     });
     ev.addEventListener('stderr', function(event) {
         const [timestamp, data] = splitData(event.data);
+    });
+    ev.addEventListener('error', function(event) {
+        const [timestamp, data] = splitData(event.data);
+        console.log("we have error");
+        elmOutput.innerHTML += '<pre style="font-family: monospace">' + data + '</pre>';
+        convertDivToButton();
     });
     ev.addEventListener('debug', function(event) {
         const [timestamp, data] = splitData(event.data);

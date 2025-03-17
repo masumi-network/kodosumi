@@ -87,7 +87,7 @@ Job History
         listItem.querySelector('#startup').textContent = new Date(data.started_at * 1000).toISOString().replace('T', ' ').slice(0, 19);
         listItem.querySelector('#runtime').textContent = calculateRuntime(data.started_at, data.last_update);
         listItem.querySelector('#summary').textContent = data.summary;
-        listItem.querySelector('#args').textContent = transformString(data.inputs) + " ... " + data.fid;
+        listItem.querySelector('#args').textContent = transformString(data.inputs);
     }
     let ev = null;
 
