@@ -40,14 +40,14 @@ async def test_serve_run(start_ray, start_spooler, auth_client):
     serve.run(tests.apps.serve_app.fast_app)
     serve.status()
     resp = await auth_client.post(
-        "/-/flow/register", json={"url": "http://localhost:8000/openapi.json"})
+        "/flow/register", json={"url": "http://localhost:8000/openapi.json"})
     assert resp.status_code == 201
     js = resp.json()
     resp = await auth_client.get(js[0]["url"])
     assert resp.status_code == 200
     assert "<html>" in resp.content.decode()
     assert "</html>" in resp.content.decode()
-    resp = await auth_client.get("/-/flow")
+    resp = await auth_client.get("/flow")
     js = resp.json()
     assert js["items"][0]["method"] == "GET"
     resp = await auth_client.get(js["items"][0]["url"])
@@ -58,19 +58,25 @@ async def test_serve_run(start_ray, start_spooler, auth_client):
 
     async def _wait(f):
         while True:
-            resp = await auth_client.get(f"/-/state/{f}")
+            resp = await auth_client.get(f"/exec/state/{f}")
             assert resp.status_code == 200
             if resp.json()["status"] == "finished":
                 break
             await asyncio.sleep(0.5)
 
-    resp = await auth_client.post(js["items"][1]["url"], json={"runtime": 3})
+    resp = await auth_client.post(js["items"][1]["url"], json={"runtime": 3},
+                                  headers={"Accept": "text/plain"})
     assert resp.status_code == 200
     fid = resp.json()["fid"]
     await _wait(fid)
 
+    resp = await auth_client.post(js["items"][1]["url"], json={"runtime": 3})
+    assert resp.status_code == 200
+    resp.headers["Content-Type"] == "text/event-stream"
+
     assert js["items"][2]["method"] == "POST"
-    resp = await auth_client.post(js["items"][2]["url"], json={"runtime": 3})
+    resp = await auth_client.post(js["items"][2]["url"], json={"runtime": 3},
+                                  headers={"Accept": "text/plain"})
     assert resp.status_code == 200
     fid = resp.json()["fid"]
     await _wait(fid)

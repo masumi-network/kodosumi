@@ -7,47 +7,47 @@ import asyncio
 
 async def verify1(auth_client, prefix=""):
     resp = await auth_client.post(
-        "/-/flow/register", 
+        "/flow/register", 
         json={"url": f"http://localhost:8000{prefix}/openapi.json"})
     assert resp.status_code == 201
 
-    resp = await auth_client.get("/-/flow")
+    resp = await auth_client.get("/flow")
     assert resp.status_code == 200
     js = resp.json()
     assert len(js["items"]) == 2
     assert js["total"] == 2
-    assert js["items"][0]["url"] == f'/localhost/8000{prefix}/-/home'
-    assert js["items"][1]["url"] == f'/localhost/8000{prefix}/-/page/post2'
+    assert js["items"][0]["url"] == f'/-/localhost/8000{prefix}/-/home'
+    assert js["items"][1]["url"] == f'/-/localhost/8000{prefix}/-/page/post2'
 
-    resp = await auth_client.get(f'/localhost/8000{prefix}/-/home')
+    resp = await auth_client.get(f'/-/localhost/8000{prefix}/-/home')
     assert resp.status_code == 200
     cont = resp.content.decode()
-    assert f'href="/localhost/8000{prefix}/-/"' in cont
-    assert f'href="/localhost/8000{prefix}/-/page/1"' in cont
+    assert f'href="/-/localhost/8000{prefix}/-/"' in cont
+    assert f'href="/-/localhost/8000{prefix}/-/page/1"' in cont
     assert f'href="page/1"' in cont
 
-    resp = await auth_client.get(f'/localhost/8000{prefix}/-/')
+    resp = await auth_client.get(f'/-/localhost/8000{prefix}/-/')
     assert resp.status_code == 200
 
-    resp = await auth_client.get(f'/localhost/8000{prefix}/-/page/1')
+    resp = await auth_client.get(f'/-/localhost/8000{prefix}/-/page/1')
     assert resp.status_code == 200
     cont = resp.content.decode()
     assert f'href="../"' in cont
     assert f'href="./2"' in cont
 
-    resp = await auth_client.get(f'/localhost/8000{prefix}/-/page/2')
+    resp = await auth_client.get(f'/-/localhost/8000{prefix}/-/page/2')
     assert resp.status_code == 200
     cont = resp.content.decode()
-    assert f'href="/localhost/8000{prefix}/-/home"' in cont
-    assert f'href="/localhost/8000{prefix}/-/page/1"' in cont
+    assert f'href="/-/localhost/8000{prefix}/-/home"' in cont
+    assert f'href="/-/localhost/8000{prefix}/-/page/1"' in cont
     assert f'href="subpage/3"' in cont
 
-    resp = await auth_client.get(f'/localhost/8000{prefix}/-/page/subpage/3')
+    resp = await auth_client.get(f'/-/localhost/8000{prefix}/-/page/subpage/3')
     assert resp.status_code == 200
     cont = resp.content.decode()
-    assert f'href="/localhost/8000{prefix}/-/home"' in cont
-    assert f'href="/localhost/8000{prefix}/-/page/1"' in cont
-    assert f'href="/localhost/8000{prefix}/-/page/subpage/3"' in cont
+    assert f'href="/-/localhost/8000{prefix}/-/home"' in cont
+    assert f'href="/-/localhost/8000{prefix}/-/page/1"' in cont
+    assert f'href="/-/localhost/8000{prefix}/-/page/subpage/3"' in cont
 
 
 async def test_serve_run(start_ray, auth_client):
@@ -65,18 +65,21 @@ async def test_serve_run_prefix(start_ray, auth_client):
 
 async def verify2(auth_client):
 
-    resp = await auth_client.get("/-/flow")
+    resp = await auth_client.get("/flow")
     assert resp.status_code == 200
     js = resp.json()
     assert len(js["items"]) == 6
     assert js["total"] == 6
 
-    assert js["items"][0]["url"] == f'/localhost/8000/-/home'
-    assert js["items"][1]["url"] == f'/localhost/8000/-/page/post2'
-    assert js["items"][2]["url"] == f'/localhost/8000/entry/point/1/-/home'
-    assert js["items"][3]["url"] == f'/localhost/8000/entry/point/1/-/page/post2'
-    assert js["items"][4]["url"] == f'/localhost/8000/entry/point/2/-/home'
-    assert js["items"][5]["url"] == f'/localhost/8000/entry/point/2/-/page/post2'
+    actual = [(e["summary"], e["url"]) for e in js["items"]]
+    expected = [
+        ('Home', '/-/localhost/8000/-/home'), 
+        ('Home', '/-/localhost/8000/entry/point/1/-/home'), 
+        ('Home', '/-/localhost/8000/entry/point/2/-/home'), 
+        ('Page Post2', '/-/localhost/8000/-/page/post2'), 
+        ('Page Post2', '/-/localhost/8000/entry/point/1/-/page/post2'), 
+        ('Page Post2', '/-/localhost/8000/entry/point/2/-/page/post2')
+    ]
 
     for elm in js["items"]:
         if elm["method"] == "GET":
@@ -94,21 +97,20 @@ async def test_serve_run_multi(start_ray, auth_client):
               route_prefix="/entry/point/2")
     serve.status()
     resp = await auth_client.post(
-        "/-/flow/register", 
+        "/flow/register", 
         json={"url": f"http://localhost:8000/openapi.json"})
     assert resp.status_code == 201
     resp = await auth_client.post(
-        "/-/flow/register", 
+        "/flow/register", 
         json={"url": f"http://localhost:8000/entry/point/1/openapi.json"})
     assert resp.status_code == 201
 
     resp = await auth_client.post(
-        "/-/flow/register", 
+        "/flow/register", 
         json={"url": f"http://localhost:8000/entry/point/2/openapi.json"})
     assert resp.status_code == 201
 
     await verify2(auth_client)
-
     serve.shutdown()
 
 async def test_serve_run_routes(start_ray, auth_client):
@@ -120,7 +122,7 @@ async def test_serve_run_routes(start_ray, auth_client):
     serve.status()
 
     resp = await auth_client.post(
-        "/-/flow/register", 
+        "/flow/register", 
         json={"url": "http://localhost:8000/-/routes"})
     assert resp.status_code == 201
 
@@ -155,48 +157,50 @@ async def test_uvicorn(start_ray, start_spooler, auth_client):
         port = 8000 + i
         servers.append(await _start_uv(port))
         resp = await auth_client.post(
-            "/-/flow/register", 
+            "/flow/register", 
             json={"url": f"http://localhost:{port}/openapi.json"})
     assert resp.status_code == 201
-    resp = await auth_client.get("/-/flow?pp=100")
+    resp = await auth_client.get("/flow?pp=100")
     assert resp.status_code == 200
-    assert [(e["method"], e["url"]) for e in resp.json()["items"]] == [
-        ('GET', '/localhost/8000/-/'), 
-        ('POST', '/localhost/8000/-/'), 
-        ('GET', '/localhost/8000/-/end1'), 
-        ('GET', '/localhost/8000/-/end10'), 
-        ('GET', '/localhost/8000/-/end2'), 
-        ('GET', '/localhost/8000/-/end3'), 
-        ('GET', '/localhost/8000/-/end4'), 
-        ('GET', '/localhost/8000/-/end5'), 
-        ('GET', '/localhost/8000/-/end6'), 
-        ('GET', '/localhost/8000/-/end7'), 
-        ('GET', '/localhost/8000/-/end8'), 
-        ('GET', '/localhost/8000/-/end9'), 
-        ('GET', '/localhost/8001/-/'),
-        ('POST', '/localhost/8001/-/'), 
-        ('GET', '/localhost/8001/-/end1'), 
-        ('GET', '/localhost/8001/-/end10'), 
-        ('GET', '/localhost/8001/-/end2'), 
-        ('GET', '/localhost/8001/-/end3'), 
-        ('GET', '/localhost/8001/-/end4'), 
-        ('GET', '/localhost/8001/-/end5'), 
-        ('GET', '/localhost/8001/-/end6'), 
-        ('GET', '/localhost/8001/-/end7'), 
-        ('GET', '/localhost/8001/-/end8'), 
-        ('GET', '/localhost/8001/-/end9'), 
-        ('GET', '/localhost/8002/-/'), 
-        ('POST', '/localhost/8002/-/'), 
-        ('GET', '/localhost/8002/-/end1'), 
-        ('GET', '/localhost/8002/-/end10'), 
-        ('GET', '/localhost/8002/-/end2'), 
-        ('GET', '/localhost/8002/-/end3'), 
-        ('GET', '/localhost/8002/-/end4'), 
-        ('GET', '/localhost/8002/-/end5'), 
-        ('GET', '/localhost/8002/-/end6'), 
-        ('GET', '/localhost/8002/-/end7'), 
-        ('GET', '/localhost/8002/-/end8'), 
-        ('GET', '/localhost/8002/-/end9')
+    assert [(e["summary"], e["method"], e["url"]) 
+            for e in resp.json()["items"]] == [
+        ('Get', 'GET', '/-/localhost/8000/-/'), 
+        ('Get', 'GET', '/-/localhost/8001/-/'),
+        ('Get', 'GET', '/-/localhost/8002/-/'),
+        ('Get End1', 'GET', '/-/localhost/8000/-/end1'),
+        ('Get End1', 'GET', '/-/localhost/8001/-/end1'),
+        ('Get End1', 'GET', '/-/localhost/8002/-/end1'),
+        ('Get End10', 'GET', '/-/localhost/8000/-/end10'),
+        ('Get End10', 'GET', '/-/localhost/8001/-/end10'),
+        ('Get End10', 'GET', '/-/localhost/8002/-/end10'),
+        ('Get End2', 'GET', '/-/localhost/8000/-/end2'),
+        ('Get End2', 'GET', '/-/localhost/8001/-/end2'),
+        ('Get End2', 'GET', '/-/localhost/8002/-/end2'),
+        ('Get End3', 'GET', '/-/localhost/8000/-/end3'),
+        ('Get End3', 'GET', '/-/localhost/8001/-/end3'),
+        ('Get End3', 'GET', '/-/localhost/8002/-/end3'),
+        ('Get End4', 'GET', '/-/localhost/8000/-/end4'),
+        ('Get End4', 'GET', '/-/localhost/8001/-/end4'),
+        ('Get End4', 'GET', '/-/localhost/8002/-/end4'),
+        ('Get End5', 'GET', '/-/localhost/8000/-/end5'),
+        ('Get End5', 'GET', '/-/localhost/8001/-/end5'),
+        ('Get End5', 'GET', '/-/localhost/8002/-/end5'),
+        ('Get End6', 'GET', '/-/localhost/8000/-/end6'),
+        ('Get End6', 'GET', '/-/localhost/8001/-/end6'),
+        ('Get End6', 'GET', '/-/localhost/8002/-/end6'),
+        ('Get End7', 'GET', '/-/localhost/8000/-/end7'),
+        ('Get End7', 'GET', '/-/localhost/8001/-/end7'),
+        ('Get End7', 'GET', '/-/localhost/8002/-/end7'),
+        ('Get End8', 'GET', '/-/localhost/8000/-/end8'),
+        ('Get End8', 'GET', '/-/localhost/8001/-/end8'),
+        ('Get End8', 'GET', '/-/localhost/8002/-/end8'),
+        ('Get End9', 'GET', '/-/localhost/8000/-/end9'),
+        ('Get End9', 'GET', '/-/localhost/8001/-/end9'),
+        ('Get End9', 'GET', '/-/localhost/8002/-/end9'),
+        ('Runner', 'POST', '/-/localhost/8000/-/'),
+        ('Runner', 'POST', '/-/localhost/8001/-/'),
+        ('Runner', 'POST', '/-/localhost/8002/-/')
     ]
+
     for s in servers:
         s.kill()    

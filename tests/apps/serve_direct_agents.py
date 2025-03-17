@@ -283,7 +283,7 @@ def create_app(num_endpoints: int) -> FastAPI:
         endpoint_path = f"/end-{i+1}"
         @app.get(endpoint_path, 
                  tags=[api_specs[i]["tag"]], 
-                 summary=api_specs[i]["summary"] + f" ({i})",
+                 summary=api_specs[i]["summary"],
                  description=api_specs[i]["description"],
                  openapi_extra={KODOSUMI_API: True})
         async def get_dynamic_endpoint(i=i) -> str:
@@ -301,4 +301,4 @@ if __name__ == "__main__":
     wd = str(Path(__file__).parent.parent.parent)
     sys.path.append(wd)
     uvicorn.run("tests.apps.serve_direct_agents:create50", 
-                host="localhost", port=8000, reload=True, factory=True)
+                host="localhost", port=8002, reload=True, factory=True)
