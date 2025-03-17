@@ -44,8 +44,8 @@ class LoginControl(litestar.Controller):
                         transaction: AsyncSession,
                         name: str, 
                         password: str,
-                        redirect: Optional[str]=None) -> Union[Response,
-                                                               Redirect]:
+                        redirect: Optional[str]=None) -> Union[
+                            Response, Redirect]:
         query = select(Role).where(Role.name == name)
         result = await transaction.execute(query)
         role = result.scalar_one_or_none()

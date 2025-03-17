@@ -8,7 +8,6 @@ from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.dtypes import Token
 
-
 TOKEN_KEY = "kodosumi_jwt"
 HEADER_KEY = "KODOSUMI_API_KEY"
 DEFAULT_TIME_DELTA = 86400  # 1 day in seconds

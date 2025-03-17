@@ -1,17 +1,17 @@
 import asyncio
-import sqlite3
-import markdown
 import shutil
+import sqlite3
 from pathlib import Path
 from typing import AsyncGenerator, Optional, Union
-from ansi2html import Ansi2HTMLConverter
-import yaml
+
 import litestar
-from litestar.response import ServerSentEvent
-from litestar import Request, get, delete
+import markdown
+import yaml
+from ansi2html import Ansi2HTMLConverter
+from litestar import Request, delete, get
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
-from litestar.response import Response, Stream
+from litestar.response import Response, ServerSentEvent, Stream
 from litestar.types import SSEData
 
 from kodosumi.dtypes import DynamicModel, Execution
@@ -20,12 +20,6 @@ from kodosumi.log import logger
 from kodosumi.runner import EVENT_STATUS, STATUS_FINAL, kill_runner
 from kodosumi.spooler import DB_FILE
 
-
-DEFAULT_FORMATTER = {
-    "action": None, # class specific rendering of tool actions
-    "result": None, # class specific rendering of tool results
-    "final": None, # class specific rendering of final results
-}
 
 class Formatter: 
 
@@ -216,7 +210,6 @@ async def _event(
             await asyncio.sleep(0.25)
             if now() > t0 + 1:
                 t0 = now()
-                logger.debug("looping")
                 yield {
                     "id": 0,
                     "event": "alive",
@@ -235,92 +228,88 @@ async def _listing(state: State,
                    request: Request, 
                    p: int, 
                    pp: int) -> AsyncGenerator[SSEData, None]:
+    
     exec_dir = Path(state["settings"].EXEC_DIR).joinpath(request.user)
     previous_state:dict = {} 
+    
+    initial = True
+    while True:
+        await asyncio.sleep(1.)
 
-    try:
-        initial = True
-        while True:
-            await asyncio.sleep(1.)
+        if not exec_dir.exists():
+            continue
 
-            if not exec_dir.exists():
+        listing = []
+        for db_file in exec_dir.iterdir():
+            db_file = db_file.joinpath(DB_FILE)
+            if not db_file.is_file():
                 continue
+            listing.append(db_file)
+        if not listing:
+            continue
 
-            listing = []
-            for db_file in exec_dir.iterdir():
-                db_file = db_file.joinpath(DB_FILE)
-                if not db_file.is_file():
-                    continue
-                listing.append(db_file)
-            if not listing:
-                continue
+        listing.sort(reverse=True)
+        total_pages = (len(listing) + pp - 1) // pp
+        if p < 0:
+            p = 0
+        if p >= total_pages:
+            p = total_pages - 1
 
-            listing.sort(reverse=True)
-            logger.info(f"show page: {p}")
-            total_pages = (len(listing) + pp - 1) // pp
-            if p < 0:
-                p = 0
-            if p >= total_pages:
-                p = total_pages - 1
+        start = p * pp
+        end = start + pp
+        current_state = {}  
+        event_triggered = False
 
-            start = p * pp
-            end = start + pp
-            current_state = {}  
-            event_triggered = False
+        if initial:
+            yield {
+                "id": now(),
+                "event": "info",
+                "data": DynamicModel({
+                    "total": len(listing),
+                    "page": p,
+                    "pp": pp,
+                    "total_pages": total_pages
+                }).model_dump_json()
+            }
 
-            if initial:
-                yield {
-                    "id": now(),
-                    "event": "info",
-                    "data": DynamicModel({
-                        "total": len(listing),
-                        "page": p,
-                        "pp": pp,
-                        "total_pages": total_pages
-                    }).model_dump_json()
-                }
+        for db_file in listing[start:end]:
+            result = await _query(db_file, state)
+            current_state[result.fid] = result.status
 
-            for db_file in listing[start:end]:
-                result = await _query(db_file, state)
-                current_state[result.fid] = result.status
-
-                if result.fid in previous_state:
-                    if previous_state[result.fid] not in STATUS_FINAL:
-                        yield {
-                            "id": now(),
-                            "event": "update",
-                            "data": result.model_dump_json()
-                        }
-                        event_triggered = True
-                else:
+            if result.fid in previous_state:
+                if previous_state[result.fid] not in STATUS_FINAL:
                     yield {
                         "id": now(),
-                        "event": "append" if initial else "prepend",
+                        "event": "update",
                         "data": result.model_dump_json()
                     }
                     event_triggered = True
-
-            for fid in previous_state.keys():
-                if fid not in current_state:
-                    yield {
-                        "id": now(),
-                        "event": "delete",
-                        "data": fid
-                    }
-                    event_triggered = True
-
-            if not event_triggered:
+            else:
                 yield {
                     "id": now(),
-                    "event": "alive",
-                    "data": "No updates or deletes"
+                    "event": "append" if initial else "prepend",
+                    "data": result.model_dump_json()
                 }
+                event_triggered = True
 
-            previous_state = current_state
-            initial = False
+        for fid in previous_state.keys():
+            if fid not in current_state:
+                yield {
+                    "id": now(),
+                    "event": "delete",
+                    "data": fid
+                }
+                event_triggered = True
 
-    finally:
-        logger.info("done streaming, finally closed")
+        if not event_triggered:
+            yield {
+                "id": now(),
+                "event": "alive",
+                "data": "No updates or deletes"
+            }
+
+        previous_state = current_state
+        initial = False
 
 
 class ExecutionControl(litestar.Controller):
@@ -367,13 +356,12 @@ class ExecutionControl(litestar.Controller):
         while not db_file.exists():
             if not loop:
                 loop = True
-                #logger.info(f"{fid} - not found")
             await asyncio.sleep(0.25)
             if now() > t0 + waitfor:
                 raise NotFoundException(
                     f"Execution {fid} not found after {waitfor}s.")
         if loop:
-            logger.warning(f"{fid} - found after {now() - t0:.2f}s")
+            logger.debug(f"{fid} - found after {now() - t0:.2f}s")
         listing = [db_file]
         return Stream(
             _follow(state, listing, with_final=True), 
@@ -399,7 +387,7 @@ class ExecutionControl(litestar.Controller):
                 raise NotFoundException(
                     f"Execution {fid} not found after {waitfor}s.")
         if loop:
-            logger.warning(f"{fid} - found after {now() - t0:.2f}s")
+            logger.debug(f"{fid} - found after {now() - t0:.2f}s")
         return await _query(db_file, state, with_final=True)
 
     async def _stream(self, 
@@ -421,10 +409,8 @@ class ExecutionControl(litestar.Controller):
                 raise NotFoundException(
                     f"Execution {fid} not found after {waitfor}s.")
         if loop:
-            logger.warning(f"{fid} - found after {now() - t0:.2f}s")
-        return ServerSentEvent(
-            _event(db_file, filter_events, formatter), 
-        )
+            logger.debug(f"{fid} - found after {now() - t0:.2f}s")
+        return ServerSentEvent(_event(db_file, filter_events, formatter))
 
     @get("/out/{fid:str}")
     async def execution_stdout(
@@ -475,6 +461,3 @@ class ExecutionControl(litestar.Controller):
             logger.warning(f"deleted {fid}")
         else:
             logger.warning(f"{fid} not found")
-        # if db_file.exists():
-        #     db_file.unlink()
-        # return Response(status_code=204)

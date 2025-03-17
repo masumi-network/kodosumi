@@ -123,11 +123,6 @@ class Spooler:
         logger.info(f"Spooler started")
         total = 0
         progress = """|/-\\|/-\\"""
-        # progress = '⡿⣟⣯⣷⣾⣽⣻⢿'
-        # progress = '⠟⠯⠷⠾⠽⠻'
-        # progress = '▙▛▜▟'
-        # progress = '▖▘▝▗'
-        # progress = ' ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁'
         p = 0
         while not self.shutdown_event.is_set():
             try:

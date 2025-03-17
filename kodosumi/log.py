@@ -19,9 +19,6 @@ def _log_setup(settings: Settings, prefix: str):
     _log = logging.getLogger("kodo")
     _log.setLevel(logging.DEBUG)
  
-    # for handler in _log.handlers[:]:
-    #     _log.removeHandler(handler)
-
     if _log.hasHandlers():
         _log.handlers.clear()
 

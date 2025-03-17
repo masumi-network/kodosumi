@@ -3,15 +3,14 @@ from typing import Optional, Union
 import litestar
 from bs4 import BeautifulSoup
 from httpx import AsyncClient
-from litestar import Request, route, MediaType
+from litestar import MediaType, Request, route
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
 from litestar.response import Redirect, Response
 
+from kodosumi import helper
 from kodosumi.log import logger
 from kodosumi.runner import KODOSUMI_LAUNCH
-from kodosumi import helper
-from kodosumi.service.endpoint import API_FIELDS
 
 KODOSUMI_USER = "x-kodosumi_user"
 KODOSUMI_BASE = "x-kodosumi_base"
@@ -76,8 +75,6 @@ class ProxyControl(litestar.Controller):
                 content=await request.body(),
                 params=request.query_params,
                 follow_redirects=True)
-            logger.info(f"proxy {meth.upper()} {path} to {contact} - "
-                        f"{response.reason_phrase} ({response.status_code})")
             response_headers = dict(response.headers)
             if host:
                 response_headers["host"] = host

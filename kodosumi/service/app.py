@@ -1,26 +1,29 @@
-import traceback
 import asyncio
+import traceback
+import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from time import time
 from typing import Any, Dict, Union
 
 from litestar import Litestar, Request, Response, Router
 from litestar.config.cors import CORSConfig
+from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.contrib.sqlalchemy.plugins import (SQLAlchemyAsyncConfig,
                                                  SQLAlchemyPlugin)
 from litestar.datastructures import State
 from litestar.exceptions import (ClientException, NotAuthorizedException,
                                  NotFoundException, ValidationException)
-from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.middleware import DefineMiddleware
+from litestar.middleware.base import MiddlewareProtocol
 from litestar.openapi.config import OpenAPIConfig
 from litestar.openapi.plugins import JsonRenderPlugin, SwaggerRenderPlugin
-from litestar.response import Template, Redirect
+from litestar.response import Redirect, Template
 from litestar.static_files import create_static_files_router
 from litestar.status_codes import (HTTP_409_CONFLICT,
                                    HTTP_500_INTERNAL_SERVER_ERROR)
 from litestar.template.config import TemplateConfig
-
+from litestar.types import ASGIApp, Receive, Scope, Send
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,14 +34,13 @@ from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.dtypes import Role, RoleCreate
 from kodosumi.log import app_logger, logger
+from kodosumi.service.admin.controller import AdminControl
+from kodosumi.service.auth import LoginControl
 from kodosumi.service.exec import ExecutionControl
 from kodosumi.service.flow import FlowControl
-from kodosumi.service.jwt import JWTAuthenticationMiddleware
+from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
-from kodosumi.service.auth import LoginControl
-from kodosumi.service.admin.controller import AdminControl
-from kodosumi.service.jwt import TOKEN_KEY
 
 
 def app_exception_handler(request: Request, 
@@ -78,8 +80,8 @@ def app_exception_handler(request: Request,
 
 
 async def provide_transaction(
-        db_session: AsyncSession, state: State) -> AsyncGenerator[AsyncSession, None]:
-    # try:
+        db_session: AsyncSession, 
+        state: State) -> AsyncGenerator[AsyncSession, None]:
     async with db_session.begin():
         query = select(Role).filter_by(name="admin")
         result = await db_session.execute(query)
@@ -93,7 +95,6 @@ async def provide_transaction(
             create_role = Role(**new_role.model_dump())
             db_session.add(create_role)
             await db_session.flush()
-            #await transaction.commit()
             logger.info(
                 f"created defaultuser {create_role.name} ({create_role.id})")
         try:
@@ -115,12 +116,45 @@ async def startup(app: Litestar):
                 await kodosumi.service.endpoint.register(app.state, source)
                 break
             except:
-                logger.critical(f"failed to connect {source}")
                 await asyncio.sleep(1)
+        logger.critical(f"failed to connect {source}")
 
 
 async def shutdown(app):
     helper.ray_shutdown()
+
+
+class LoggingMiddleware(MiddlewareProtocol):
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+
+        request_id = str(uuid.uuid4())
+        t0 = time()
+        status = None
+
+        async def send_wrapper(message):
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+            await send(message)
+
+        if scope["type"] == "http":
+            req = Request(scope)
+            logger.debug(f"{req.method} {req.url} - start (-/{request_id})")
+
+        await self.app(scope, receive, send_wrapper)
+       
+        if scope["type"] == "http":
+            req = Request(scope)
+            try:
+                user = getattr(req, "user", None)
+            except:
+                user = None
+            logger.info(
+                f"{req.method} {req.url} - {status} in {time() - t0:.4f}s "
+                f"({user}/{request_id})")
 
 
 def create_app(**kwargs) -> Litestar:
@@ -158,8 +192,9 @@ def create_app(**kwargs) -> Litestar:
         dependencies={"transaction": provide_transaction},
         plugins=[SQLAlchemyPlugin(db_config)],
         middleware=[
+            LoggingMiddleware,
             DefineMiddleware(
-                JWTAuthenticationMiddleware, exclude_from_auth_key="no_auth")
+                JWTAuthenticationMiddleware, exclude_from_auth_key="no_auth"),
         ],
         openapi_config=OpenAPIConfig(
             title="Kodosumi API",
@@ -178,7 +213,6 @@ def create_app(**kwargs) -> Litestar:
             "routing": {}
         })
     )
-    # helper.ray_init()
     app_logger(settings)
     logger.info(f"app server started at {settings.APP_SERVER}")
     logger.debug(f"admin database at {settings.ADMIN_DATABASE}")

@@ -96,6 +96,7 @@ Job: <span id="summary">summary</span>
       <button class="confirm-delete transparent link">Confirm</button>
     </nav>
 </dialog>
+
 <div class="page active" id="page-input">
 <pre id="inputs" style="height: 100%; font-family: monospace; overflow-y: scroll;"></pre>    
 </div>
@@ -143,7 +144,6 @@ Job: <span id="summary">summary</span>
         const secs = seconds % 60;
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
     }
-
     function splitData(data) {
         const parts = data.split(":");
         const ts = parts[0];
@@ -152,7 +152,6 @@ Job: <span id="summary">summary</span>
         }
         return [ts, parts.slice(1).join(":")];
     }
-
     function formatUnixTime(unixTime) {
         const date = new Date(unixTime * 1000);
         const year = date.getFullYear();
@@ -163,7 +162,6 @@ Job: <span id="summary">summary</span>
         const seconds = String(date.getSeconds()).padStart(2, '0');
         return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
     }
-
     function convertDivToButton() {
         const infoClasses = ['info-l1', 'info-l2', 'info-l3'];
         const headerTags = ['h5', 'h6', 'p'];
@@ -178,7 +176,6 @@ Job: <span id="summary">summary</span>
             }
         });
     }
-
     function showTrace() {
         fetch(`/exec/event/{{ fid }}`)
             .then(response => {
@@ -203,7 +200,6 @@ Job: <span id="summary">summary</span>
             }
         );
     };
-
     function killOrDelete() {
         if (elmStatus.value == 'running') {
             ui("#kill-dialog");
@@ -211,7 +207,6 @@ Job: <span id="summary">summary</span>
             ui("#delete-dialog");
         }
     }
-
     function doDelete() {
         fetch(
             `/exec/{{ fid }}`, { method: 'DELETE' })
@@ -231,7 +226,6 @@ Job: <span id="summary">summary</span>
     }
 
     const ev = new EventSource('/exec/format/{{ fid }}');
-
     ev.addEventListener('status', function(event) {
         const [timestamp, status] = splitData(event.data);
         elmStatus.value = status;

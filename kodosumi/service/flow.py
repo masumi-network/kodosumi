@@ -1,16 +1,12 @@
 from collections import Counter
-from typing import List
-from dataclasses import dataclass
-from typing import Generic, List, Optional, TypeVar
+from typing import List, Optional
 
 import litestar
 from litestar import get, post
 from litestar.datastructures import State
 
 import kodosumi.service.endpoint
-from kodosumi.dtypes import EndpointResponse, RegisterFlow, Pagination
-from litestar.pagination import AbstractSyncClassicPaginator, ClassicPagination
-from kodosumi.log import logger
+from kodosumi.dtypes import EndpointResponse, Pagination, RegisterFlow
 
 
 class FlowControl(litestar.Controller):
@@ -32,7 +28,6 @@ class FlowControl(litestar.Controller):
         start = p * pp
         end = start + pp
         total = len(data)
-        logger.info(f"return page {p}?q={q} with {total} items")
         return Pagination(items=data[start:end], total=total, p=p, pp=pp)
     
     @get("/tags")

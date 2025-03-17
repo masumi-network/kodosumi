@@ -56,6 +56,7 @@ Agentic Services
     let page = 0;
     let lp = null;
     let q = null;
+
     const container = document.getElementById('flow-container');
     const loading = document.getElementById('loading');
 
@@ -106,17 +107,15 @@ Agentic Services
                     flowElement.classList.add('s12', 'l4');
                     flowElement.innerHTML = `
                     <a href="${flow.url}" style="display: block;">
-                        <article class="border scroller" onmouseover="this.classList.add('secondary')"
-                        onmouseout="this.classList.remove('secondary')">
-                        <h6>${flow.summary}</h6>
-                        <p>${flow.description}</p>
-                        <label class="small">
-                            ${flow.organization ? flow.organization : '-'}
+                        <article class="border scroller" onmouseover="this.classList.add('secondary')" onmouseout="this.classList.remove('secondary')">
+                            <h6>${flow.summary}</h6>
+                            <p>${flow.description}</p>
+                            <label class="small">
+                                ${flow.organization ? flow.organization : '-'}
                             </label>
-                            </article>
-                            </a>
-                            `;
-                            container.appendChild(flowElement);
+                        </article>
+                    </a>`;
+                    container.appendChild(flowElement);
                 });
                 if (data.items.length === 0) {
                     console.log('No more items to load');

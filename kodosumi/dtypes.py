@@ -1,13 +1,15 @@
 import uuid
-from typing import Any, Dict, List, Optional, Literal, Self
-import math
+from typing import Any, Dict, Generic, List, Literal, Optional, Self, TypeVar
+
 import bcrypt
 from bcrypt import checkpw
-from pydantic import BaseModel, EmailStr, RootModel, field_validator, model_validator
+from pydantic import (BaseModel, EmailStr, RootModel, field_validator,
+                      model_validator)
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from typing import Generic, TypeVar
 
+
+T = TypeVar('T')
 
 class DynamicModel(RootModel[Dict[str, Any]]):
     pass
@@ -63,22 +65,6 @@ class RegisterFlow(BaseModel):
     url: str
 
 
-class Base(DeclarativeBase, AsyncAttrs):
-    pass
-
-
-class Role(Base):
-    __tablename__ = "roles"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(unique=True, nullable=False)
-    email: Mapped[str] = mapped_column(unique=True, nullable=False)
-    active: Mapped[bool] = mapped_column(default=True)
-    password: Mapped[str] = mapped_column(nullable=False)
-
-    def verify_password(self, password: str) -> bool:
-        return checkpw(password.encode(), self.password.encode('utf-8'))
-
 
 class EndpointResponse(BaseModel):
     uid: str
@@ -91,8 +77,6 @@ class EndpointResponse(BaseModel):
     author: Optional[str]
     organization: Optional[str]
     tags: List[str]
-    # created_at: float
-    # updated_at: float
 
     class Config:
         from_attributes = True
@@ -112,7 +96,6 @@ class Execution(BaseModel):
     error: Optional[List[str]]
 
 
-T = TypeVar('T')
 
 class Pagination(BaseModel, Generic[T]):
     items: List[T]
@@ -121,20 +104,35 @@ class Pagination(BaseModel, Generic[T]):
     pp: int
     lp: int
 
-
     def __init__(self, **data: Any) -> None:
         data["pp"] = data.get("pp", 10)
         data["p"] = data.get("p", 0)
         data["total"] = data.get("total", 0)
-        data["lp"] = math.ceil(data["total"] / data["pp"]) - 1
+        data["lp"] = (data["total"] + data["pp"] - 1) // data["pp"] - 1
         super().__init__(**data)
 
     @model_validator(mode='after')
     def validate_pager(self) -> Self:
         if self.p < 0:
             raise ValueError("p must be greater than or equal to 0")
-        if self.p > self.lp:
+        if self.p > self.lp and self.lp >= 0:
             raise ValueError(f"p must be less than or equal to {self.lp}")
         if self.pp < 1:
             raise ValueError("pp must be greater than or equal to 1")
         return self
+
+class Base(DeclarativeBase, AsyncAttrs):
+    pass
+
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(unique=True, nullable=False)
+    active: Mapped[bool] = mapped_column(default=True)
+    password: Mapped[str] = mapped_column(nullable=False)
+
+    def verify_password(self, password: str) -> bool:
+        return checkpw(password.encode(), self.password.encode('utf-8'))

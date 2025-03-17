@@ -1,14 +1,12 @@
 import litestar
-from litestar import Response, get, Request
+from litestar import Request, get
 from litestar.datastructures import State
 from litestar.exceptions import NotAuthorizedException
-from litestar.response import Template, Redirect
-from jinja2 import Environment, FileSystemLoader
-from pathlib import Path
-from typing import Union
+from litestar.response import Redirect, Template
 
-from kodosumi.service.auth import TOKEN_KEY
 import kodosumi.service.endpoint
+from kodosumi.service.auth import TOKEN_KEY
+
 
 class AdminControl(litestar.Controller):
 
@@ -22,14 +20,14 @@ class AdminControl(litestar.Controller):
         return Template("flow.html", context={"items": data})
 
     @get("/exec")
-    async def exec_list(self, state: State) -> Template: 
+    async def exec_list(self) -> Template: 
         return Template("exec.html", context={})
 
     @get("/exec/{fid:str}")
-    async def exec(self, fid: str, state: State) -> Template: 
+    async def exec(self, fid: str) -> Template: 
         return Template("status.html", context={"fid": fid})
 
-    @get("/logout", status_code=200)
+    @get("/logout")
     async def logout(self, request: Request) -> Redirect:
         if request.user:
             response = Redirect("/")

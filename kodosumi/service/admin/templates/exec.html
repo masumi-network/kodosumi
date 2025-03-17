@@ -10,7 +10,7 @@ Job History
 {% block menu %}
 <div class="field prefix">
     <i>history</i>
-    <input type="text" name="search" id="timer" value="2025-03-25 23:55:01" readonly/>
+    <input type="text" name="search" id="timer" value="-" readonly/>
 </div>
 
 {% endblock %}
@@ -38,39 +38,36 @@ Job History
     let lastPage = null;
 
     function transformString(inputs) {
-        let str = inputs; // JSON.stringify(inputs);
+        let str = inputs;
         str = str.replace(/[\'\"\{\}\[\]]/g, "");
         str = str.replace(/\\s+/g, " ");
         str = str.replace(/: /g, "=");
         return str;
     }
-
     function calculateRuntime(startedAt, lastUpdate) {
         const start = new Date(startedAt * 1000);
         const end = lastUpdate ? new Date(lastUpdate * 1000) : new Date();
         const runtime = new Date(end - start);
-        return runtime.toISOString().substr(11, 8); // Format as HH:MM:SS
+        return runtime.toISOString().substr(11, 8);
     }
-
     function updateTimer(t) {
-        document.getElementById('timer').value = new Date(t * 1000).toISOString().replace('T', ' ').slice(0, 19);
+        document.getElementById('timer').value = new Date(
+            t * 1000).toISOString().replace('T', ' ').slice(0, 19);
     }
-
     function createItem(data) {
         listItem = document.createElement('li');
         listItem.id = data.fid;
         listItem.innerHTML = `
             <a id="detail" href="">
-                <button id="status" style="width: 36px; height: 24px;">status</button>
-                <div id="startup">startup</div>
-                <div id="runtime">runtime</div>
-                <h5 id="summary" class="small bold">summary</h5>
+                <button id="status" style="width: 36px; height: 24px;"></button>
+                <div id="startup"></div>
+                <div id="runtime"></div>
+                <h5 id="summary" class="small bold"></h5>
                 <i>chevron_right</i>
-                <div id="args">parameter</div>
+                <div id="args"></div>
             </a>`;
         return listItem;
     }
-
     function updateItem(listItem, data) {
         const status = listItem.querySelector('#status');
         status.textContent = data.status;
@@ -82,11 +79,14 @@ Job History
             status.className = 'inverse-primary';
         }
         listItem.querySelector('#detail').href = "/admin/exec/" + data.fid;
-        listItem.querySelector('#startup').textContent = new Date(data.started_at * 1000).toISOString().replace('T', ' ').slice(0, 19);
-        listItem.querySelector('#runtime').textContent = calculateRuntime(data.started_at, data.last_update);
+        listItem.querySelector('#startup').textContent = new Date(
+            data.started_at * 1000).toISOString().replace('T', ' ').slice(0, 19);
+        listItem.querySelector('#runtime').textContent = calculateRuntime(
+            data.started_at, data.last_update);
         listItem.querySelector('#summary').textContent = data.summary;
         listItem.querySelector('#args').textContent = transformString(data.inputs);
     }
+
     let ev = null;
 
     function loadPage(page) {
@@ -141,27 +141,20 @@ Job History
             console.error('EventSource failed.');
         };
     }
-
     document.getElementById('first-page').addEventListener('click', function() {
         loadPage(0);
     });
-
     document.getElementById('prev-page').addEventListener('click', function() {
         if (currentPage > 0) {
             loadPage(currentPage - 1);
         }
     });
-
     document.getElementById('next-page').addEventListener('click', function() {
         loadPage(currentPage + 1);
     });
-
     document.getElementById('last-page').addEventListener('click', function() {
-        // Assuming you know the total number of pages
         loadPage(lastPage);
     });
-
-    // Load the initial page
     loadPage(0);
 </script>
 {% endblock %}

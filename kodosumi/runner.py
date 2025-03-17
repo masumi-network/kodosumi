@@ -112,8 +112,8 @@ def parse_entry_point(entry_point: str) -> Callable:
     if ":" in entry_point:
         module_name, obj = entry_point.split(":", 1)
     else:
-        *module_name, obj = entry_point.split(".")
-        module_name = ".".join(module_name)
+        *mod_list, obj = entry_point.split(".")
+        module_name = ".".join(mod_list)
     module = __import__(module_name)
     components = module_name.split('.')
     for comp in components[1:]:
@@ -331,7 +331,6 @@ class Runner:
                 }, **origin
             })
         })
-
         await self.enqueue({
             "timestamp": now(),
             "kind": EVENT_STATUS,

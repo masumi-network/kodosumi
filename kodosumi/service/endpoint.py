@@ -1,5 +1,5 @@
 from hashlib import md5
-from typing import List, Union, Optional
+from typing import List, Optional, Union
 from urllib.parse import urlparse
 
 from httpx import AsyncClient
@@ -9,13 +9,13 @@ from litestar.exceptions import NotFoundException
 from kodosumi.dtypes import EndpointResponse
 from kodosumi.log import logger
 
-
 KODOSUMI_API = "x-kodosumi"
 KODOSUMI_AUTHOR = "x-author"
 KODOSUMI_ORGANIZATION = "x-organization"
 
-API_FIELDS: tuple = ("summary", "description", "tags", "deprecated",
-                     KODOSUMI_AUTHOR, KODOSUMI_ORGANIZATION)
+API_FIELDS: tuple = (
+    "summary", "description", "tags", "deprecated", KODOSUMI_AUTHOR, 
+    KODOSUMI_ORGANIZATION)
 
 
 async def _get_openapi(url: str) -> dict:
@@ -25,7 +25,7 @@ async def _get_openapi(url: str) -> dict:
         return response.json()
 
 
-def _extract(openapi_url, js, state: State) -> dict:
+def _extract(openapi_url, js) -> dict:
     base_url = openapi_url
     if base_url.endswith("/"):
         base_url = base_url[:-1]
@@ -71,11 +71,11 @@ async def register(state: State, source: str) -> List[EndpointResponse]:
                 prefix = specs if specs != "/" else ""
                 url2 = root + prefix + "/openapi.json"
                 js2 = await _get_openapi(url2)
-                ret = _extract(url2, js2, state)
+                ret = _extract(url2, js2)
                 state["endpoints"][source] += ret["register"]
                 state["routing"][ret["root"]] = ret["base_url"]
     else:
-        ret = _extract(source, js, state)
+        ret = _extract(source, js)
         state["endpoints"][source] = ret["register"]
         state["routing"][ret["root"]] = ret["base_url"]
     logger.info(f'registered {len(state["endpoints"][source])} from {source}')
@@ -85,7 +85,6 @@ async def register(state: State, source: str) -> List[EndpointResponse]:
 
 def get_endpoints(state: State, 
                   query: Optional[str]=None) -> List[EndpointResponse]:
-
     def find(item):
         if query is None:
             return True
