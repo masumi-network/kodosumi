@@ -96,7 +96,7 @@ def get_endpoints(state: State,
 
     scope = [item for nest in state["endpoints"].values() 
              for item in nest if find(item)]
-    scope = sorted(scope, key=lambda ep: ep.summary or "None")
+    scope = sorted(scope, key=lambda ep: (ep.summary or "", ep.url))
     return scope
 
 
