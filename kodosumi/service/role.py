@@ -39,6 +39,10 @@ class RoleControl(litestar.Controller):
         result = await transaction.execute(query)
         role = result.scalar_one_or_none()
         if not role:
+            try:
+                uid = uuid.UUID(name)
+            except:
+                raise NotFoundException(detail=f"role {name} not found")
             query = select(Role).where(Role.id == uuid.UUID(name))
             result = await transaction.execute(query)
             role = result.scalar_one_or_none()
