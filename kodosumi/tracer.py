@@ -2,7 +2,8 @@ import sys
 
 
 def _stderr(tag, *args):
-    sys.stderr.write(f"<x-{tag}>{' '.join(args)}</x-{tag}>\n")
+    sys.stderr.write(
+        f"<x-{tag}>{' '.join([str(a) for a in args])}</x-{tag}>")
     sys.stderr.flush()
 
 

@@ -129,7 +129,7 @@ class StderrHandler(StdoutHandler):
         match = self.pattern.match(message)
         if match:
             self._loop.create_task(
-                self._runner.put(EVENT_ACTION,
+                self._runner.put(EVENT_RESULT,
                     serialize(format_map[match.group(1).lower()](
                         body=match.group(2).strip()))))
         else:
@@ -223,8 +223,6 @@ class Runner:
         })  
 
     async def run(self):
-        # from kodosumi.helper import debug
-        # debug()
         final_kind = STATUS_END
         try:
             await self.start()
@@ -237,11 +235,15 @@ class Runner:
             self.active = False
 
     async def start(self):
+        # from kodosumi.helper import debug
+        # debug()
         await self.put(EVENT_STATUS, STATUS_STARTING)
         await self.put(EVENT_INPUTS, serialize(self.inputs))
         if not isinstance(self.entry_point, str):
             ep = self.entry_point
-            rep_entry_point = f"{ep.__module__}:{ep.__name__}"
+            module = getattr(ep, "__module__", None)
+            name = getattr(ep, "__name__", repr(ep))
+            rep_entry_point = f"{module}.{name}"
         else:
             rep_entry_point = self.entry_point
 
