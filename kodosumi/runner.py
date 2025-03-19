@@ -1,9 +1,7 @@
 import asyncio
 import inspect
-import queue
 import sys
-import threading
-import time
+import re
 from traceback import format_exc
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -11,9 +9,8 @@ import ray
 from bson.objectid import ObjectId
 from pydantic import BaseModel
 
-from kodosumi.dtypes import DynamicModel
-from kodosumi.helper import now
-
+from kodosumi.dtypes import format_map
+from kodosumi.helper import serialize, now
 
 EVENT_META    = "meta"
 EVENT_AGENT   = "agent"
@@ -37,75 +34,118 @@ STATUS_FINAL    = (STATUS_END, STATUS_ERROR)
 NAMESPACE = "kodosumi"
 KODOSUMI_LAUNCH = "kodosumi_launch"
 
-class LoggingPipeline:
-    def __init__(self, target, loop, size=10, timeout=0.1):
-        self.target = target
-        self.loop = loop
-        self.size = size
-        self.timeout = timeout
-        self.queue = queue.Queue()
-        self.shutdown = threading.Event()
-        self.thread = threading.Thread(target=self.run, daemon=True)
+class MessageQueue:
+    def __init__(self, batch_size: int = 10, batch_timeout: float = 0.1):
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.batch_size = batch_size
+        self.batch_timeout = batch_timeout
+        self._shutdown = asyncio.Event()
+        self._lock = asyncio.Lock()
+        self._is_flushing = False
 
-    def start(self):
-        self.thread.start()
+    async def put(self, message: dict) -> None:
+        await self.queue.put(message)
 
-    def stop(self):
-        self.shutdown.set()
-        self.thread.join()
+    async def get_batch(self,
+                        size: Optional[int] = None,
+                        timeout: Optional[float] = None) -> list[dict]:
+        batch: list[dict] = []
+        try:
+            message = await asyncio.wait_for(
+                self.queue.get(),
+                timeout=timeout if timeout is not None else self.batch_timeout)
+            batch.append(message)
 
-    def log(self, message: dict):
-        self.queue.put(message)
+            max_size = size if size is not None else self.batch_size
+            for _ in range(max_size - 1):
+                try:
+                    message = self.queue.get_nowait()
+                    batch.append(message)
+                except asyncio.QueueEmpty:
+                    break
 
-    def run(self):
-        batch = []
-        last_flush = time.time()
+        except asyncio.TimeoutError:
+            pass
 
-        def push(batch):
-            future = asyncio.run_coroutine_threadsafe(
-                self.target(batch), self.loop)
-            try:
-                future.result(timeout=1)
-            except Exception as e:
-                print(f"LoggingPipeline push error: {e}")
+        return batch
 
-        while not self.shutdown.is_set():
-            try:
-                msg = self.queue.get(timeout=self.timeout)
-                batch.append(msg)
-            except queue.Empty:
-                pass
-            if (batch and (len(batch) >= self.size
-                           or (time.time() - last_flush) >= self.timeout)):
-                push(batch)
-                batch = []
-                last_flush = time.time()
-        if batch:
-            push(batch)
+    async def flush(self):
+        async with self._lock:
+            if self._is_flushing:
+                return
+            self._is_flushing = True
 
+        try:
+            while not self.queue.empty():
+                batch = await self.get_batch()
+                if batch:
+                    yield batch
+        finally:
+            async with self._lock:
+                self._is_flushing = False
 
-def _get_event_loop():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop
+    def is_empty(self) -> bool:
+        return self.queue.empty()
 
+    async def shutdown(self) -> None:
+        self._shutdown.set()
+        while not self.queue.empty():
+            await asyncio.sleep(0.1)
 
-def _serialize(data):
-    if isinstance(data, BaseModel):
-        dump = {data.__class__.__name__: data.model_dump()}
-    elif isinstance(data, (dict, str, int, float, bool)):
-        dump = {data.__class__.__name__: data}
-    elif hasattr(data, "__dict__"):
-        dump = {data.__class__.__name__: data.__dict__}
-    elif hasattr(data, "__slots__"):
-        dump = {data.__class__.__name__: {
-            k: getattr(data, k) for k in data.__slots__}}
-    else:
-        dump = {"TypeError": str(data)}
-    return DynamicModel(dump).model_dump_json()
+class StdoutHandler:
+
+    prefix = EVENT_STDOUT
+
+    def __init__(self, runner):
+        self._runner = runner
+        self._buffer = []
+        self._lock = asyncio.Lock()
+        self._loop = asyncio.get_event_loop()
+
+    def write(self, message: str) -> None:
+        if not message.rstrip():
+            return
+        log_entry = {
+            "timestamp": now(),
+            "kind": self.prefix,
+            "payload": message.rstrip()
+        }
+        self._loop.create_task(self._write(log_entry))
+
+    async def _write(self, log_entry: dict):
+        async with self._lock:
+            await self._runner.message_queue.put(log_entry)
+
+    def flush(self):
+        pass
+
+    def isatty(self) -> bool:
+        return False
+
+class StderrHandler(StdoutHandler):
+
+    prefix = EVENT_STDERR
+    pattern = re.compile(
+        r'^\s*<x-(text|html|markdown)\s*>(.*?)</x-\1\s*>\s*$', re.I)
+
+    def write(self, message: str) -> None:
+        if not message.rstrip():
+            return
+        match = self.pattern.match(message)
+        if match:
+            log_entry = {
+                "timestamp": now(),
+                "kind": EVENT_RESULT,
+                "payload": serialize(format_map[match.group(1).lower()](
+                    body=match.group(2).strip()))
+            }
+        else:
+            log_entry = {
+                "timestamp": now(),
+                "kind": self.prefix,
+                "payload": message
+            }
+        self._loop.create_task(self._write(log_entry))
 
 
 def parse_entry_point(entry_point: str) -> Callable:
@@ -121,88 +161,40 @@ def parse_entry_point(entry_point: str) -> Callable:
     return getattr(module, obj)
 
 
-class StdOutHandler:
-    prefix = EVENT_STDOUT
-
+class Tracer:
     def __init__(self, runner):
         self._runner = runner
-        self._loop = _get_event_loop()
+        self._loop = asyncio.get_event_loop()
 
-    def write(self, message):
-        if message.rstrip():
-            log_entry = {
-                "timestamp": now(),
-                "kind": self.prefix,
-                "payload": message.rstrip()
-            }
-            self._runner.sync_enqueue(log_entry)
-
-    def flush(self):
-        pass
-
-    def isatty(self):
-        return False
-
-
-class StdErrHandler(StdOutHandler):
-    prefix = EVENT_STDERR
-
-
-class Tracer:
-
-    def __init__(self, runner):
-        self.runner = runner
-
-    async def async_debug(self, message):
-        await self.runner.enqueue({
+    def debug(self, message: str):
+        self._loop.create_task(self._runner.message_queue.put({
             "timestamp": now(),
             "kind": EVENT_DEBUG,
-            "payload": f"{message}"
-        })
+            "payload": str(message)
+        }))
 
-    async def async_result(self, message):
-        await self.runner.enqueue({
+    def result(self, message: Any):
+        self._loop.create_task(self._runner.message_queue.put({
             "timestamp": now(),
             "kind": EVENT_RESULT,
-            "payload": _serialize(message)
-        })
+            "payload": serialize(message)
+        }))
 
-    async def async_action(self, message):
-        await self.runner.enqueue({
+    def action(self, message: Any):
+        self._loop.create_task(self._runner.message_queue.put({
             "timestamp": now(),
             "kind": EVENT_ACTION,
-            "payload": _serialize(message)
-        })
-
-    def debug(self, message):
-        self.runner.sync_enqueue({
-            "timestamp": now(),
-            "kind": EVENT_DEBUG,
-            "payload": f"{message}"
-        })
-
-    def result(self, message):
-        self.runner.sync_enqueue({
-            "timestamp": now(),
-            "kind": EVENT_RESULT,
-            "payload": _serialize(message)
-        })
-
-    def action(self, message):
-        self.runner.sync_enqueue({
-            "timestamp": now(),
-            "kind": EVENT_ACTION,
-            "payload": _serialize(message)
-        })
+            "payload": serialize(message)
+        }))
 
 @ray.remote
 class Runner:
-    def __init__(self, 
-                 fid: str, 
-                 username: str, 
-                 base_url: str, 
-                 entry_point: Union[Callable, str], 
-                 inputs: Any=None, 
+    def __init__(self,
+                 fid: str,
+                 username: str,
+                 base_url: str,
+                 entry_point: Union[Callable, str],
+                 inputs: Any=None,
                  extra: Optional[dict]=None):
         self.fid = fid
         self.username = username
@@ -210,90 +202,74 @@ class Runner:
         self.entry_point = entry_point
         self.inputs = inputs
         self.extra = extra
-        self.queue: asyncio.Queue = asyncio.Queue()
         self.active = True
-        self.loop = _get_event_loop()
-        self.logging_pipeline = LoggingPipeline(self.enqueue_batch, self.loop)
-        self.logging_pipeline.start()
+        self.message_queue = MessageQueue()
         self._original_stdout = sys.stdout
         self._original_stderr = sys.stderr
-        sys.stdout = StdOutHandler(self)
-        sys.stderr = StdErrHandler(self)
+        sys.stdout = StdoutHandler(self)
+        sys.stderr = StderrHandler(self)
 
     async def get_username(self):
         return self.username
 
     def is_active(self):
         return self.active
-    
-    async def enqueue_batch(self, batch):
-        for msg in batch:
-            await self.queue.put(msg)
 
-    async def enqueue(self, payload: dict):
-        await self.queue.put(payload)
-
-    def sync_enqueue(self, payload: dict):
-        self.logging_pipeline.log(payload)
-
-    async def get_batch(self, size: int = 10, timeout: float = 0.1):
-        payload = []
+    async def get_batch(self, size: Optional[int] = None, timeout: Optional[float] = None) -> list[dict]:
+        batch: list[dict] = []
         try:
-            load = await asyncio.wait_for(self.queue.get(), timeout=timeout)
-            payload.append(load)
-        except asyncio.TimeoutError:
-            return payload
-        for _ in range(size - 1):
-            try:
-                load = self.queue.get_nowait()
-                payload.append(load)
-            except asyncio.QueueEmpty:
-                break
-        return payload
+            message = await asyncio.wait_for(
+                self.message_queue.queue.get(),
+                timeout=timeout if timeout is not None else self.message_queue.batch_timeout)
+            batch.append(message)
 
-    async def final(self, payload):
-        await self.enqueue({
-            "timestamp": now(),
-            "kind": EVENT_FINAL,
-            "payload": _serialize(payload)
-        })
+            max_size = size if size is not None else self.message_queue.batch_size
+            for _ in range(max_size - 1):
+                try:
+                    message = self.message_queue.queue.get_nowait()
+                    batch.append(message)
+                except asyncio.QueueEmpty:
+                    break
+
+        except asyncio.TimeoutError:
+            pass
+
+        return batch
 
     async def run(self):
-        # from kodosumi import helper
-        # helper.debug()
         final_kind = STATUS_END
         try:
             await self.start()
         except Exception as exc:
             final_kind = STATUS_ERROR
-            await self.enqueue({
+            await self.message_queue.put({
                 "timestamp": now(),
                 "kind": EVENT_ERROR,
                 "payload": format_exc()
             })
         finally:
-            await self.enqueue({
+            await self.message_queue.put({
                 "timestamp": now(),
                 "kind": EVENT_STATUS,
                 "payload": final_kind
             })
-            while not self.queue.empty():
-                await asyncio.sleep(0.1)
+            await self.message_queue.shutdown()
             self.active = False
 
     async def start(self):
         # from kodosumi import helper
         # helper.debug()
-        await self.enqueue({
+        await self.message_queue.put({
             "timestamp": now(),
             "kind": EVENT_STATUS,
             "payload": STATUS_STARTING
         })
-        await self.enqueue({
+        await self.message_queue.put({
             "timestamp": now(),
             "kind": EVENT_INPUTS,
-            "payload": _serialize(self.inputs)
+            "payload": serialize(self.inputs)
         })
+
         if not isinstance(self.entry_point, str):
             ep = self.entry_point
             rep_entry_point = f"{ep.__module__}:{ep.__name__}"
@@ -304,11 +280,11 @@ class Runner:
             obj = parse_entry_point(self.entry_point)
         else:
             obj = self.entry_point
-        
+
         origin = {
-            "summary": None, 
-            "description": None, 
-            "author": None, 
+            "summary": None,
+            "description": None,
+            "author": None,
             "organization": None
         }
         if hasattr(obj, "__brief__"):
@@ -317,11 +293,16 @@ class Runner:
         elif hasattr(obj, "__doc__") and obj.__doc__:
             origin["summary"] = obj.__doc__.strip().split("\n")[0]
             origin["description"] = obj.__doc__.strip()
+        elif isinstance(self.extra, dict):
+            origin["summary"] = self.extra.get("summary", None)
+            origin["description"] = self.extra.get("summary", None)
+            origin["author"] = self.extra.get("x-author", None)
+            origin["organization"] = self.extra.get("x-organization", None)
 
-        await self.enqueue({
+        await self.message_queue.put({
             "timestamp": now(),
             "kind": EVENT_META,
-            "payload": _serialize({
+            "payload": serialize({
                 **{
                     "fid": self.fid,
                     "username": self.username,
@@ -331,17 +312,22 @@ class Runner:
                 }, **origin
             })
         })
-        await self.enqueue({
+        await self.message_queue.put({
             "timestamp": now(),
             "kind": EVENT_STATUS,
             "payload": STATUS_RUNNING
         })
+
         tracer = Tracer(self)
+
+        # obj is a decorated crew class
         if hasattr(obj, "is_crew_class"):
             obj = obj().crew()
-        if hasattr(obj, "kickoff_async"):
-            obj.step_callback = tracer.action # type: ignore
-            obj.task_callback = tracer.result  # type: ignore
+
+        # obj is a crew
+        if hasattr(obj, "kickoff"):
+            obj.step_callback = tracer.action
+            obj.task_callback = tracer.result
             if isinstance(self.inputs, BaseModel):
                 data = self.inputs.model_dump()
             else:
@@ -359,12 +345,16 @@ class Runner:
             if asyncio.iscoroutinefunction(obj):
                 result = await obj(*bound_args.args, **bound_args.kwargs)
             else:
-                result = await self.loop.run_in_executor(
+                result = await asyncio.get_event_loop().run_in_executor(
                     None, obj, *bound_args.args, **bound_args.kwargs)
 
-        await self.final(result)
+        await self.message_queue.put({
+            "timestamp": now(),
+            "kind": EVENT_FINAL,
+            "payload": serialize(result)
+        })
         return result
-    
+
     async def summary(self, flow):
         for agent in flow.agents:
             dump = {
@@ -378,10 +368,10 @@ class Runner:
                     "name": tool.name,
                     "description": tool.description
                 })
-            await self.enqueue({
+            await self.message_queue.put({
                 "timestamp": now(),
                 "kind": EVENT_AGENT,
-                "payload": _serialize({"agent": dump})
+                "payload": serialize({"agent": dump})
             })
         for task in flow.tasks:
             dump = {
@@ -396,42 +386,39 @@ class Runner:
                     "name": tool.name,
                     "description": tool.description
                 })
-            await self.enqueue({
+            await self.message_queue.put({
                 "timestamp": now(),
                 "kind": EVENT_AGENT,
-                "payload": _serialize({"task": dump})
+                "payload": serialize({"task": dump})
             })
 
     async def shutdown(self):
-        self.logging_pipeline.stop()
         sys.stdout = self._original_stdout
         sys.stderr = self._original_stderr
         return "Runner shutdown complete."
-
 
 def kill_runner(fid: str):
     runner = ray.get_actor(fid, namespace=NAMESPACE)
     ray.kill(runner)
 
-
-def create_runner(username: str, 
+def create_runner(username: str,
                   base_url: str,
                   entry_point: Union[str, Callable],
-                  inputs: Union[BaseModel, dict], 
+                  inputs: Union[BaseModel, dict],
                   extra: Optional[dict] = None,
                   fid: Optional[str]= None) -> Tuple[str, Runner]:
     if fid is None:
         fid = str(ObjectId())
     actor = Runner.options(  # type: ignore
-        namespace=NAMESPACE, 
-        name=fid, 
+        namespace=NAMESPACE,
+        name=fid,
         enable_task_events=False,
         lifetime="detached").remote(
-            fid=fid, 
-            username=username, 
+            fid=fid,
+            username=username,
             base_url="/-" + base_url,
-            entry_point=entry_point, 
-            inputs=inputs, 
+            entry_point=entry_point,
+            inputs=inputs,
             extra=extra
     )
     return fid, actor

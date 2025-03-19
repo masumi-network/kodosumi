@@ -110,14 +110,17 @@ async def startup(app: Litestar):
     helper.ray_init()
     for source in app.state["settings"].REGISTER_FLOW:
         trial = 3
+        success = False
         while trial > 0:
             trial -= 1
             try:
                 await kodosumi.service.endpoint.register(app.state, source)
+                success = True
                 break
             except:
                 await asyncio.sleep(1)
-        logger.critical(f"failed to connect {source}")
+        if not success:
+            logger.critical(f"failed to connect {source}")
 
 
 async def shutdown(app):

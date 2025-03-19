@@ -93,7 +93,8 @@ class Spooler:
                 if batch:
                     self.save(conn, fid, batch)
                     n += len(batch)
-                await asyncio.sleep(0)
+                    # logger.info(f"saved batch of {len(batch)}")
+                await asyncio.sleep(0.25)
             ray.get(runner.shutdown.remote())
             ray.kill(runner)
             logger.info(f"Finished {fid} with {n} records")
