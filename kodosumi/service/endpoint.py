@@ -1,7 +1,7 @@
 from hashlib import md5
-from typing import List, Optional, Union
+from typing import List, Optional, Union, List
 from urllib.parse import urlparse
-
+import asyncio
 from httpx import AsyncClient
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
@@ -112,3 +112,18 @@ def unregister(state: State, openapi_url: str) -> None:
         del state["endpoints"][openapi_url]
     else:
         raise NotFoundException(openapi_url)
+    
+async def reload(scope: List[str], state: State) -> None:
+    for source in scope:
+        trial = 3
+        success = False
+        while trial > 0:
+            trial -= 1
+            try:
+                await register(state, source)
+                success = True
+                break
+            except:
+                await asyncio.sleep(1)
+        if not success:
+            logger.critical(f"failed to connect {source}")

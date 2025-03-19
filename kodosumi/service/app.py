@@ -42,7 +42,6 @@ from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
 
-
 def app_exception_handler(request: Request, 
                           exc: Exception) -> Union[Template, Response]:
     ret: Dict[str, Any] = {
@@ -108,20 +107,8 @@ async def provide_transaction(
 
 async def startup(app: Litestar):
     helper.ray_init()
-    for source in app.state["settings"].REGISTER_FLOW:
-        trial = 3
-        success = False
-        while trial > 0:
-            trial -= 1
-            try:
-                await kodosumi.service.endpoint.register(app.state, source)
-                success = True
-                break
-            except:
-                await asyncio.sleep(1)
-        if not success:
-            logger.critical(f"failed to connect {source}")
-
+    await kodosumi.service.endpoint.reload(
+        app.state["settings"].REGISTER_FLOW, app.state)
 
 async def shutdown(app):
     helper.ray_shutdown()
