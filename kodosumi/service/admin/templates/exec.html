@@ -84,7 +84,8 @@ Job History
         listItem.querySelector('#runtime').textContent = calculateRuntime(
             data.started_at, data.last_update);
         listItem.querySelector('#summary').textContent = data.summary;
-        listItem.querySelector('#args').textContent = transformString(data.inputs);
+        listItem.querySelector('#args').textContent = transformString(
+            data.inputs);
     }
 
     let ev = null;
@@ -106,6 +107,7 @@ Job History
         ev.addEventListener('append', function(event) {
             updateTimer(event.lastEventId);
             const data = JSON.parse(event.data);
+            console.log("append", data);
             listItem = createItem(data);
             document.getElementById('item-list').appendChild(listItem);
             updateItem(listItem, data)
@@ -113,6 +115,7 @@ Job History
         ev.addEventListener('prepend', function(event) {
             updateTimer(event.lastEventId);
             const data = JSON.parse(event.data);
+            console.log("prepend", data);
             listItem = createItem(data);
             document.getElementById('item-list').insertBefore(
                     listItem, document.getElementById('item-list').firstChild);
@@ -121,6 +124,7 @@ Job History
         ev.addEventListener('update', function(event) {
             updateTimer(event.lastEventId);
             const data = JSON.parse(event.data);
+            console.log("update", data);
             let listItem = document.getElementById(data.fid);
             updateItem(listItem, data)
         });
@@ -133,7 +137,6 @@ Job History
             updateTimer(event.lastEventId);
         });
         ev.addEventListener('info', function(event) {
-            console.log(event.data);
             const data = JSON.parse(event.data);
             lastPage = data.total_pages - 1;
         });

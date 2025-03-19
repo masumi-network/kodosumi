@@ -3,23 +3,24 @@ import shutil
 import sqlite3
 from pathlib import Path
 from typing import AsyncGenerator, Optional, Union
-
+import textwrap
 import litestar
 import markdown
 import yaml
+import ray
 from ansi2html import Ansi2HTMLConverter
 from litestar import Request, delete, get
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
-from litestar.response import Response, ServerSentEvent, Stream
+from litestar.response import Response, ServerSentEvent, Stream, Template
 from litestar.types import SSEData
 
-from kodosumi.dtypes import DynamicModel, Execution
-from kodosumi.helper import now
+from kodosumi.dtypes import DynamicModel, Execution, Markdown
+from kodosumi.helper import now, serialize
 from kodosumi.log import logger
 from kodosumi.runner import EVENT_STATUS, STATUS_FINAL, kill_runner
-from kodosumi.spooler import DB_FILE
-
+from kodosumi.spooler import DB_FILE, NAMESPACE
+import kodosumi.core
 
 class Formatter: 
 
@@ -33,7 +34,7 @@ class DefaultFormatter(Formatter):
         self.ansi = Ansi2HTMLConverter()
 
     def md(self, text: str) -> str:
-        return markdown.markdown(text)
+        return markdown.markdown(text, extensions=['nl2br'])
 
     def dict2yaml(self, message: str) -> str:
         model = DynamicModel.model_validate_json(message)
@@ -77,6 +78,18 @@ class DefaultFormatter(Formatter):
         else:
             ret.append("no output found")
         return "\n".join(ret)
+
+    def Text(self, values) -> str:
+        body = values.get("body", "")
+        return f"<blockquote><code>{body}</code></blockquote>" 
+
+    def HTML(self, values) -> str:
+        return values.get("body", "")
+
+    def Markdown(self, values) -> str:
+        body = values.get("body", "")
+        return self.md(textwrap.dedent(body))
+        
 
     def obj2html(self, message: str) -> str:
         model = DynamicModel.model_validate_json(message)
@@ -135,7 +148,7 @@ async def _query(
             error.append(message)
         elif kind == "inputs":
             model = DynamicModel.model_validate_json(message)
-            inputs = DynamicModel(**model.root).model_dump_json()[:80]
+            inputs = DynamicModel(**model.root).model_dump_json()
         elif kind == "final" and with_final:
             model = DynamicModel.model_validate_json(message)
             final = DynamicModel(**model.root).model_dump()
@@ -182,6 +195,28 @@ async def _event(
     conn.execute('pragma synchronous=normal;')
     conn.execute('pragma read_uncommitted=true;')
     cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT message FROM monitor WHERE kind = 'status'
+        ORDER BY timestamp DESC, id DESC
+        LIMIT 1
+    """)
+    row = cursor.fetchone()
+    if row:
+        status = row[0]
+        if status not in STATUS_FINAL:
+            try:
+                runner = ray.get_actor(db_file.parent.name, 
+                                       namespace=NAMESPACE)
+            except ValueError:
+                cursor.execute("""
+                    INSERT INTO monitor (timestamp, kind, message) 
+                    VALUES (?, 'error', 'actor not found')
+                """, (now(),))
+                cursor.execute("""
+                    INSERT INTO monitor (timestamp, kind, message) 
+                    VALUES (?, 'status', 'error')
+                """, (now(),))
     try:
         t0 = now()
         while True:
@@ -390,6 +425,79 @@ class ExecutionControl(litestar.Controller):
             logger.debug(f"{fid} - found after {now() - t0:.2f}s")
         return await _query(db_file, state, with_final=True)
 
+    async def _get_final(
+            self, 
+            fid: str,
+            request: Request, 
+            state: State) -> dict:
+        db_file = Path(state["settings"].EXEC_DIR).joinpath(
+            request.user, fid, DB_FILE)
+        t0 = now()
+        loop = False
+        waitfor = state["settings"].WAIT_FOR_JOB
+        while not db_file.exists():
+            if not loop:
+                loop = True
+            await asyncio.sleep(0.25)
+            if now() > t0 + waitfor:
+                raise NotFoundException(
+                    f"Execution {fid} not found after {waitfor}s.")
+        if loop:
+            logger.debug(f"{fid} - found after {now() - t0:.2f}s")
+        conn = sqlite3.connect(str(db_file), isolation_level=None)
+        conn.execute('pragma journal_mode=wal;')
+        conn.execute('pragma synchronous=normal;')
+        conn.execute('pragma read_uncommitted=true;')
+        cursor = conn.cursor()
+        cursor.execute("SELECT message FROM monitor WHERE kind = 'meta'")
+        row = cursor.fetchone()
+        if row:
+            meta, = row
+        else:
+            meta = {}
+        cursor.execute("SELECT MIN(timestamp), MAX(timestamp) FROM monitor")
+        first, last = cursor.fetchone()
+        cursor.execute("SELECT message FROM monitor WHERE kind = 'final'")
+        row = cursor.fetchone()
+        if row:
+            result, = row
+        else:
+            result = serialize(
+                Markdown(body="no result, yet. please be patient."))
+        conn.close()
+        runtime = last - first if last and first else None
+        return {
+            "fid": fid,
+            "kind": "final",
+            "raw": result,
+            "timestamp": first,
+            "runtime": runtime,
+            "meta": DynamicModel.model_validate_json(
+                meta).model_dump().get("dict", {}),
+            "version": kodosumi.core.__version__
+        }
+
+    @get("/html/{fid:str}")
+    async def final_html(
+            self, 
+            fid: str,
+            request: Request, 
+            state: State) -> Template:
+        formatter = DefaultFormatter()
+        ret = await self._get_final(fid, request, state)
+        ret["main"] = formatter.convert(ret["kind"], ret["raw"])
+        return Template("final.html", context=ret)
+
+    @get("/raw/{fid:str}")
+    async def final_raw(
+            self, 
+            fid: str,
+            request: Request, 
+            state: State) -> Response:
+        ret = await self._get_final(fid, request, state)
+        return Response(content=ret["raw"])
+
+
     async def _stream(self, 
                       fid, 
                       state: State, 
@@ -454,8 +562,12 @@ class ExecutionControl(litestar.Controller):
             raise NotFoundException(fid)
         job = await _query(db_file, state, with_final=False)
         if job.status not in STATUS_FINAL:
-            kill_runner(job.fid)
-            logger.warning(f"killed {fid}")
+            try:
+                kill_runner(job.fid)
+            except:
+                logger.critical(f"failed to kill {fid}", exc_info=True)
+            else:
+                logger.warning(f"killed {fid}")
         if db_file.parent.exists():
             shutil.rmtree(str(db_file.parent))
             logger.warning(f"deleted {fid}")

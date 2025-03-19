@@ -22,16 +22,17 @@
 {% endblock %}
 
 {% block headline %}
-Job: <span id="summary">summary</span>
+Job: <em><span id="summary"></span></em>
 {% endblock %}
 
 {% block menu %}
 <div class="tabs right-align">
     <a data-ui="#page-input" class="active">Input</a>
     <a data-ui="#page-output">Output</a>
-    <a data-ui="#page-reasoning">Reasoning</a>
-    <a data-ui="#page-process">Process</a>
+    <a data-ui="#page-process">Reasoning</a>
+    <a data-ui="#page-log">Log</a>
     <a id="start-trace" data-ui="#page-trace">Trace</a>
+    <a href="/exec/html/{{fid}}" target="_blank"><i>download</i></a>
 </div>
 {% endblock %}
 
@@ -103,9 +104,11 @@ Job: <span id="summary">summary</span>
 <div class="page" id="page-output">
     <article id="output" 
          style="height: 100%; overflow-y: scroll;">
+         <p>no result, yet<br/>
+            please be patient</p>
     </article>    
 </div>
-<div class="page" id="page-reasoning">
+<div class="page" id="page-log">
     <article id="stdout" 
          style="height: 100%; overflow-y: scroll; font-family: monospace;">
     </article>    
@@ -123,6 +126,7 @@ Job: <span id="summary">summary</span>
 
 {% block foot %}
 <script>
+    const elmSummary = document.getElementById('summary');
     const elmStatus = document.getElementById('status');
     const elmStatusSpinner = document.getElementById('status-spinner');
     const elmStartup = document.getElementById('startup');
@@ -247,6 +251,10 @@ Job: <span id="summary">summary</span>
         const [timestamp, data] = splitData(event.data);
         elmInputs.textContent = data;
     });
+    ev.addEventListener('meta', function(event) {
+        const [timestamp, data] = splitData(event.data);
+        elmSummary.textContent = JSON.parse(data).dict.summary;
+    });
     ev.addEventListener('stdout', function(event) {
         const [timestamp, data] = splitData(event.data);
         elmStdout.innerHTML += data + "<br/>";
@@ -257,7 +265,7 @@ Job: <span id="summary">summary</span>
     ev.addEventListener('error', function(event) {
         const [timestamp, data] = splitData(event.data);
         console.log("we have error");
-        elmOutput.innerHTML += '<pre style="font-family: monospace">' + data + '</pre>';
+        elmProcess.innerHTML += '<pre style="font-family: monospace">' + data + '</pre>';
         convertDivToButton();
     });
     ev.addEventListener('debug', function(event) {
@@ -275,7 +283,7 @@ Job: <span id="summary">summary</span>
     });
     ev.addEventListener('final', function(event) {
         const [timestamp, data] = splitData(event.data);
-        elmOutput.innerHTML += data;
+        elmOutput.innerHTML = data;
         convertDivToButton();
     });
     ev.addEventListener('alive', function(event) {

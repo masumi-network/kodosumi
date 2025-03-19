@@ -4,9 +4,10 @@ from typing import Callable, Optional
 
 import ray
 from litestar import MediaType, Request
-from pydantic import SecretStr
+from pydantic import BaseModel, SecretStr
 
 from kodosumi.config import InternalSettings, Settings
+from kodosumi.dtypes import DynamicModel
 from kodosumi.log import LOG_FORMAT, get_log_level
 
 
@@ -57,3 +58,18 @@ def debug():
 
 def now():
     return time.time()
+
+
+def serialize(data):
+    if isinstance(data, BaseModel):
+        dump = {data.__class__.__name__: data.model_dump()}
+    elif isinstance(data, (dict, str, int, float, bool)):
+        dump = {data.__class__.__name__: data}
+    elif hasattr(data, "__dict__"):
+        dump = {data.__class__.__name__: data.__dict__}
+    elif hasattr(data, "__slots__"):
+        dump = {data.__class__.__name__: {
+            k: getattr(data, k) for k in data.__slots__}}
+    else:
+        dump = {"TypeError": str(data)}
+    return DynamicModel(dump).model_dump_json()

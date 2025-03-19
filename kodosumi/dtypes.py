@@ -136,3 +136,19 @@ class Role(Base):
 
     def verify_password(self, password: str) -> bool:
         return checkpw(password.encode(), self.password.encode('utf-8'))
+
+
+class Text(BaseModel): body: str
+
+
+class HTML(BaseModel): body: str
+
+
+class Markdown(BaseModel): body: str
+
+
+format_map = {
+    "text": Text,
+    "html": HTML,
+    "markdown": Markdown
+}
