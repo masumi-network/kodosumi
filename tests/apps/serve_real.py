@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-import asyncio
+import kodosumi.dtypes as dtypes
 import uvicorn
 from pydantic import BaseModel
 from crewai import Agent, Crew, Process, Task
@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from kodosumi.serve import ServeAPI, Launch, KODOSUMI_API
+from kodosumi import tracer
 from kodosumi.helper import now
 
 # Agents
@@ -72,7 +73,10 @@ class HymnRequest(BaseModel):
     topic: str
 
 
-async def counter(inputs: dict):
+import time
+
+
+def counter(inputs: dict):
     """
     Runtime Counter
 
@@ -83,9 +87,26 @@ async def counter(inputs: dict):
     i = 0
     while now() < t0 + runtime:
         print(f"{i} - Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.", flush=True)
-        await asyncio.sleep(0.1)
+        if i % 100 == 0:
+            tracer.text("Counter", f"Counter is at {i}")
+            tracer.markdown(""""
+                # Überschrift
+                            
+                * eins
+                * zwei
+            """)
+            tracer.html('<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Example_image.svg/600px-Example_image.svg.png"/>')
         i += 1
-    return {"runtime": runtime}
+        time.sleep(0.01)
+    return dtypes.Markdown(body=f"""
+    # Final Output
+                    
+    * `RUNTIME:` {runtime}
+    * `COUNTER:` {i}
+
+    **thank you.**
+    """)
+    #return {"runtime": runtime, "final counter": i}
 
 
 def create_app() -> FastAPI:
