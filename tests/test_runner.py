@@ -29,10 +29,8 @@ async def test_runner_enqueue_and_get_batch():
         base_url="http://dummy:8000",
         entry_point=dummy_func,
         inputs={"test": "value"})
-    await runner.enqueue.remote(
-        {"timestamp": now(), "kind": "test", "payload": "message1"})
-    await runner.enqueue.remote(
-        {"timestamp": now(), "kind": "test", "payload": "message2"})
+    await runner.put.remote("test", "message1")
+    await runner.put.remote("test", "message2")
     batch = ray.get(runner.get_batch.remote(10, 0.1))
     assert len(batch) >= 2, f"Expected at least 2 messages, got {len(batch)}"
     await runner.shutdown.remote()
@@ -77,12 +75,8 @@ async def test_spooler_retrieve(tmp_path: Path):
     )
     # Enqueue some messages in the runner.
     for i in range(5):
-        runner.enqueue.remote(  # type: ignore
-            {
-                "timestamp": now(), 
-                "kind": "test", 
-                "payload": f"msg {i}"
-            }
+        runner.put.remote(  # type: ignore
+            "test", f"msg {i}"
         )
     # Create a Spooler instance with short intervals for testing.
     spooler = Spooler(

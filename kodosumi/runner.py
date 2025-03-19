@@ -105,16 +105,11 @@ class StdoutHandler:
     def write(self, message: str) -> None:
         if not message.rstrip():
             return
-        log_entry = {
-            "timestamp": now(),
-            "kind": self.prefix,
-            "payload": message.rstrip()
-        }
-        self._loop.create_task(self._write(log_entry))
+        self._loop.create_task(self._write(self.prefix, message.rstrip()))
 
-    async def _write(self, log_entry: dict):
+    async def _write(self, prefix: str, payload: Any):
         async with self._lock:
-            await self._runner.message_queue.put(log_entry)
+            await self._runner.put(prefix, payload)
 
     def flush(self):
         pass
@@ -133,19 +128,12 @@ class StderrHandler(StdoutHandler):
             return
         match = self.pattern.match(message)
         if match:
-            log_entry = {
-                "timestamp": now(),
-                "kind": EVENT_RESULT,
-                "payload": serialize(format_map[match.group(1).lower()](
-                    body=match.group(2).strip()))
-            }
+            self._loop.create_task(
+                self._runner.put(EVENT_ACTION,
+                    serialize(format_map[match.group(1).lower()](
+                        body=match.group(2).strip()))))
         else:
-            log_entry = {
-                "timestamp": now(),
-                "kind": self.prefix,
-                "payload": message
-            }
-        self._loop.create_task(self._write(log_entry))
+            super().write(message)
 
 
 def parse_entry_point(entry_point: str) -> Callable:
@@ -167,25 +155,15 @@ class Tracer:
         self._loop = asyncio.get_event_loop()
 
     def debug(self, message: str):
-        self._loop.create_task(self._runner.message_queue.put({
-            "timestamp": now(),
-            "kind": EVENT_DEBUG,
-            "payload": str(message)
-        }))
+        self._loop.create_task(self._runner.put(EVENT_DEBUG, str(message)))
 
     def result(self, message: Any):
-        self._loop.create_task(self._runner.message_queue.put({
-            "timestamp": now(),
-            "kind": EVENT_RESULT,
-            "payload": serialize(message)
-        }))
+        self._loop.create_task(self._runner.put(
+            EVENT_RESULT, serialize(message)))
 
     def action(self, message: Any):
-        self._loop.create_task(self._runner.message_queue.put({
-            "timestamp": now(),
-            "kind": EVENT_ACTION,
-            "payload": serialize(message)
-        }))
+        self._loop.create_task(self._runner.put(
+            EVENT_ACTION, serialize(message)))
 
 @ray.remote
 class Runner:
@@ -220,7 +198,8 @@ class Runner:
         try:
             message = await asyncio.wait_for(
                 self.message_queue.queue.get(),
-                timeout=timeout if timeout is not None else self.message_queue.batch_timeout)
+                timeout=timeout if timeout is not None 
+                    else self.message_queue.batch_timeout)
             batch.append(message)
 
             max_size = size if size is not None else self.message_queue.batch_size
@@ -236,40 +215,30 @@ class Runner:
 
         return batch
 
+    async def put(self, kind: str, payload: Any):
+        await self.message_queue.put({
+            "timestamp": now(), 
+            "kind": kind, 
+            "payload": payload
+        })  
+
     async def run(self):
+        # from kodosumi.helper import debug
+        # debug()
         final_kind = STATUS_END
         try:
             await self.start()
         except Exception as exc:
             final_kind = STATUS_ERROR
-            await self.message_queue.put({
-                "timestamp": now(),
-                "kind": EVENT_ERROR,
-                "payload": format_exc()
-            })
+            await self.put(EVENT_ERROR, format_exc())
         finally:
-            await self.message_queue.put({
-                "timestamp": now(),
-                "kind": EVENT_STATUS,
-                "payload": final_kind
-            })
+            await self.put(EVENT_STATUS, final_kind)
             await self.message_queue.shutdown()
             self.active = False
 
     async def start(self):
-        # from kodosumi import helper
-        # helper.debug()
-        await self.message_queue.put({
-            "timestamp": now(),
-            "kind": EVENT_STATUS,
-            "payload": STATUS_STARTING
-        })
-        await self.message_queue.put({
-            "timestamp": now(),
-            "kind": EVENT_INPUTS,
-            "payload": serialize(self.inputs)
-        })
-
+        await self.put(EVENT_STATUS, STATUS_STARTING)
+        await self.put(EVENT_INPUTS, serialize(self.inputs))
         if not isinstance(self.entry_point, str):
             ep = self.entry_point
             rep_entry_point = f"{ep.__module__}:{ep.__name__}"
@@ -299,25 +268,16 @@ class Runner:
             origin["author"] = self.extra.get("x-author", None)
             origin["organization"] = self.extra.get("x-organization", None)
 
-        await self.message_queue.put({
-            "timestamp": now(),
-            "kind": EVENT_META,
-            "payload": serialize({
-                **{
-                    "fid": self.fid,
-                    "username": self.username,
-                    "base_url": self.base_url,
-                    "entry_point": rep_entry_point,
-                    "extra": self.extra
-                }, **origin
-            })
-        })
-        await self.message_queue.put({
-            "timestamp": now(),
-            "kind": EVENT_STATUS,
-            "payload": STATUS_RUNNING
-        })
-
+        await self.put(EVENT_META, serialize({
+            **{
+                "fid": self.fid,
+                "username": self.username,
+                "base_url": self.base_url,
+                "entry_point": rep_entry_point,
+                "extra": self.extra
+            }, 
+            **origin}))
+        await self.put(EVENT_STATUS, STATUS_RUNNING)
         tracer = Tracer(self)
 
         # obj is a decorated crew class
@@ -348,11 +308,7 @@ class Runner:
                 result = await asyncio.get_event_loop().run_in_executor(
                     None, obj, *bound_args.args, **bound_args.kwargs)
 
-        await self.message_queue.put({
-            "timestamp": now(),
-            "kind": EVENT_FINAL,
-            "payload": serialize(result)
-        })
+        await self.put(EVENT_FINAL, serialize(result))
         return result
 
     async def summary(self, flow):
@@ -368,11 +324,7 @@ class Runner:
                     "name": tool.name,
                     "description": tool.description
                 })
-            await self.message_queue.put({
-                "timestamp": now(),
-                "kind": EVENT_AGENT,
-                "payload": serialize({"agent": dump})
-            })
+            await self.put(EVENT_AGENT, serialize({"agent": dump}))
         for task in flow.tasks:
             dump = {
                 "name": task.name,
@@ -386,11 +338,7 @@ class Runner:
                     "name": tool.name,
                     "description": tool.description
                 })
-            await self.message_queue.put({
-                "timestamp": now(),
-                "kind": EVENT_AGENT,
-                "payload": serialize({"task": dump})
-            })
+            await self.put(EVENT_AGENT, serialize({"task": dump}))
 
     async def shutdown(self):
         sys.stdout = self._original_stdout
