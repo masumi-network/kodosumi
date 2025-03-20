@@ -110,8 +110,7 @@ Job: <em><span id="summary"></span></em>
 </div>
 <div class="page" id="page-log">
     <article id="stdout" 
-         style="height: 100%; overflow-y: scroll; font-family: monospace;">
-    </article>    
+        style="height: 100%; overflow-y: scroll; font-family: monospace; white-space: pre-wrap;"></article>
 </div>
 <div class="page" id="page-process">
     <article id="process" 
@@ -257,7 +256,10 @@ Job: <em><span id="summary"></span></em>
     });
     ev.addEventListener('stdout', function(event) {
         const [timestamp, data] = splitData(event.data);
-        elmStdout.innerHTML += data + "<br/>";
+        data.split('\n').forEach(line => {
+            elmStdout.innerHTML += line + "<br/>";
+        });
+        //elmStdout.innerHTML += data.replace("\n", "<br/>") + "<br/>";
     });
     ev.addEventListener('stderr', function(event) {
         const [timestamp, data] = splitData(event.data);
