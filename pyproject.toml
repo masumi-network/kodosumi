@@ -16,7 +16,7 @@ license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 dependencies = [
     "click",
-    "pydantic",
+    "pydantic[email]",
     "pydantic_settings",
     "ray[serve]",
     "litestar",
@@ -28,7 +28,15 @@ dependencies = [
     "python-multipart",
     "multipart",
     "aiofiles",
-    "bson"
+    "bson",
+    "bcrypt",
+    "sqlalchemy",
+    "advanced-alchemy",
+    "aiosqlite",
+    "bs4",
+    "ansi2html",
+    "pyyaml",
+    "markdown"
 ]
 
 [project.optional-dependencies]

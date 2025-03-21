@@ -7,6 +7,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
@@ -34,7 +35,17 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "top secret -- change this in production"
 
     WAIT_FOR_JOB: int = 30
+    SPOOLER_INTERVAL: float = 0.25
+    SPOOLER_BATCH_SIZE: int = 10
+    SPOOLER_BATCH_TIMEOUT: float = 0.1
     
+    ADMIN_DATABASE: str = "sqlite+aiosqlite:///./data/admin.db"
+    ADMIN_EMAIL: str = "admin@example.com"
+    ADMIN_PASSWORD: str = "admin"
+
+    REGISTER_FLOW: list[str] = []
+    PROXY_TIMEOUT: int = 30
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="KODO_",
@@ -54,7 +65,7 @@ class Settings(BaseSettings):
             Path(v).parent.mkdir(parents=True, exist_ok=True)
         return v
 
-    @field_validator("CORS_ORIGINS", mode="before")
+    @field_validator("CORS_ORIGINS", "REGISTER_FLOW", mode="before")
     def string_to_list(cls, v):
         if isinstance(v, str):
             return [s.strip() for s in v.split(',')]
@@ -66,6 +77,8 @@ class InternalSettings(Settings):
     def __init__(self, **kwargs):
         for field in self.model_fields:
             env_var = f"iKODO_{field}"
-            if env_var in os.environ:
+            if env_var in os.environ and field not in kwargs:
                 kwargs[field] = json.loads(os.environ[env_var])
         super().__init__(**kwargs)
+
+

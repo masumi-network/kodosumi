@@ -1,0 +1,53 @@
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="google" content="notranslate">
+    <title>kodosumi</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="/static/beer.min.css" rel="stylesheet">
+    <link href="/static/kodosumi.css" rel="stylesheet">
+    <script type="module" src="/static/beer.min.js"></script>
+    <script type="module" src="/static/material-dynamic-colors.min.js"></script>
+</head>
+
+<body>
+<main class="responsive max">
+    <page>
+        <article class="medium middle-align center-align center middle">
+            <div>
+                <i class="extra">person</i>
+                <h5>kodosumi</h5>
+                <div class="space"></div>
+                {% if failure %}
+                <button class="responsive error small">your login failed</button>
+                {% endif %}
+                <form action="/login" method="POST">
+                    <input name="redirect" type="hidden" value="/admin">
+                    <input type="hidden" name="check" value="form" />
+                    <nav class="no-space">
+                        <div class="field border label left-round">
+                            <input name="name" type="text">
+                            <label>Username</label>
+                        </div>
+                        <div class="field border label right-round">
+                            <input name="password" type="password">
+                            <label>Password</label>
+                        </div>
+                    </nav>
+                    <div>&nbsp;</div>
+                    <div>
+                        <button class="secondary large"> <i class="extra">login</i>
+                            Login
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </article>
+    </page>
+</main>
+</body>
+
+</html>

@@ -1,0 +1,93 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="google" content="notranslate">
+    <title>kodosumi</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="/static/beer.min.css" rel="stylesheet">
+    <link href="/static/kodosumi.css" rel="stylesheet">
+    <script type="module" src="/static/beer.min.js"></script>
+    <script type="module" src="/static/material-dynamic-colors.min.js"></script>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="/static/kodosumi.css" rel="stylesheet">
+    <style>
+        @media screen {
+            body {
+                margin-top: 80px; /* Margin top for screen version */
+                margin-left: 0;   /* Ensure no left margin */
+                margin-right: 0;  /* Ensure no right margin */
+            }
+        }
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin-top: 1in;
+                margin-bottom: 1in;
+                margin-left: 1in;
+                margin-right: 1in;
+            }
+        }
+    </style>
+    </head>
+<body class="light">
+    <main class="">
+        <div class="grid">
+            <div class="s1 m1 l3"></div>
+            <div class="s10 m10 l6">
+            {{ main | safe }}
+            <div style="height: 40px;"></div>
+            <div class="row right-align">
+                <em>(end-of-document)</em>
+            </div>
+            <div style="page-break-before: always;"></div>
+            <hr class="medium"/>
+            <h4 class="small">ABOUT THIS DOCUMENT</h4>
+            <table class="border small-space min" style="width: 70%; min-width: 300px;">
+                <tbody>
+                    <tr><td><b>DATE/ TIME:</b></td>
+                        <td id="timestamp"></td>
+                    </tr>
+                    <tr><td><b>RUNTIME:</b></td>
+                        <td id="runtime">{{ runtime | int }}s</td>
+                    </tr>
+                    <tr><td><b>FLOW ID:</b></td>
+                        <td>{{ meta["fid"] }}</td>
+                    </tr>
+                    <tr><td><b>NAME:</b></td>
+                        <td>{{ meta["summary"] }}</td>
+                    </tr>
+                    <tr><td><b>DESCRIPTION:</b></td>
+                        <td>{{ meta["description"] }}</td>
+                    </tr>
+                    <tr><td><b>AUTHOR:</td>
+                        <td>{{ meta["autdor"] }}</td>
+                    </tr>
+                    <tr><td><b>ORGANIZATION:</td>
+                        <td>{{ meta["organization"] }}</td>
+                    </tr>
+                    <tr><td><b>KODOSUMI:</td>
+                        <td>{{ version }}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <hr class="medium"/>
+            <div class="row right-align">
+                <em>(end-of-file)</em>
+            </div>
+            <div style="height: 40px;"></div>
+        </div>
+        <div class="s12 m12 l3"></div>
+    </div>
+</main>
+</body>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        let dt = new Date({{ timestamp }} * 1000);
+        document.getElementById('timestamp').innerText = dt.toISOString().replace("T", " ").replace("Z", "");
+        dt = new Date({{ runtime }} * 1000);
+        document.getElementById('runtime').innerText = dt.toISOString().substr(11, 8);
+    });
+</script>
+</html>

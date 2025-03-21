@@ -1,0 +1,163 @@
+{% extends "_main.html" %}
+
+{% block head %}
+{% endblock %}
+
+{% block headline %}
+Job History
+{% endblock %}
+
+{% block menu %}
+<div class="field prefix">
+    <i>history</i>
+    <input type="text" name="search" id="timer" value="-" readonly/>
+</div>
+
+{% endblock %}
+
+{% block extra_header %}
+{% endblock %}
+
+{% block main %}
+<page class="left">
+    <ul class="list border small" id="item-list">
+    </ul>
+    <div class="divider" style="margin-top: 12px; margin-bottom: 12px;"></div>
+    <div class="row right-align">
+        <div><a href="#" id="first-page"><i>skip_previous</i></a></div>
+        <div><a href="#" id="prev-page"><i>chevron_left</i></a></div>
+        <div><a href="#" id="next-page"><i>chevron_right</i></a></div>
+        <div><a href="#" id="last-page"><i>skip_next</i></a></div>
+    </div>
+</page>
+{% endblock %}
+
+{% block foot %}
+<script>
+    let currentPage = 0;
+    let lastPage = null;
+
+    function transformString(inputs) {
+        let str = inputs;
+        str = str.replace(/[\'\"\{\}\[\]]/g, "");
+        str = str.replace(/\\s+/g, " ");
+        str = str.replace(/: /g, "=");
+        return str;
+    }
+    function calculateRuntime(startedAt, lastUpdate) {
+        const start = new Date(startedAt * 1000);
+        const end = lastUpdate ? new Date(lastUpdate * 1000) : new Date();
+        const runtime = new Date(end - start);
+        return runtime.toISOString().substr(11, 8);
+    }
+    function updateTimer(t) {
+        document.getElementById('timer').value = new Date(
+            t * 1000).toISOString().replace('T', ' ').slice(0, 19);
+    }
+    function createItem(data) {
+        listItem = document.createElement('li');
+        listItem.id = data.fid;
+        listItem.innerHTML = `
+            <a id="detail" href="">
+                <button id="status" style="width: 36px; height: 24px;"></button>
+                <div id="startup"></div>
+                <div id="runtime"></div>
+                <h5 id="summary" class="small bold"></h5>
+                <i>chevron_right</i>
+                <div id="args"></div>
+            </a>`;
+        return listItem;
+    }
+    function updateItem(listItem, data) {
+        const status = listItem.querySelector('#status');
+        status.textContent = data.status;
+        if (data.status === 'error') {
+            status.className = 'error';
+        } else if (data.status === 'finished') {
+            status.className = 'secondary';
+        } else {
+            status.className = 'inverse-primary';
+        }
+        listItem.querySelector('#detail').href = "/admin/exec/" + data.fid;
+        listItem.querySelector('#startup').textContent = new Date(
+            data.started_at * 1000).toISOString().replace('T', ' ').slice(0, 19);
+        listItem.querySelector('#runtime').textContent = calculateRuntime(
+            data.started_at, data.last_update);
+        listItem.querySelector('#summary').textContent = data.summary;
+        listItem.querySelector('#args').textContent = transformString(
+            data.inputs);
+    }
+
+    let ev = null;
+
+    function loadPage(page) {
+        currentPage = page;
+        document.getElementById('item-list').innerHTML = '';
+        if (ev) {
+            ev.close();
+            ev.removeEventListener('append', null);
+            ev.removeEventListener('prepend', null);
+            ev.removeEventListener('update', null);
+            ev.removeEventListener('delete', null);
+            ev.removeEventListener('alive', null);
+            ev.onerror = null;
+        }
+        console.log("load page", page);
+        ev = new EventSource(`/exec/stream?p=${page}`);
+        ev.addEventListener('append', function(event) {
+            updateTimer(event.lastEventId);
+            const data = JSON.parse(event.data);
+            console.log("append", data);
+            listItem = createItem(data);
+            document.getElementById('item-list').appendChild(listItem);
+            updateItem(listItem, data)
+        });
+        ev.addEventListener('prepend', function(event) {
+            updateTimer(event.lastEventId);
+            const data = JSON.parse(event.data);
+            console.log("prepend", data);
+            listItem = createItem(data);
+            document.getElementById('item-list').insertBefore(
+                    listItem, document.getElementById('item-list').firstChild);
+            updateItem(listItem, data)
+        });
+        ev.addEventListener('update', function(event) {
+            updateTimer(event.lastEventId);
+            const data = JSON.parse(event.data);
+            console.log("update", data);
+            let listItem = document.getElementById(data.fid);
+            updateItem(listItem, data)
+        });
+        ev.addEventListener('delete', function(event) {
+            updateTimer(event.lastEventId);
+            const listItem = document.getElementById(event.data);
+            listItem.remove();
+        });
+        ev.addEventListener('alive', function(event) {
+            updateTimer(event.lastEventId);
+        });
+        ev.addEventListener('info', function(event) {
+            const data = JSON.parse(event.data);
+            lastPage = data.total_pages - 1;
+        });
+        ev.onerror = function() {
+            console.error('EventSource failed.');
+        };
+    }
+    document.getElementById('first-page').addEventListener('click', function() {
+        loadPage(0);
+    });
+    document.getElementById('prev-page').addEventListener('click', function() {
+        if (currentPage > 0) {
+            loadPage(currentPage - 1);
+        }
+    });
+    document.getElementById('next-page').addEventListener('click', function() {
+        loadPage(currentPage + 1);
+    });
+    document.getElementById('last-page').addEventListener('click', function() {
+        loadPage(lastPage);
+    });
+    loadPage(0);
+</script>
+{% endblock %}
