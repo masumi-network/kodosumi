@@ -50,5 +50,8 @@ tests = [
     "pytest_httpserver"
 ]
 
+[project.scripts]
+koco = "kodosumi.cli:cli"
+
 # [tool.setuptools.package-data]
 # "kodosumi.service" = ["static/**/*", "templates/*"]

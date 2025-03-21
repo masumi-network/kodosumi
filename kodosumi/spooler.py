@@ -1,9 +1,11 @@
 import asyncio
+import os
 import sqlite3
 import sys
 from pathlib import Path
 from typing import Dict, List, Union
 
+import psutil
 import ray
 from ray.actor import ActorHandle
 from ray.util.state import list_actors
@@ -21,8 +23,11 @@ DB_FILE = "sqlite3.db"
 @ray.remote
 class SpoolerLock:
 
-    async def ready(self):
-        return True
+    def __init__(self, pid: int):
+        self.pid = pid
+    
+    def get_pid(self):
+        return self.pid
 
 
 class Spooler:
@@ -30,14 +35,12 @@ class Spooler:
                  exec_dir: Union[str, Path],
                  interval: float=5.,
                  batch_size: int=10,
-                 batch_timeout: float=0.1,
-                 force: bool = False):
+                 batch_timeout: float=0.1):
         self.exec_dir = Path(exec_dir)
         self.exec_dir.mkdir(parents=True, exist_ok=True)
         self.interval = interval  
         self.batch_size = batch_size
         self.batch_timeout = batch_timeout
-        self.force = force
         self.shutdown_event = asyncio.Event()
         self.monitor: dict = {}  
         self.lock = None
@@ -105,23 +108,19 @@ class Spooler:
 
     async def start(self):
         try:
+            state = ray.get_actor("Spooler", namespace=NAMESPACE)
             ray.get_actor("Spooler", namespace=NAMESPACE)
-            if self.force:
-                logger.warning(f"Spooler already exists. force restart.")
-                state = ray.get_actor("Spooler", namespace=NAMESPACE)
-                ray.kill(state)
-            else:
-                logger.warning(f"Spooler already exists. Exiting.")
-                return
+            objref = state.get_pid.remote()
+            pid = ray.get(objref)
+            logger.warning(f"Spooler already running, pid={pid}. Exiting.")
+            return
         except Exception:
             pass
         self.lock = SpoolerLock.options(
-            name="Spooler", 
-            lifetime="detached", 
-            enable_task_events=False,
-            namespace=NAMESPACE).remote()
-        assert await self.lock.ready.remote()
-        logger.info(f"Spooler started")
+            name="Spooler",
+            namespace=NAMESPACE).remote(pid=os.getpid())
+        pid = await self.lock.get_pid.remote()
+        logger.info(f"Spooler started, pid={pid}")
         total = 0
         progress = """|/-\\|/-\\"""
         p = 0
@@ -161,21 +160,35 @@ class Spooler:
         await asyncio.gather(*self.monitor.values())
 
 
-def main(settings: kodosumi.config.Settings, force: bool=False):
-    spooler_logger(settings)
-    helper.ray_init(settings)
+def main(settings: kodosumi.config.Settings):
     spooler = Spooler(
         exec_dir=settings.EXEC_DIR, 
         interval=settings.SPOOLER_INTERVAL, 
         batch_size=settings.SPOOLER_BATCH_SIZE, 
-        batch_timeout=settings.SPOOLER_BATCH_TIMEOUT, 
-        force=force)
+        batch_timeout=settings.SPOOLER_BATCH_TIMEOUT)
     try:
+        spooler_logger(settings)
+        helper.ray_init(settings)
         asyncio.run(spooler.start())
     except KeyboardInterrupt:
         asyncio.run(spooler.shutdown())
     finally:
         helper.ray_shutdown()
+
+def terminate(settings: kodosumi.config.Settings):
+    spooler_logger(settings)
+    helper.ray_init(settings)
+    try:
+        state = ray.get_actor("Spooler", namespace=NAMESPACE)
+        objref = state.get_pid.remote()
+        pid = ray.get(objref)
+        proc = psutil.Process(pid)
+        proc.terminate()
+        logger.warning(f"spooler stopped with pid={pid}")
+    except psutil.NoSuchProcess:
+        logger.critical(f"no spooler found with pid={pid}")
+    except Exception:
+        logger.warning("no spooler found")
 
 
 if __name__ == "__main__":
