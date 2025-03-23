@@ -89,6 +89,9 @@ class ProxyControl(litestar.Controller):
                         if helper.wants(request, MediaType.TEXT):
                             return Redirect(f"/exec/state/{fid1}")
                         return Redirect(f"/exec/event/{fid1}")
+            else:
+                logger.error(
+                    f"Proxy error: {response.status_code} {response.text}")
             response_content = response.content
             if response.headers.get("content-type", "").startswith("text/html"):
                 response_content = update_links(

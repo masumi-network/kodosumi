@@ -74,7 +74,8 @@ def app_exception_handler(request: Request,
         ret["stacktrace"] = traceback.format_exc()
         extra = f" - {ret['stacktrace']}"
         meth = logger.error
-    meth(f"{ret['path']} {ret['detail']} ({ret['status_code']}){extra}")
+    meth(f"{ret['path']} {ret['detail']} ({ret['status_code']}){extra}",
+         exc_info=True)
     return Response(content=ret, status_code=ret['status_code'])
 
 

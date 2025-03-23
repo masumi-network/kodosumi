@@ -42,6 +42,12 @@ class ServeAPI(FastAPI):
         self.add_features()
         self._method_lookup = {}
         self._route_lookup = {}
+        # import ray.util
+        # import kodosumi.runner
+        # ray.util.register_serializer(
+        #     kodosumi.runner.runner_fid, 
+        #     serializer=kodosumi.runner.custom_serializer, 
+        #     deserializer=kodosumi.runner.custom_deserializer)
     
     def _process_route(self, method, path, *args, **kwargs):
         entry = kwargs.pop("entry", None)
