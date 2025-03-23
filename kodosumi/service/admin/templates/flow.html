@@ -103,19 +103,21 @@ Agentic Services
             lp = data.lp;
             if (data.items) {
                 data.items.forEach(flow => {
-                    const flowElement = document.createElement('div');
-                    flowElement.classList.add('s12', 'l4');
-                    flowElement.innerHTML = `
-                    <a href="${flow.url}" style="display: block;">
-                        <article class="border scroller" onmouseover="this.classList.add('secondary')" onmouseout="this.classList.remove('secondary')">
-                            <h6>${flow.summary}</h6>
-                            <p>${flow.description}</p>
+                    if (flow.method.toLowerCase() == "get") {
+                        const flowElement = document.createElement('div');
+                        flowElement.classList.add('s12', 'l4');
+                        flowElement.innerHTML = `
+                        <a href="${flow.url}" style="display: block;">
+                            <article class="border scroller" onmouseover="this.classList.add('secondary')" onmouseout="this.classList.remove('secondary')">
+                                <h6>${flow.summary}</h6>
+                                <p>${flow.description}</p>
                             <label class="small">
                                 ${flow.organization ? flow.organization : '-'}
-                            </label>
-                        </article>
-                    </a>`;
-                    container.appendChild(flowElement);
+                                </label>
+                            </article>
+                        </a>`;
+                        container.appendChild(flowElement);
+                    }
                 });
                 if (data.items.length === 0) {
                     console.log('No more items to load');

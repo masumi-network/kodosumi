@@ -252,23 +252,13 @@ class Runner:
         else:
             obj = self.entry_point
 
-        origin = {
-            "summary": None,
-            "description": None,
-            "author": None,
-            "organization": None
-        }
-        if hasattr(obj, "__brief__"):
-            for field in origin:
-                origin[field] = obj.__brief__.get(field, None)
-        elif hasattr(obj, "__doc__") and obj.__doc__:
-            origin["summary"] = obj.__doc__.strip().split("\n")[0]
-            origin["description"] = obj.__doc__.strip()
-        elif isinstance(self.extra, dict):
-            origin["summary"] = self.extra.get("summary", None)
-            origin["description"] = self.extra.get("summary", None)
-            origin["author"] = self.extra.get("x-author", None)
-            origin["organization"] = self.extra.get("x-organization", None)
+        origin = {}
+        if isinstance(self.extra, dict):
+            for field in ("tags", "summary", "description", "deprecated"):
+                origin[field] = self.extra.get(field, None)
+            extra = self.extra.get("openapi_extra", {})
+            for field in ("author", "organization", "version"):
+                origin[field] = extra.get(f"x-{field}", None)
 
         await self.put(EVENT_META, serialize({
             **{
@@ -276,7 +266,7 @@ class Runner:
                 "username": self.username,
                 "base_url": self.base_url,
                 "entry_point": rep_entry_point,
-                "extra": self.extra
+                # "extra": self.extra
             }, 
             **origin}))
         await self.put(EVENT_STATUS, STATUS_RUNNING)

@@ -78,11 +78,11 @@ class Spooler:
                 """, values
             )
         except Exception:
-            logger.critical(f"Failed to save {fid}", exc_info=True)
+            logger.critical(f"failed to save {fid}", exc_info=True)
 
     async def retrieve(self, runner: ActorHandle, state: ActorState):
         if state.name is None:
-            logger.critical(f"Actor {state.actor_id} has no name.")
+            logger.critical(f"actor {state.actor_id} has no name.")
         fid: str = str(state.name)
         username = await runner.get_username.remote()
         conn = self.setup_database(username, fid)
@@ -96,13 +96,12 @@ class Spooler:
                 if batch:
                     self.save(conn, fid, batch)
                     n += len(batch)
-                    # logger.info(f"saved batch of {len(batch)}")
                 await asyncio.sleep(0.25)
             ray.get(runner.shutdown.remote())
             ray.kill(runner)
-            logger.info(f"Finished {fid} with {n} records")
+            logger.info(f"finished {fid} with {n} records")
         except Exception as e:
-            logger.critical(f"Failed to retrieve from {fid}", exc_info=True)
+            logger.critical(f"failed to retrieve from {fid}", exc_info=True)
         finally:
             conn.close()
 
@@ -112,7 +111,7 @@ class Spooler:
             ray.get_actor("Spooler", namespace=NAMESPACE)
             objref = state.get_pid.remote()
             pid = ray.get(objref)
-            logger.warning(f"Spooler already running, pid={pid}. Exiting.")
+            logger.warning(f"spooler already running, pid={pid}. Exiting.")
             return
         except Exception:
             pass
@@ -120,7 +119,7 @@ class Spooler:
             name="Spooler",
             namespace=NAMESPACE).remote(pid=os.getpid())
         pid = await self.lock.get_pid.remote()
-        logger.info(f"Spooler started, pid={pid}")
+        logger.info(f"spooler started, pid={pid}")
         total = 0
         progress = """|/-\\|/-\\"""
         p = 0
@@ -130,7 +129,7 @@ class Spooler:
                     ("class_name", "=", "Runner"), 
                     ("state", "=", "ALIVE")])
             except Exception as e:
-                logger.critical(f"Failed listing names actors", exc_info=True)
+                logger.critical(f"failed listing names actors", exc_info=True)
                 states = []
             for state in states:
                 if state.name not in self.monitor:
@@ -138,25 +137,24 @@ class Spooler:
                         runner = ray.get_actor(state.name, namespace=NAMESPACE)
                         task = asyncio.create_task(self.retrieve(runner, state))
                         self.monitor[state.name] = task
-                        logger.info(f"Streaming {state.name}")
+                        logger.info(f"streaming {state.name}")
                         total += 1
                     except Exception as e:
                         logger.critial(
-                            f"Failed to stream {state.name}", exc_info=True)
+                            f"failed to stream {state.name}", exc_info=True)
             dead = [name for name, task in self.monitor.items() if task.done()]
             for state in dead:
                 del self.monitor[state]
             if sys.stdout.isatty():
                 print(f"{progress[p]} Actors active ({len(self.monitor)}) - "
-                      f"total: ({total})", " "*20, end="\r", flush=True)
+                    f"total: ({total})", " "*20, end="\r", flush=True)
                 p = 0 if p >= len(progress) - 1 else p + 1
             await asyncio.sleep(self.interval)
-        logger.info(f"Spooler shutdown complete")
 
     async def shutdown(self):
-        logger.info(f"Spooler shutdown, please wait.")
+        logger.info(f"spooler shutdown, please wait.")
         self.shutdown_event.set()
-        ray.kill(self.lock)
+        #ray.kill(self.lock)
         await asyncio.gather(*self.monitor.values())
 
 
@@ -170,9 +168,8 @@ def main(settings: kodosumi.config.Settings):
         spooler_logger(settings)
         helper.ray_init(settings)
         asyncio.run(spooler.start())
-    except KeyboardInterrupt:
-        asyncio.run(spooler.shutdown())
     finally:
+        asyncio.run(spooler.shutdown())
         helper.ray_shutdown()
 
 def terminate(settings: kodosumi.config.Settings):

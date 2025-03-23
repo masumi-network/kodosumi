@@ -35,13 +35,7 @@ def _extract(openapi_url, js) -> dict:
     register = []
     for path, specs in js.get("paths", {}).items():
         for meth, meta in specs.items():
-            in_scope = (
-                (path == "/" 
-                    and meth.lower() == "get" 
-                    and meta.get(KODOSUMI_API, True)
-                ) or (
-                    meta.get(KODOSUMI_API, False)))
-            if in_scope:
+            if meta.get(KODOSUMI_API, False):
                 details = {"method": meth.upper()}
                 for key in API_FIELDS:
                     target = key[2:] if key.startswith("x-") else key
