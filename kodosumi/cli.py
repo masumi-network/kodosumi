@@ -4,7 +4,7 @@ import sys
 import click
 
 import kodosumi.service.server
-import kodosumi.spooler
+import kodosumi.runner.spooler
 from kodosumi.config import LOG_LEVELS, Settings
 
 
@@ -55,7 +55,7 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
 
     if start:
         if block:
-            kodosumi.spooler.main(settings)
+            kodosumi.runner.spooler.main(settings)
         else:
             cmd = [sys.executable, "-m", "kodosumi.cli"]
             cmd += sys.argv[1:] + ["--block"]
@@ -68,7 +68,7 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
             )
             click.echo(f"spooler started.")
     else:
-        kodosumi.spooler.terminate(settings)
+        kodosumi.runner.spooler.terminate(settings)
 
 
 @cli.command("serve")

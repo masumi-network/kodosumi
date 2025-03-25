@@ -14,10 +14,7 @@ from ray.util.state.common import ActorState
 import kodosumi.config
 from kodosumi import helper
 from kodosumi.log import logger, spooler_logger
-from kodosumi.runner import NAMESPACE
-
-
-DB_FILE = "sqlite3.db"
+from kodosumi.runner.const import DB_FILE, NAMESPACE
 
 
 @ray.remote
@@ -33,8 +30,8 @@ class SpoolerLock:
 class Spooler:
     def __init__(self, 
                  exec_dir: Union[str, Path],
-                 interval: float=5.,
-                 batch_size: int=10,
+                 interval: float=1.,
+                 batch_size: int=1,
                  batch_timeout: float=0.1):
         self.exec_dir = Path(exec_dir)
         self.exec_dir.mkdir(parents=True, exist_ok=True)
@@ -68,15 +65,13 @@ class Spooler:
             return
         try:
             cursor = conn.cursor()
-            values = [
-                (val.get("timestamp"), val.get("kind"), val.get("payload")) 
-                for val in payload
-            ]
-            cursor.executemany(
-                """
-                INSERT INTO monitor (timestamp, kind, message) VALUES (?, ?, ?)
-                """, values
-            )
+            for val in payload:
+                cursor.execute(
+                    """
+                    INSERT INTO monitor (timestamp, kind, message) VALUES (?, ?, ?)
+                    """, (val.get("timestamp"), val.get("kind"), val.get("payload"))
+                )
+                logger.debug(f"saved {val.get('kind')}: {val} for {fid}")
         except Exception:
             logger.critical(f"failed to save {fid}", exc_info=True)
 
@@ -93,8 +88,10 @@ class Spooler:
                 batch = ray.get(
                     runner.get_batch.remote(
                         self.batch_size, self.batch_timeout))
+                logger.debug(f"retrieved {len(batch)} records for {fid}")
                 if batch:
                     self.save(conn, fid, batch)
+                    logger.debug(f"saved {len(batch)} records for {fid}")
                     n += len(batch)
                 await asyncio.sleep(0.25)
             ray.get(runner.shutdown.remote())

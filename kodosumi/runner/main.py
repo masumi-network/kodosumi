@@ -1,7 +1,6 @@
 import asyncio
 import inspect
 import sys
-import re
 from traceback import format_exc
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -9,30 +8,13 @@ import ray
 from bson.objectid import ObjectId
 from pydantic import BaseModel
 
-from kodosumi.dtypes import format_map
-from kodosumi.helper import serialize, now
+from kodosumi.helper import now, serialize
+from kodosumi.runner.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
+                                   EVENT_INPUTS, EVENT_META, EVENT_STATUS,
+                                   NAMESPACE, STATUS_END, STATUS_ERROR,
+                                   STATUS_RUNNING, STATUS_STARTING)
+from kodosumi.runner.tracer import StderrHandler, StdoutHandler, Tracer
 
-EVENT_META    = "meta"
-EVENT_AGENT   = "agent"
-EVENT_DEBUG   = "debug"
-EVENT_STATUS  = "status"
-EVENT_ERROR   = "error"
-EVENT_DATA    = "data"
-EVENT_RESULT  = "result"
-EVENT_ACTION  = "action"
-EVENT_INPUTS  = "inputs"
-EVENT_FINAL   = "final"
-EVENT_STDOUT  = "stdout"
-EVENT_STDERR  = "stderr"
-
-STATUS_STARTING = "starting"
-STATUS_RUNNING  = "running"
-STATUS_END      = "finished"
-STATUS_ERROR    = "error"
-STATUS_FINAL    = (STATUS_END, STATUS_ERROR)
-
-NAMESPACE = "kodosumi"
-KODOSUMI_LAUNCH = "kodosumi_launch"
 
 class MessageQueue:
     def __init__(self, batch_size: int = 10, batch_timeout: float = 0.1):
@@ -63,7 +45,6 @@ class MessageQueue:
                     batch.append(message)
                 except asyncio.QueueEmpty:
                     break
-
         except asyncio.TimeoutError:
             pass
 
@@ -74,7 +55,6 @@ class MessageQueue:
             if self._is_flushing:
                 return
             self._is_flushing = True
-
         try:
             while not self.queue.empty():
                 batch = await self.get_batch()
@@ -92,50 +72,6 @@ class MessageQueue:
         while not self.queue.empty():
             await asyncio.sleep(0.1)
 
-class StdoutHandler:
-
-    prefix = EVENT_STDOUT
-
-    def __init__(self, runner):
-        self._runner = runner
-        self._buffer = []
-        self._lock = asyncio.Lock()
-        self._loop = asyncio.get_event_loop()
-
-    def write(self, message: str) -> None:
-        if not message.rstrip():
-            return
-        self._loop.create_task(self._write(self.prefix, message.rstrip()))
-
-    async def _write(self, prefix: str, payload: Any):
-        async with self._lock:
-            await self._runner.put(prefix, payload)
-
-    def flush(self):
-        pass
-
-    def isatty(self) -> bool:
-        return False
-
-class StderrHandler(StdoutHandler):
-
-    prefix = EVENT_STDERR
-    pattern = re.compile(
-        r'^\s*<x-(text|html|markdown)\s*>(.*?)</x-\1\s*>\s*$', re.I)
-
-    def write(self, message: str) -> None:
-        if not message.rstrip():
-            return
-        match = self.pattern.match(message)
-        if match:
-            self._loop.create_task(
-                self._runner.put(EVENT_RESULT,
-                    serialize(format_map[match.group(1).lower()](
-                        body=match.group(2).strip()))))
-        else:
-            super().write(message)
-
-
 def parse_entry_point(entry_point: str) -> Callable:
     if ":" in entry_point:
         module_name, obj = entry_point.split(":", 1)
@@ -148,22 +84,6 @@ def parse_entry_point(entry_point: str) -> Callable:
         module = getattr(module, comp)
     return getattr(module, obj)
 
-
-class Tracer:
-    def __init__(self, runner):
-        self._runner = runner
-        self._loop = asyncio.get_event_loop()
-
-    def debug(self, message: str):
-        self._loop.create_task(self._runner.put(EVENT_DEBUG, str(message)))
-
-    def result(self, message: Any):
-        self._loop.create_task(self._runner.put(
-            EVENT_RESULT, serialize(message)))
-
-    def action(self, message: Any):
-        self._loop.create_task(self._runner.put(
-            EVENT_ACTION, serialize(message)))
 
 @ray.remote
 class Runner:
@@ -235,8 +155,6 @@ class Runner:
             self.active = False
 
     async def start(self):
-        # from kodosumi.helper import debug
-        # debug()
         await self.put(EVENT_STATUS, STATUS_STARTING)
         await self.put(EVENT_INPUTS, serialize(self.inputs))
         if not isinstance(self.entry_point, str):
@@ -246,12 +164,10 @@ class Runner:
             rep_entry_point = f"{module}.{name}"
         else:
             rep_entry_point = self.entry_point
-
         if isinstance(self.entry_point, str):
             obj = parse_entry_point(self.entry_point)
         else:
             obj = self.entry_point
-
         origin = {}
         if isinstance(self.extra, dict):
             for field in ("tags", "summary", "description", "deprecated"):
@@ -259,23 +175,21 @@ class Runner:
             extra = self.extra.get("openapi_extra", {})
             for field in ("author", "organization", "version"):
                 origin[field] = extra.get(f"x-{field}", None)
-
         await self.put(EVENT_META, serialize({
             **{
                 "fid": self.fid,
                 "username": self.username,
                 "base_url": self.base_url,
-                "entry_point": rep_entry_point,
-                # "extra": self.extra
+                "entry_point": rep_entry_point
             }, 
             **origin}))
         await self.put(EVENT_STATUS, STATUS_RUNNING)
-        tracer = Tracer(self)
-
         # obj is a decorated crew class
         if hasattr(obj, "is_crew_class"):
             obj = obj().crew()
 
+
+        tracer = Tracer(self.fid)
         # obj is a crew
         if hasattr(obj, "kickoff"):
             obj.step_callback = tracer.action
@@ -291,15 +205,14 @@ class Runner:
             bound_args = sig.bind_partial()
             if 'inputs' in sig.parameters:
                 bound_args.arguments['inputs'] = self.inputs
-            if 'trace' in sig.parameters:
-                bound_args.arguments['trace'] = tracer
+            if 'tracer' in sig.parameters:
+                bound_args.arguments['tracer'] = tracer
             bound_args.apply_defaults()
             if asyncio.iscoroutinefunction(obj):
                 result = await obj(*bound_args.args, **bound_args.kwargs)
             else:
                 result = await asyncio.get_event_loop().run_in_executor(
                     None, obj, *bound_args.args, **bound_args.kwargs)
-
         await self.put(EVENT_FINAL, serialize(result))
         return result
 
@@ -337,9 +250,11 @@ class Runner:
         sys.stderr = self._original_stderr
         return "Runner shutdown complete."
 
+
 def kill_runner(fid: str):
     runner = ray.get_actor(fid, namespace=NAMESPACE)
     ray.kill(runner)
+
 
 def create_runner(username: str,
                   base_url: str,

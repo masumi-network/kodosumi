@@ -137,7 +137,8 @@ Job: <em><span id="summary"></span></em>
     const elmProcess = document.getElementById('process');
     const elmOutput = document.getElementById('output');
     const elmTrace = document.getElementById('trace');
-
+    const elmPageOutput = document.querySelector('#page-output');
+    let active = true;
     let startup = null;
 
     function secondsToHHMMSS(seconds) {
@@ -150,7 +151,7 @@ Job: <em><span id="summary"></span></em>
     function splitData(data) {
         const parts = data.split(":");
         const ts = parts[0];
-        if (startup) {
+        if (startup && active) {
             elmRuntime.value = secondsToHHMMSS(ts - startup);
         }
         return [ts, parts.slice(1).join(":")];
@@ -238,12 +239,14 @@ Job: <em><span id="summary"></span></em>
         }
         else if (status == "finished" || status == "error") {
             elmShutdown.value = formatUnixTime(timestamp);
+            elmStatusSpinner.style.display = 'none';
+            elmActionIcon.textContent = 'delete';
+            active = false;
+            ui("#page-output")
         }
     });
     ev.addEventListener('eof', function(event) {
         console.log("closing");
-        elmStatusSpinner.style.display = 'none';
-        elmActionIcon.textContent = 'delete';
         ev.close();
     });
     ev.addEventListener('inputs', function(event) {
@@ -272,6 +275,8 @@ Job: <em><span id="summary"></span></em>
     });
     ev.addEventListener('debug', function(event) {
         const [timestamp, data] = splitData(event.data);
+        elmStdout.innerHTML += data;
+        convertDivToButton();
     });
     ev.addEventListener('action', function(event) {
         const [timestamp, data] = splitData(event.data);

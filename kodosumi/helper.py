@@ -1,15 +1,14 @@
 import logging
 import time
-from typing import Callable, Optional
+from typing import Optional
 
 import ray
 from litestar import MediaType, Request
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel
 
 from kodosumi.config import InternalSettings, Settings
 from kodosumi.dtypes import DynamicModel
 from kodosumi.log import LOG_FORMAT, get_log_level
-
 
 format_map = {"html": MediaType.HTML, "json": MediaType.JSON}
 

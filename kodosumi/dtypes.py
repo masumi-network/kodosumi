@@ -8,7 +8,6 @@ from pydantic import (BaseModel, EmailStr, RootModel, field_validator,
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-
 T = TypeVar('T')
 
 class DynamicModel(RootModel[Dict[str, Any]]):

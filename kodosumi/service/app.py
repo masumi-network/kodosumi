@@ -1,6 +1,4 @@
-import asyncio
 import traceback
-import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from time import time
@@ -42,12 +40,14 @@ from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
 
+
 def app_exception_handler(request: Request, 
                           exc: Exception) -> Union[Template, Response]:
     ret: Dict[str, Any] = {
         "error": exc.__class__.__name__,
         "path": request.url.path,
     }
+    exc_info = False
     if isinstance(exc, NotFoundException):
         ret["detail"] = exc.detail
         ret["status_code"] = exc.status_code
@@ -74,8 +74,9 @@ def app_exception_handler(request: Request,
         ret["stacktrace"] = traceback.format_exc()
         extra = f" - {ret['stacktrace']}"
         meth = logger.error
+        exc_info = True
     meth(f"{ret['path']} {ret['detail']} ({ret['status_code']}){extra}",
-         exc_info=True)
+         exc_info=exc_info)
     return Response(content=ret, status_code=ret['status_code'])
 
 

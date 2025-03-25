@@ -1,12 +1,10 @@
-from kodosumi.dtypes import DynamicModel
-
+import textwrap
 
 import markdown
 import yaml
 from ansi2html import Ansi2HTMLConverter
 
-
-import textwrap
+from kodosumi.dtypes import DynamicModel
 
 
 class Formatter:

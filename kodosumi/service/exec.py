@@ -1,7 +1,6 @@
 import asyncio
 import shutil
 import sqlite3
-import textwrap
 from pathlib import Path
 from typing import AsyncGenerator, Optional, Union
 
@@ -17,9 +16,10 @@ import kodosumi.core
 from kodosumi.dtypes import DynamicModel, Execution, Markdown
 from kodosumi.helper import now, serialize
 from kodosumi.log import logger
-from kodosumi.runner import EVENT_STATUS, STATUS_FINAL, kill_runner
+from kodosumi.runner.const import EVENT_STATUS, NAMESPACE, STATUS_FINAL
+from kodosumi.runner.main import kill_runner
+from kodosumi.runner.const import DB_FILE
 from kodosumi.service.formatter import DefaultFormatter, Formatter
-from kodosumi.spooler import DB_FILE, NAMESPACE
 
 
 async def _query(
@@ -128,6 +128,7 @@ async def _event(
                 """, (now(),))
     try:
         t0 = now()
+        lst = None
         while True:
             cursor.execute("""
                 SELECT id, timestamp, kind, message 
@@ -135,8 +136,10 @@ async def _event(
                 WHERE id > ?
                 ORDER BY timestamp ASC
             """, (offset, ))
+            n = 0
             for _id, stamp, kind, msg in cursor.fetchall():
                 t0 = now()
+                lst = t0
                 if kind == EVENT_STATUS:
                     status = msg
                 if filter_events is None or kind in filter_events:
@@ -149,7 +152,9 @@ async def _event(
                     }
                     # yield f"{kind}: {timestamp}:{message}\n\n"
                 offset = _id
-            if status in STATUS_FINAL:
+                n += 1
+            # print(status, n, lst)
+            if status in STATUS_FINAL and lst and lst + 10 < now():
                 break
             await asyncio.sleep(0.25)
             if now() > t0 + 1:

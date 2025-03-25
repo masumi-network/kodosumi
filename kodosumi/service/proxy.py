@@ -10,7 +10,7 @@ from litestar.response import Redirect, Response
 
 from kodosumi import helper
 from kodosumi.log import logger
-from kodosumi.runner import KODOSUMI_LAUNCH
+from kodosumi.runner.const import KODOSUMI_LAUNCH
 
 KODOSUMI_USER = "x-kodosumi_user"
 KODOSUMI_BASE = "x-kodosumi_base"
@@ -57,7 +57,6 @@ class ProxyControl(litestar.Controller):
         target = state["routing"].get(base)
         if not target:
             raise NotFoundException(path)
-        # endpoint = kodosumi.endpoint.find_endpoint(state, base)
         timeout = state["settings"].PROXY_TIMEOUT
         async with AsyncClient(timeout=timeout) as client:
             meth = request.method.lower()

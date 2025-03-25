@@ -1,0 +1,22 @@
+EVENT_META    = "meta"
+EVENT_AGENT   = "agent"
+EVENT_DEBUG   = "debug"
+EVENT_STATUS  = "status"
+EVENT_ERROR   = "error"
+EVENT_DATA    = "data"
+EVENT_RESULT  = "result"
+EVENT_ACTION  = "action"
+EVENT_INPUTS  = "inputs"
+EVENT_FINAL   = "final"
+EVENT_STDOUT  = "stdout"
+EVENT_STDERR  = "stderr"
+
+STATUS_STARTING = "starting"
+STATUS_RUNNING  = "running"
+STATUS_END      = "finished"
+STATUS_ERROR    = "error"
+STATUS_FINAL    = (STATUS_END, STATUS_ERROR)
+
+NAMESPACE = "kodosumi"
+KODOSUMI_LAUNCH = "kodosumi_launch"
+DB_FILE = "sqlite3.db"

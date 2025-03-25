@@ -1,16 +1,15 @@
-import traceback
-from typing import Any, Callable, Union, Optional, Type, List, Sequence, Dict, Set
 import inspect
-from fastapi import FastAPI, Request, Depends, Response
+import traceback
+from typing import Any, Callable, Optional, Union
+
+from fastapi import FastAPI, Request
 from fastapi.exceptions import ValidationException
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.routing import APIRoute, BaseRoute
-from fastapi.datastructures import Default
-from fastapi.utils import generate_unique_id
 
-from kodosumi.runner import KODOSUMI_LAUNCH, create_runner
-from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
+from kodosumi.runner.const import KODOSUMI_LAUNCH
+from kodosumi.runner.main import create_runner
 from kodosumi.service.endpoint import KODOSUMI_API
+from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
 
 ANNONYMOUS_USER = "_annon_"
 
@@ -42,12 +41,6 @@ class ServeAPI(FastAPI):
         self.add_features()
         self._method_lookup = {}
         self._route_lookup = {}
-        # import ray.util
-        # import kodosumi.runner
-        # ray.util.register_serializer(
-        #     kodosumi.runner.runner_fid, 
-        #     serializer=kodosumi.runner.custom_serializer, 
-        #     deserializer=kodosumi.runner.custom_deserializer)
     
     def _process_route(self, method, path, *args, **kwargs):
         entry = kwargs.pop("entry", None)
