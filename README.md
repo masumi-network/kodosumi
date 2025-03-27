@@ -8,6 +8,7 @@ kodosumi is a runtime environment to manage and execute agentic services at scal
 
 kodosumi is one component of a larger ecosystem with [masumi and sokosumi](https://www.masumi.network/).
 
+
 # introduction
 
 kodosumi consists of three building blocks:
@@ -15,6 +16,7 @@ kodosumi consists of three building blocks:
 1. The ray cluster to execute agentic services at scale.
 2. The kodosumi web interface and API services.
 3. The kodosumi spooler monitoring agentic service execution and results.
+
 
 # installation
 
@@ -25,7 +27,7 @@ This installation has been tested with versions `ray==2.43.0` and `python==3.12.
 ```bash
 git clone https://github.com/masumi-network/kodosumi.git
 cd kodosumi
-git checkout dev
+git checkout feature/queue
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -42,99 +44,58 @@ Check ray status with `ray status` and visit ray dashboard at [http://localhost:
 ### STEP 3 - start kodosumi spooler.
 
 ```bash
-python -m kodosumi.cli spool
+koco spool
 ```
 
-### STEP 4 - create _ray serve_ configuration
-Deploy the example services available in folder `./tests`. You need to create a _ray serve_ configuration file.
+> [!NOTE]
+>
+> This starts the spooler as a daemon. To stop the spooler daemon run
+>
+>     koco spool --stop
+>
+> You can start a blocking spooler instead with
+>
+>     koco spool --block
 
-```yaml
-# ./config.yaml
 
-proxy_location: EveryNode
-http_options:
-  host: 127.0.0.1
-  port: 8001
-grpc_options:
-  port: 9001
-  grpc_servicer_functions: []
-logging_config:
-  encoding: TEXT
-  log_level: DEBUG
-  logs_dir: null
-  enable_access_log: true
-applications:
-- name: app
-  route_prefix: /counter
-  import_path: app.main:fast_app
-  runtime_env:
-    env_vars:
-      PYTHONPATH: ./tests
-- name: hymn
-  route_prefix: /hymn
-  import_path: app.hymn:fast_app
-  runtime_env:
-    env_vars:
-      PYTHONPATH: ./tests
-      OPENAI_API_KEY: <- enter your key here ->
-      EXA_API_KEY:  <- enter your key here ->
-      SERPER_API_KEY:  <- enter your key here ->
-      OTEL_SDK_DISABLED: "true"
-    pip:
-    - crewai==0.86.*
-    - crewai_tools==0.17.*
-- name: Job Posting
-  route_prefix: /job_posting
-  import_path: app2.app:fast_app
-  runtime_env:
-    env_vars:
-      PYTHONPATH: ./tests
-      OPENAI_API_KEY: <- enter your key here ->
-      EXA_API_KEY:  <- enter your key here ->
-      SERPER_API_KEY:  <- enter your key here ->
-      OTEL_SDK_DISABLED: "true"
-      LITELLM_LOG: DEBUG
-    pip:
-    - crewai==0.86.*
-    - crewai_tools==0.17.*
+### STEP 4 - prepare environment
+
+To use [openai](https://openai.com/) API you need to create a local file `.env` to define the following API keys:
+
 ```
-Update the required API keys for [openai](https://openai.com/), [Exa search engine](https://docs.exa.ai/reference/getting-started) and [Serper Google Search](https://serper.dev/). These tools will be used by the deployed [CrewAI](https://www.crewai.com/) services.
+OPENAI_API_KEY=...
+```
 
-Save the file `config.yaml` in your kodosumi repository folder.
 
 ### STEP 5 - deploy with `ray serve`
- 
- Open a new terminal. Start the deployment but do not forget to activate the Python virtual environment beforehand.
+
+Deploy the example services available in folder `./apps`. To deploy _example2_ and _example3_ use file `apps/config.yaml`.
 
 ```bash
-source .venv/bin/activate
-serve deploy ./config.yaml 
+serve deploy apps/config.yaml
 ```
 
-Depending on your local resources this deployment will take a couple of minutes because service dependencies will be installed by ray. Visit [ray's dashboard pane _serve_](http://localhost:8265/#/serve), follow the process and verify all three services have been successfully deployed.
-
-All services should be **RUNNING** and all deployments should be **HEALTHY** at the end.
 
 ### STEP 6 - start kodosumi services
 
-Finally start and visit kodosumi services at [http://localhost:3370](http://localhost:3370). 
+Finally start the kodosumi service and register ray endpoints available at 
+[http://0.0.0.0:8001/-/routes](http://0.0.0.0:8001/-/routes).
 
 
 ```bash
-python -m kodosumi.cli serve
+koco serve --register http://0.0.0.0:8001/-/routes
 ```
 
 ### STEP 7 - finish
 
-Login with test user `admin` (password `admin`).
+Visit kodosumi admin panel at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`.
 
-If all went well, then you see three agentic test services:
+If all went well, then you see two test services:
 
-1. [Test App](./tests/app/main.py) (a simple runner for testing purposes)
-2. [Hymn Creator](./tests/app/hymn.py)
-3. [Job Posting Creator](./tests/app2/app.py)
+3. [Armstrong Numbers Generator](./apps/example2.py)
+2. [Hymn Creator](./apps/example3.py)
 
-Stop the kodosumi services and spooler by hitting `CNTRL+C` in the corresponding terminal. Stop the ray daemon with command `ray stop`.
+Stop the kodosumi services and spooler by hitting `CNTRL+C` in the corresponding terminal. Stop Ray _serve_ with `serve shutdown --yes`. Stop the ray daemon with command `ray stop`.
 
 # development notes
 
