@@ -1,6 +1,6 @@
 import inspect
 import traceback
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, Coroutine
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import ValidationException

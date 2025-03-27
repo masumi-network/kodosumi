@@ -27,9 +27,9 @@ Job: <em><span id="summary"></span></em>
 
 {% block menu %}
 <div class="tabs right-align">
-    <a data-ui="#page-input" class="active">Input</a>
+    <a data-ui="#page-input">Input</a>
     <a data-ui="#page-output">Output</a>
-    <a data-ui="#page-process">Reasoning</a>
+    <a data-ui="#page-process" class="active">Reasoning</a>
     <a data-ui="#page-log">Log</a>
     <a id="start-trace" data-ui="#page-trace">Trace</a>
     <a href="/exec/html/{{fid}}" target="_blank"><i>download</i></a>
@@ -98,7 +98,7 @@ Job: <em><span id="summary"></span></em>
     </nav>
 </dialog>
 
-<div class="page active" id="page-input">
+<div class="page" id="page-input">
 <pre id="inputs" style="height: 100%; font-family: monospace; overflow-y: scroll;"></pre>    
 </div>
 <div class="page" id="page-output">
@@ -112,7 +112,7 @@ Job: <em><span id="summary"></span></em>
     <article id="stdout" 
         style="height: 100%; overflow-y: scroll; font-family: monospace; white-space: pre-wrap;"></article>
 </div>
-<div class="page" id="page-process">
+<div class="page active" id="page-process">
     <article id="process" 
          style="height: 100%; overflow-y: scroll;">
     </article>    

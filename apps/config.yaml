@@ -1,0 +1,21 @@
+proxy_location: EveryNode
+http_options:
+  host: 127.0.0.1
+  port: 8001
+grpc_options:
+  port: 9001
+  grpc_servicer_functions: []
+logging_config:
+  encoding: TEXT
+  log_level: DEBUG
+  logs_dir: null
+  enable_access_log: true
+applications:
+
+- name: example1
+  route_prefix: /example2
+  import_path: apps.example2:fast_app
+
+- name: example3
+  route_prefix: /example3
+  import_path: apps.example3.fast_app

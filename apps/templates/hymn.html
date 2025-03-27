@@ -1,0 +1,21 @@
+{% extends '_base.html' %}
+
+{% block main %}
+    <h3>Hymn Creator</h3>
+    <div class="large"></div>
+    <p>
+        This Agentic Services creates a short hymn about a given topic
+        using openai and crewai.
+    </p>
+    <form method="POST">
+        <div class="field border">
+            <label>Topic</label>
+            <input type="text" name="topic" value="Testbildtester" 
+            placeholder="give a topic for the hymn"/>
+        </div>
+        <div class="space"></div>
+        <button class="tertiary" type="submit">Submit</button>
+    </form>
+</page>
+    
+{% endblock %}

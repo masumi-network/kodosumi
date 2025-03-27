@@ -1,10 +1,8 @@
 import asyncio
 import inspect
-import sys
 from traceback import format_exc
 from typing import Any, Callable, Optional, Tuple, Union
 
-import ray
 import ray.util.queue
 from bson.objectid import ObjectId
 from pydantic import BaseModel
@@ -14,7 +12,7 @@ from kodosumi.runner.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                                    EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                                    NAMESPACE, STATUS_END, STATUS_ERROR,
                                    STATUS_RUNNING, STATUS_STARTING)
-from kodosumi.runner.tracer import StderrHandler, StdoutHandler, Tracer
+from kodosumi.runner.tracer import Tracer
 
 
 class MessageQueue:
@@ -106,11 +104,7 @@ class Runner:
         #self.message_queue = MessageQueue()
         self.message_queue = ray.util.queue.Queue()
         self.tracer = Tracer(self.message_queue)
-
-        self._original_stdout = sys.stdout
-        self._original_stderr = sys.stderr
-        sys.stdout = StdoutHandler(self.tracer)
-        sys.stderr = StderrHandler(self.tracer)
+        self.tracer.init()
 
     async def get_username(self):
         return self.username
@@ -185,8 +179,8 @@ class Runner:
 
         # obj is a crew
         if hasattr(obj, "kickoff"):
-            # obj.step_callback = tracer.action
-            # obj.task_callback = tracer.result
+            obj.step_callback = self.tracer.action_sync
+            obj.task_callback = self.tracer.result_sync
             if isinstance(self.inputs, BaseModel):
                 data = self.inputs.model_dump()
             else:
@@ -222,7 +216,7 @@ class Runner:
                     "name": tool.name,
                     "description": tool.description
                 })
-            await self.put((EVENT_AGENT, serialize({"agent": dump})))
+            await self._put_async(EVENT_AGENT, serialize({"agent": dump}))
         for task in flow.tasks:
             dump = {
                 "name": task.name,
@@ -236,7 +230,7 @@ class Runner:
                     "name": tool.name,
                     "description": tool.description
                 })
-            await self.put((EVENT_AGENT, serialize({"task": dump})))
+            await self._put_async(EVENT_AGENT, serialize({"task": dump}))
 
     async def shutdown(self):
         try:
@@ -244,12 +238,11 @@ class Runner:
                 if self.message_queue.empty():
                     break
                 await asyncio.sleep(0.1)
-            await self.message_queue.shutdown()
+            self.tracer.shutdown()
+            # await self.message_queue.shutdown()
         except: 
             pass
         self.active = False
-        sys.stdout = self._original_stdout
-        sys.stderr = self._original_stderr
         return "Runner shutdown complete."
 
 

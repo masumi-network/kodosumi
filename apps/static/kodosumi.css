@@ -1,0 +1,42 @@
+:root, body.light {
+    --primary:#3e6a00;
+    --on-primary:#ffffff;
+    --primary-container:#b9f474;
+    --on-primary-container:#0f2000;
+    --secondary:#576249;
+    --on-secondary:#ffffff;
+    --secondary-container:#dbe7c8;
+    --on-secondary-container:#151e0b;
+    --tertiary:#386663;
+    --on-tertiary:#ffffff;
+    --tertiary-container:#bbece8;
+    --on-tertiary-container:#00201e;
+    --error:#ba1a1a;
+    --on-error:#ffffff;
+    --error-container:#ffdad6;
+    --on-error-container:#410002;
+    --background:#fdfcf5;
+    --on-background:#1b1c18;
+    --surface:#fafaf2;
+    --on-surface:#1b1c18;
+    --surface-variant:#e1e4d5;
+    --on-surface-variant:#44483d;
+    --outline:#75796c;
+    --outline-variant:#c5c8ba;
+    --shadow:#000000;
+    --scrim:#000000;
+    --inverse-surface:#30312c;
+    --inverse-on-surface:#f2f1e9;
+    --inverse-primary:#9ed75b;
+    --surface-dim:#dbdad3;
+    --surface-bright:#fafaf2;
+    --surface-container-lowest:#ffffff;
+    --surface-container-low:#f5f4ec;
+    --surface-container:#efeee7;
+    --surface-container-high:#e9e8e1;
+    --surface-container-highest:#e3e3db;
+}
+
+body {
+    font-family: sans-serif;
+}
