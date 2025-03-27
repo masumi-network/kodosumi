@@ -31,7 +31,7 @@ class Spooler:
     def __init__(self, 
                  exec_dir: Union[str, Path],
                  interval: float=1.,
-                 batch_size: int=1,
+                 batch_size: int=10,
                  batch_timeout: float=0.1):
         self.exec_dir = Path(exec_dir)
         self.exec_dir.mkdir(parents=True, exist_ok=True)
@@ -81,19 +81,26 @@ class Spooler:
         fid: str = str(state.name)
         username = await runner.get_username.remote()
         conn = self.setup_database(username, fid)
+        events = await runner.get_queue.remote()
         n = 0
         try:
-            while not (self.shutdown_event.is_set() 
-                       or not ray.get(runner.is_active.remote())):
-                batch = ray.get(
-                    runner.get_batch.remote(
-                        self.batch_size, self.batch_timeout))
-                logger.debug(f"retrieved {len(batch)} records for {fid}")
+            while not self.shutdown_event.is_set(): 
+                       #or not ray.get(runner.is_active.remote())):
+                done, undone = ray.wait(
+                    [runner.is_active.remote()], timeout=0.01)
+                if done:
+                    ret = ray.get(done)
+                    if ret:
+                        if ret[0] == False:
+                            break
+                batch = events.get_nowait_batch(
+                    min(self.batch_size, events.size()))
+                #logger.debug(f"retrieved {len(batch)} records for {fid}")
                 if batch:
                     self.save(conn, fid, batch)
                     logger.debug(f"saved {len(batch)} records for {fid}")
                     n += len(batch)
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.01)
             ray.get(runner.shutdown.remote())
             ray.kill(runner)
             logger.info(f"finished {fid} with {n} records")

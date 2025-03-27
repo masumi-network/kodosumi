@@ -5,9 +5,10 @@ import asyncio
 from kodosumi.serve import ServeAPI, Launch, KODOSUMI_API
 from kodosumi.runner.tracer import get_tracer
 from kodosumi.runner.tracer import markdown, Tracer
+from kodosumi.runner.main import Runner
 from kodosumi import dtypes
 import datetime
-from kodosumi.helper import now
+from kodosumi.helper import now, serialize
 from typing import Optional, Union
 from pathlib import Path
 import ray
@@ -36,10 +37,11 @@ async def find_perfect_numbers(inputs: dict, tracer: Tracer):
     md = ["#### Perfect Numbers"]
     for num in range(inputs["limit"]):
         if num % divisor == 0:
+            await tracer._put_async("stdout", f"this is stdout with {num}")
             # print(f"this is stdout with {num}")
-            await tracer.async_result(dtypes.HTML(
-                body=f'... {num} '
-            ))
+            # await tracer.async_result(dtypes.HTML(
+            #     body=f'... {num} '
+            # ))
             #tracer.debug(f"debugging message: {num}")
         if is_perfect_number(num):
             md.append(f"* **{num}**")
@@ -61,28 +63,29 @@ async def f(start, end, fid):
     return ret
 
 @ray.remote
-def check_number_range(start, end, fid):
-    from kodosumi import helper
-    helper.debug()
-    breakpoint()
-
-    r = asyncio.run(f(start, end, fid))
-    return r
-
-    # ret = []
-    # # tracer = Tracer(fid)
-    # tracer = get_tracer(fid)
-    # divisor = (end - start) / 25
-    # for num in range(start, end):
-    #     if num % divisor == 0:
-    #         #print(f"this is stdout with {num}")
-    #         tracer._runner.put.remote("stdout", f"XYZ this is stdout with {num}")
-    #         #tracer.result(f"this is stdout with {num}")
-    #     if is_perfect_number(num):
-    #         ret.append(num)
-    #             # tracer.debug(f"debugging message: {num}")
-    # return ret
-
+def check_number_range(start, end, tracer: Tracer):
+    # r = asyncio.run(f(start, end, fid))
+    # return r
+    ret = []
+    divisor = (end - start) // 25
+    print(f"divisor is {divisor} from {start} to {end}")
+    if divisor == 0:
+        divisor = 1
+    for num in range(start, end):
+        if num % divisor == 0:
+            tracer._put("debug", f"* this is stdout {start} - {end} with {num}\n")
+            #print(f"this is stdout with {num}")
+            #tracer.result(f"this is stdout with {num}")
+        if is_perfect_number(num):
+            ret.append(num)
+            tracer._put(
+                "result", serialize(
+                    dtypes.Markdown(
+                        body=f"* found {start} - {end} with {num}")
+                )
+            )
+                # tracer.debug(f"debugging message: {num}")
+    return ret
 
 
 def itis():
@@ -94,36 +97,28 @@ async def find_perfect_numbers_with_ray(inputs: dict, tracer: Tracer):
     # breakpoint()
     if not ray.is_initialized():
         ray.init()
+    print(f"inputs are {inputs}")
     limit = inputs["limit"]
-    num_cpus = ray.cluster_resources().get("CPU", 1)
-    chunk_size = max(1, limit // int(num_cpus // 2))
+    #num_cpus = ray.cluster_resources().get("CPU", 1)
+    num_cpus = 3
+    chunk_size = max(1, limit // int(num_cpus))
     results = []
     md = ["#### Perfect Numbers"]
-    #t = get_tracer(tracer.fid)
     n = 0
-    #t = Tracer(tracer.fid)
     for start in range(0, limit, chunk_size):
         n += 1
         end = min(start + chunk_size, limit)
-        await tracer.async_result(f"{itis()}: {now()}: start {n} with {start} to {end}")
-        results.append(check_number_range.remote(start, end, tracer.fid))
+        await tracer._put_async("stdout", f"start {n} with {start} to {end}")
+        results.append(check_number_range.remote(start, end, tracer))
         await asyncio.sleep(0)
     
     # Asynchron auf die Ergebnisse warten
 
     all_results = []
-    last_update = 0.
     while results:
         done_id, results = ray.wait(results)
         result = ray.get(done_id[0])
         all_results.append(result)
-        
-        current_time = asyncio.get_event_loop().time()
-        if current_time - last_update >= 1.0:  # Nur alle Sekunde aktualisieren
-            await tracer.async_result(
-                f"{itis()}: {now()}: Verarbeite Ergebnisse... ({len(all_results)}/{n})")
-            last_update = current_time
-        
         await asyncio.sleep(0)  # Gibt die Kontrolle an die Event-Loop zurück
 
     # Flatten the list of lists into a single list
