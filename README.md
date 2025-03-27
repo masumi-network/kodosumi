@@ -27,7 +27,7 @@ This installation has been tested with versions `ray==2.43.0` and `python==3.12.
 ```bash
 git clone https://github.com/masumi-network/kodosumi.git
 cd kodosumi
-git checkout feature/queue
+git checkout feature/candidate
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
