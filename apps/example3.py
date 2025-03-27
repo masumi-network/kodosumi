@@ -92,7 +92,7 @@ async def get(request: Request) -> HTMLResponse:
 @app.post("/", entry=True)
 async def post(request: Request, 
                 data: Annotated[HymnRequest, Form()]) -> Response:
-    return Launch(request, crew, data, reference=get)
+    return Launch(request, "apps.example3:crew", data, reference=get)
 
 
 @serve.deployment
