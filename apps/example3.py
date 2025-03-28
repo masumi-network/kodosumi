@@ -84,6 +84,7 @@ app.mount("/static", StaticFiles(
             description="Creates a short hymn using openai and crewai.",
             version="1.0.0",
             author="m.rau@house-of-communication.com",
+            tags=["CrewAI", "Test"],
             entry=True)
 async def get(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(

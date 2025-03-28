@@ -19,7 +19,7 @@ from kodosumi.log import logger
 from kodosumi.runner.const import EVENT_STATUS, NAMESPACE, STATUS_FINAL
 from kodosumi.runner.main import kill_runner
 from kodosumi.runner.const import DB_FILE
-from kodosumi.service.formatter import DefaultFormatter, Formatter
+from kodosumi.runner.formatter import DefaultFormatter, Formatter
 
 
 async def _query(

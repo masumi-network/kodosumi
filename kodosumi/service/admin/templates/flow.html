@@ -11,6 +11,10 @@
         text-align: center;
         padding: 20px;
     }
+    .thin {
+        font-size: 0.8rem;
+        height: 1.2rem;
+    }
 </style>
 {% endblock %}
 
@@ -108,12 +112,15 @@ Agentic Services
                         flowElement.classList.add('s12', 'l4');
                         flowElement.innerHTML = `
                         <a href="${flow.url}" style="display: block;">
-                            <article class="border scroller" onmouseover="this.classList.add('secondary')" onmouseout="this.classList.remove('secondary')">
+                            <article class="border scroller" onmouseover="this.classList.add('wave')" onmouseout="this.classList.remove('wave')">
                                 <h6>${flow.summary}</h6>
                                 <p>${flow.description}</p>
-                            <label class="small">
-                                ${flow.organization ? flow.organization : '-'}
-                                </label>
+                                <p>${
+                                    flow.tags 
+                                    ? flow.tags.map(tag => 
+                                        `<button class="chip thin">${tag}</button>`).join('') 
+                                    : '-'
+                                }</p>
                             </article>
                         </a>`;
                         container.appendChild(flowElement);
