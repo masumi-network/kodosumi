@@ -19,10 +19,19 @@ class AdminControl(litestar.Controller):
         data = kodosumi.service.endpoint.get_endpoints(state)
         return Template("flow.html", context={"items": data})
 
+    def _get_endpoints(self, state: State) -> dict:
+        endpoints = sorted(state["endpoints"].keys())
+        registers = state["settings"].REGISTER_FLOW
+        return {
+            "endpoints": endpoints,
+            "registers": registers,     
+            "items": sorted(set(endpoints + registers))
+        }
+
     @get("/routes")
     async def routes(self, state: State) -> Template:
-        data = sorted(state["endpoints"].keys())
-        return Template("routes.html", context={"items": data})
+        data = self._get_endpoints(state)
+        return Template("routes.html", context=data)
 
     @post("/routes")
     async def routes_update(self, state: State, request: Request) -> Template:
@@ -35,10 +44,13 @@ class AdminControl(litestar.Controller):
         state["endpoints"] = {}
         result = {}
         for url in routes:
-            ret = await kodosumi.service.endpoint.register(state, url)
-            result[url] = [r.model_dump() for r in ret]
+            try:
+                ret = await kodosumi.service.endpoint.register(state, url)
+                result[url] = [r.model_dump() for r in ret]
+            except Exception as e:
+                result[url] = str(e)
         return Template("routes.html", context={
-            "items": sorted(state["endpoints"].keys()),
+            "items": routes,
             "routes": result
         })
 

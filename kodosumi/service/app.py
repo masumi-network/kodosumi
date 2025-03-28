@@ -91,7 +91,8 @@ async def provide_transaction(
             new_role = RoleCreate(
                 name="admin",
                 email=state["settings"].ADMIN_EMAIL,
-                password=state["settings"].ADMIN_PASSWORD
+                password=state["settings"].ADMIN_PASSWORD,
+                operator=True
             )
             create_role = Role(**new_role.model_dump())
             db_session.add(create_role)
@@ -106,7 +107,7 @@ async def provide_transaction(
                 detail=repr(exc),
             ) from exc
 
-
+   
 async def startup(app: Litestar):
     helper.ray_init()
     await kodosumi.service.endpoint.reload(

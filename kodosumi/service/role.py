@@ -8,9 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from kodosumi.dtypes import Role, RoleCreate, RoleEdit, RoleResponse
 from kodosumi.log import logger
+from kodosumi.service.jwt import operator_guard
 
 
 class RoleControl(litestar.Controller):
+
+    guards=[operator_guard]
 
     @post("/")
     async def add_role(self, 
@@ -81,6 +84,8 @@ class RoleControl(litestar.Controller):
             role.password = data.password
         if data.active is not None:
             role.active = data.active
+        if data.operator is not None:
+            role.operator = data.operator
         await transaction.flush()
         logger.info(f"updated role {role.name} ({role.id})")
         return RoleResponse.model_validate(role)

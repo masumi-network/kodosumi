@@ -2,10 +2,15 @@ import subprocess
 import sys
 
 import click
+import psutil
+import ray
 
 import kodosumi.service.server
 import kodosumi.spooler
+from kodosumi import helper
 from kodosumi.config import LOG_LEVELS, Settings
+from kodosumi.log import spooler_logger
+from kodosumi.runner.const import NAMESPACE
 
 
 @click.group()
@@ -39,8 +44,10 @@ def cli():
               help='Run spooler.')
 @click.option('--block', is_flag=True, default=False, 
               help='Run spooler in foreground (blocking mode).')
+@click.option('--status', is_flag=True, default=False, 
+              help='Check if spooler is connected and running.')
 def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
-            batch_size, timeout, start, block):
+            batch_size, timeout, start, block, status):
     
     kw = {}
     if ray_server: kw["RAY_SERVER"] = ray_server
@@ -51,8 +58,25 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
     if interval: kw["SPOOLER_INTERVAL"] = interval
     if batch_size: kw["SPOOLER_BATCH_SIZE"] = batch_size
     if timeout: kw["SPOOLER_BATCH_TIMEOUT"] = timeout
-    settings = Settings(**kw)
 
+    settings = Settings(**kw)
+    spooler_logger(settings)
+
+    if status:
+        try:
+            helper.ray_init(settings)
+            spooler = ray.get_actor("Spooler", namespace=NAMESPACE)
+            pid = ray.get(spooler.get_pid.remote())
+        except Exception as e:
+            print(f"spooler actor not found.")
+        else:
+            try:
+                proc = psutil.Process(pid)
+                active = proc.is_running()
+            except Exception as e:
+                active = False
+            print(f"spooler (pid={pid}) is{'' if active else ''} running")
+        return
     if start:
         if block:
             kodosumi.spooler.main(settings)
@@ -66,7 +90,7 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
                 close_fds=True,
                 start_new_session=True
             )
-            click.echo(f"spooler started.")
+            click.echo(f"spooler started (pid={proc.pid}).")
     else:
         kodosumi.spooler.terminate(settings)
 

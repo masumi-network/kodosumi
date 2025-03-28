@@ -1,12 +1,16 @@
+import uuid
+
 from jose import JWTError, jwt
 from litestar.connection import ASGIConnection
 from litestar.exceptions import NotAuthorizedException
+from litestar.handlers.base import BaseRouteHandler
 from litestar.middleware import (AbstractAuthenticationMiddleware,
                                  AuthenticationResult)
+from sqlalchemy import select
 
 from kodosumi import helper
 from kodosumi.config import InternalSettings
-from kodosumi.dtypes import Token
+from kodosumi.dtypes import Role, Token
 
 TOKEN_KEY = "kodosumi_jwt"
 HEADER_KEY = "KODOSUMI_API_KEY"
@@ -47,3 +51,16 @@ class JWTAuthenticationMiddleware(AbstractAuthenticationMiddleware):
         token = parse_token(connection)
         return AuthenticationResult(user=token.sub, auth=token)
     
+
+async def operator_guard(connection: ASGIConnection, 
+                         _: BaseRouteHandler) -> None:
+    try:
+        user = connection.user
+        session = connection.app.state["session_maker_class"]()
+    except:
+        raise NotAuthorizedException("User not authorized")
+    query = select(Role).where(Role.id == uuid.UUID(user))
+    result = await session.execute(query)
+    role = result.scalar_one_or_none()
+    if not role.operator:
+        raise NotAuthorizedException("User not authorized")

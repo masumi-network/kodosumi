@@ -1,4 +1,5 @@
 import uuid
+from enum import Enum
 from typing import Any, Dict, Generic, List, Literal, Optional, Self, TypeVar
 
 import bcrypt
@@ -24,6 +25,7 @@ class RoleCreate(BaseModel):
     name: str
     email: EmailStr
     password: str
+    operator: bool = False
 
     @field_validator('password', mode="before")
     def hash_password(cls, password: str) -> str:
@@ -36,6 +38,7 @@ class RoleEdit(BaseModel):
     email: Optional[EmailStr] = None
     active: Optional[bool] = None
     password: Optional[str] = None
+    operator: Optional[bool] = None
 
     @field_validator('password', mode="before")
     def hash_password(cls, password: Optional[str] = None) -> str | None:
@@ -100,7 +103,6 @@ class Execution(BaseModel):
     error: Optional[List[str]]
 
 
-
 class Pagination(BaseModel, Generic[T]):
     items: List[T]
     total: int
@@ -137,9 +139,14 @@ class Role(Base):
     email: Mapped[str] = mapped_column(unique=True, nullable=False)
     active: Mapped[bool] = mapped_column(default=True)
     password: Mapped[str] = mapped_column(nullable=False)
+    operator: Mapped[bool] = mapped_column(default=False)
 
     def verify_password(self, password: str) -> bool:
         return checkpw(password.encode(), self.password.encode('utf-8'))
+
+class UserRole(str, Enum):
+   CONSUMER = "consumer"
+   OPERATOR = "operator"
 
 
 class Text(BaseModel): body: str

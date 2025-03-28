@@ -7,10 +7,12 @@ from litestar.datastructures import State
 
 import kodosumi.service.endpoint
 from kodosumi.dtypes import EndpointResponse, Pagination, RegisterFlow
+from kodosumi.service.jwt import operator_guard
+
 
 class FlowControl(litestar.Controller):
 
-    @post("/register", tags=["Flows"])
+    @post("/register", tags=["Flows"], guards=[operator_guard])
     async def register_flow(
             self,
             state: State,
@@ -41,7 +43,8 @@ class FlowControl(litestar.Controller):
         ]
         return dict(Counter(tags))
 
-    @post("/unregister", status_code=200, tags=["Flows"])
+    @post("/unregister", 
+          status_code=200, tags=["Flows"], guards=[operator_guard])
     async def unregister_flow(self,
                               data: RegisterFlow,
                               state: State) -> dict:
@@ -52,9 +55,10 @@ class FlowControl(litestar.Controller):
     @get("/register", tags=["Flows"])
     async def list_register(self,
                          state: State) -> dict:
-        return {"routes": sorted(state["endpoints"].keys())}
+        return {"routes": sorted(state["endpoints"].keys()),
+                "registers": state["settings"].REGISTER_FLOW}
 
-    @put("/register", status_code=200, tags=["Flows"])
+    @put("/register", status_code=200, tags=["Flows"], guards=[operator_guard])
     async def update_flows(self,
                          state: State) -> dict:
         urls = set()
