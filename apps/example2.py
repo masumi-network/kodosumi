@@ -6,7 +6,7 @@ from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, Response
 from ray import serve
 
-from kodosumi import dtypes
+from kodosumi import response
 from kodosumi.runner.tracer import Tracer
 from kodosumi.serve import Launch, ServeAPI
 
@@ -39,7 +39,7 @@ async def find_armstrong_numbers(inputs: dict, tracer: Tracer):
     md.append(
         f"\n**Found total of {len(armstrong_numbers)} Armstrong numbers**")
     # deliver result
-    return dtypes.Markdown(body="\n".join(md))
+    return response.Markdown(md)
 
 
 @ray.remote
@@ -78,7 +78,7 @@ async def find_armstrong_numbers_parallel(inputs: dict, tracer: Tracer):
     md = ["#### Armstrong Numbers", "###### (Parallel Distributed Ray Version)"]
     for num in sorted(all_results):
         md.append(f"* {num}")
-    return dtypes.Markdown(body="\n".join(md))
+    return response.Markdown(md)
 
 
 @app.get("/", tags=["test"], entry=True,
