@@ -61,8 +61,13 @@ class RoleResponse(BaseModel):
 
 
 class RegisterFlow(BaseModel):
-    url: str
+    url: str | List[str]
 
+    @model_validator(mode='after')
+    def validate_urls(self) -> Self:
+        if isinstance(self.url, str):
+            self.url = [self.url]
+        return self
 
 
 class EndpointResponse(BaseModel):
