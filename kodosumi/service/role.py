@@ -13,7 +13,7 @@ from kodosumi.service.jwt import operator_guard
 
 class RoleControl(litestar.Controller):
 
-    tags = ["Access"]
+    tags = ["Access Management"]
     guards=[operator_guard]
 
     @post("/")

@@ -44,6 +44,7 @@ def update_links(base_url, html_content) -> str:
 class ProxyControl(litestar.Controller):
 
     tags = ["Reverse Proxy"]
+    include_in_schema = False
 
     @route("/{path:path}",
            http_method=["GET", "POST", "PUT", "DELETE", "PATCH"])
