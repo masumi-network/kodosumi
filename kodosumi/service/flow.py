@@ -12,7 +12,8 @@ from kodosumi.service.jwt import operator_guard
 
 class FlowControl(litestar.Controller):
 
-    @post("/register", tags=["Flows"], guards=[operator_guard])
+    @post("/register", summary="Register Flows",
+         description="Register a Flow.", tags=["Flow Operations"], guards=[operator_guard])
     async def register_flow(
             self,
             state: State,
@@ -22,7 +23,9 @@ class FlowControl(litestar.Controller):
             results.extend(await kodosumi.service.endpoint.register(state, url))
         return results
         
-    @get("/", tags=["Flows"])
+    @get("/", summary="Retrieve registered Flows",
+         description="Paginated list of Flows which did register.", 
+         tags=["Flow Control"])
     async def list_flows(self,
                          state: State, 
                          q: Optional[str] = None,
@@ -34,7 +37,9 @@ class FlowControl(litestar.Controller):
         total = len(data)
         return Pagination(items=data[start:end], total=total, p=p, pp=pp)
     
-    @get("/tags", tags=["Flows"])
+    @get("/tags", summary="Retrieve Tag List",
+         description="Retrieve Tag List of registered Flows.", 
+         tags = ["Flow Control"])
     async def list_tags(self, state: State) -> dict[str, int]:
         tags = [
             tag for nest in [
@@ -43,8 +48,9 @@ class FlowControl(litestar.Controller):
         ]
         return dict(Counter(tags))
 
-    @post("/unregister", 
-          status_code=200, tags=["Flows"], guards=[operator_guard])
+    @post("/unregister", status_code=200, summary="Unregister Flows",
+         description="Remove a previoiusly registered Flow source.", 
+         tags=["Flow Operations"], guards=[operator_guard])
     async def unregister_flow(self,
                               data: RegisterFlow,
                               state: State) -> dict:
@@ -52,13 +58,17 @@ class FlowControl(litestar.Controller):
             kodosumi.service.endpoint.unregister(state, url)
         return {"deletes": data.url}
 
-    @get("/register", tags=["Flows"])
+    @get("/register", summary="Retrieve Flow Register",
+         description="Retrieve list of Flow sources.", tags=["Flow Control"])
     async def list_register(self,
                          state: State) -> dict:
         return {"routes": sorted(state["endpoints"].keys()),
                 "registers": state["settings"].REGISTER_FLOW}
 
-    @put("/register", status_code=200, tags=["Flows"], guards=[operator_guard])
+    @put("/register", summary="Refresh registered Flows",
+         description="Retrieve the OpenAPI specification of all registered Flow sources.", 
+         status_code=200, tags=["Flow Operations"], 
+         guards=[operator_guard])
     async def update_flows(self,
                          state: State) -> dict:
         urls = set()

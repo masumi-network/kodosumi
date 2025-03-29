@@ -263,7 +263,10 @@ async def _listing(state: State,
 
 class ExecutionControl(litestar.Controller):
 
-    @get("/")
+    tags = ["Execution Control"]
+
+    @get("/", summary="List Executions",
+         description="List all executions for the current user.")
     async def list_executions(
             self, 
             request: Request, 
@@ -291,7 +294,7 @@ class ExecutionControl(litestar.Controller):
             media_type="text/plain"
         )
 
-    @get("/{fid:str}")
+    @get("/{fid:str}", include_in_schema=False)
     async def execution_detail(
             self, 
             fid: str,
@@ -317,7 +320,8 @@ class ExecutionControl(litestar.Controller):
             media_type="text/plain"
         )
 
-    @get("/state/{fid:str}")
+    @get("/state/{fid:str}", summary="Execution State",
+         description="Retrieve execution state.")
     async def execution_state(
             self, 
             fid: str,
@@ -391,7 +395,8 @@ class ExecutionControl(litestar.Controller):
             "version": kodosumi.core.__version__
         }
 
-    @get("/html/{fid:str}")
+    @get("/html/{fid:str}", summary="Render HTML of Final Result",
+         description="Render Final Result in HTML.")
     async def final_html(
             self, 
             fid: str,
@@ -402,7 +407,8 @@ class ExecutionControl(litestar.Controller):
         ret["main"] = formatter.convert(ret["kind"], ret["raw"])
         return Template("final.html", context=ret)
 
-    @get("/raw/{fid:str}")
+    @get("/raw/{fid:str}", summary="Render Raw of Final Result",
+         description="Render Final Result in raw format.")
     async def final_raw(
             self, 
             fid: str,
@@ -434,28 +440,32 @@ class ExecutionControl(litestar.Controller):
             logger.debug(f"{fid} - found after {now() - t0:.2f}s")
         return ServerSentEvent(_event(db_file, filter_events, formatter))
 
-    @get("/out/{fid:str}")
+    @get("/out/{fid:str}", summary="STDOUT Stream",
+         description="STDOUT stream as Server Send Events (SSE).")
     async def execution_stdout(
             self, fid: str, request: Request, state: State) -> ServerSentEvent:
         return await self._stream(fid, state, request, ("stdout", ))
 
-    @get("/err/{fid:str}")
+    @get("/err/{fid:str}", summary="STDERR Stream",
+         description="STDERR stream as Server Send Events (SSE).")
     async def execution_stderr(
             self, fid: str, request: Request, state: State) -> ServerSentEvent:
         return await self._stream(fid, state, request, ("stderr", ))
 
-    @get("/event/{fid:str}")
+    @get("/event/{fid:str}", summary="Execution Event Stream",
+         description="Event Stream as Server Send Events (SSE).")
     async def execution_event(
             self, fid: str, request: Request, state: State) -> ServerSentEvent:
         return await self._stream(fid, state, request)    
     
-    @get("/format/{fid:str}")
+    @get("/format/{fid:str}", include_in_schema=False)
     async def execution_format(
             self, fid: str, request: Request, state: State) -> ServerSentEvent:
         return await self._stream(fid, state, request, filter_events=None,
                                   formatter=DefaultFormatter())
 
-    @get("/stream")
+    @get("/stream", summary="Stream Executions",
+         description="Pagination stream as Server Send Events (SSE).")
     async def execution_stream(
             self, 
             request: Request, 
@@ -464,7 +474,8 @@ class ExecutionControl(litestar.Controller):
             pp: int=10) -> ServerSentEvent:
         return ServerSentEvent(_listing(state, request, p, pp))
 
-    @delete("/{fid:str}")
+    @delete("/{fid:str}", summary="Delete or Kill Execution",
+         description="Kills (if active) or deletes (if finished) an execution.")
     async def delete_execution(
             self, 
             fid: str, 

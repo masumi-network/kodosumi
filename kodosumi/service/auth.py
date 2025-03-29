@@ -17,14 +17,20 @@ from kodosumi.service.jwt import HEADER_KEY, TOKEN_KEY, encode_jwt_token
 
 class LoginControl(litestar.Controller):
 
-    @get("/login", status_code=200, opt={"no_auth": True})
+    tags = ["Access"]
+
+    @get("/login", summary="Login",
+         description="Login with name and password.", status_code=200, 
+         opt={"no_auth": True})
     async def login_role_get(self, 
                              name: str, 
                              password: str, 
                              transaction: AsyncSession) -> Response:
         return await self._get_role(transaction, name, password)
 
-    @post("/login", status_code=200, opt={"no_auth": True})
+    @post("/login", summary="Login",
+         description="Login with name and password.", status_code=200, 
+         opt={"no_auth": True})
     async def login_role_post(
             self, 
             data: Annotated[
@@ -33,7 +39,8 @@ class LoginControl(litestar.Controller):
         return await self._get_role(
             transaction, data.name, data.password, data.redirect)
 
-    @route("/logout", status_code=200, http_method=["GET", "POST"])
+    @route("/logout", summary="Logout",
+         description="Logout and remove session cookie..", status_code=200, http_method=["GET", "POST"])
     async def get_logout(self, request: Request) -> Response:
         if request.user:
             response = Response(content="")
@@ -67,7 +74,8 @@ class LoginControl(litestar.Controller):
                     return response
         raise NotAuthorizedException(detail="Invalid name or password")
 
-    @get("/", opt={"no_auth": True})
+    @get("/", summary="Home",
+         description="Admin Console Home.", opt={"no_auth": True})
     async def home(self, request: Request) -> Union[Redirect, Template]:
         if TOKEN_KEY in request.cookies:
             return Redirect("/admin/flow")

@@ -6,9 +6,13 @@ from litestar.response import Redirect, Template
 
 import kodosumi.service.endpoint
 from kodosumi.service.auth import TOKEN_KEY
+from kodosumi.service.jwt import operator_guard
 
 
 class AdminControl(litestar.Controller):
+
+    tags = ["Admin Panel"]
+    include_in_schema = False
 
     @get("/")
     async def home(self) -> Redirect:
@@ -33,7 +37,7 @@ class AdminControl(litestar.Controller):
         data = self._get_endpoints(state)
         return Template("routes.html", context=data)
 
-    @post("/routes")
+    @post("/routes", guards=[operator_guard])
     async def routes_update(self, state: State, request: Request) -> Template:
         form_data = await request.form()
         routes_text = form_data.get("routes", "")
