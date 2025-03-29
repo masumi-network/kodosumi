@@ -66,16 +66,20 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
         try:
             helper.ray_init(settings)
             spooler = ray.get_actor("Spooler", namespace=NAMESPACE)
-            pid = ray.get(spooler.get_pid.remote())
+            meta = ray.get(spooler.get_meta.remote())
+            pid = meta.get("pid")
+            current = meta.get("active")
+            total = meta.get("total")
         except Exception as e:
             print(f"spooler actor not found.")
         else:
             try:
-                proc = psutil.Process(pid)
+                proc = psutil.Process(meta.get("pid"))
                 active = proc.is_running()
             except Exception as e:
                 active = False
             print(f"spooler (pid={pid}) is{'' if active else ''} running")
+            print(f"active flows: {current}, total flows: {total}")
         return
     if start:
         if block:
@@ -113,14 +117,10 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
               help='Execution directory.')
 @click.option('--reload', is_flag=True, 
               help='App server reload on file change.')
-@click.option('--start/--stop', is_flag=True, default=True, 
-              help='Run web service.')
-@click.option('--block', is_flag=True, default=False, 
-              help='Run web service in foreground (blocking mode).')
 @click.option("--register", multiple=True, help="Register endpoints")
 
 def server(address, log_file, log_file_level, level, exec_dir, reload,
-           uvicorn_level, register, start, block):
+           uvicorn_level, register):
     kw = {}
     if address: kw["APP_SERVER"] = address
     if log_file: kw["APP_LOG_FILE"] = log_file
@@ -134,6 +134,28 @@ def server(address, log_file, log_file_level, level, exec_dir, reload,
     settings = Settings(**kw)
     kodosumi.service.server.run(settings)
 
+
+@cli.command("start")
+@click.option('--exec-dir', default=None, 
+              help='Execution directory.')
+@click.option("--register", multiple=True, help="Register endpoints")
+
+def server(exec_dir, register):
+    kw = {}
+    if exec_dir: kw["EXEC_DIR"] = exec_dir
+    if register: kw["REGISTER_FLOW"] = register
+
+    settings = Settings(**kw)
+    try:
+        cmd = [sys.executable, "-m", "kodosumi.cli", "spool"]
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc.wait()
+        kodosumi.service.server.run(settings)
+    except Exception as e:
+        print(e)
+        sys.exit(1)
+        
 
 if __name__ == "__main__":
     cli()

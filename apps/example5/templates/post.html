@@ -1,0 +1,27 @@
+{% extends '_base.html' %}
+
+{% block main %}
+<page>
+    <h3>Marketing Post Crew</h3>
+    <div class="large"></div>
+    <p>
+        This Agentic Service automates the creation of a marketing post for a given company and project goal. CrewAI orchestrates the work of a 
+        Marketing Analyst, Strategist, and Content Creator.
+    </p>
+    <form method="POST">
+        <div class="field border">
+            <label>Customer Domain</label>
+            <input type="text" name="customer_domain" value="crewai.com"/>
+        </div>
+        <div class="field border" style="height: 240px">
+            <label>Project Description</label>
+            <textarea class="large"name="project_description">CrewAI, a leading provider of multi-agent systems, aims to revolutionize marketing automation for its enterprise clients. This project involves developing an innovative marketing strategy to showcase CrewAI's advanced AI-driven solutions, emphasizing ease of use, scalability, and integration capabilities. The campaign will target tech-savvy decision-makers in medium to large enterprises, highlighting success stories and the transformative potential of CrewAI's platform.
+
+Customer Domain: AI and Automation Solutions
+Project Overview: Creating a comprehensive marketing campaign to boost awareness and adoption of CrewAI's services among enterprise clients.</textarea>
+        </div>
+        <div class="space"></div>
+        <button class="tertiary" type="submit">Submit</button>
+    </form>
+</page>
+{% endblock %}

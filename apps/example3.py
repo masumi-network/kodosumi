@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from ray import serve
 
-from kodosumi.serve import Launch, ServeAPI
+from kodosumi.serve import Launch, ServeAPI, Templates
 
 # Agents
 story_architect = Agent(
@@ -48,7 +48,6 @@ task_story = Task(
     expected_output="A complete short hymn about {topic} with a beginning, middle, and end."
 )
 
-# Crew
 crew = Crew(
     agents=[
         story_architect, 
@@ -62,29 +61,20 @@ crew = Crew(
     verbose=True
 )
 
-crew.__brief__ = {
-    "summary": "Hymn Crew",
-    "description": "A crew of agents working together to create a short hymn.",
-    "author": "m.rau@house-of-communication.com",
-    "organization": "Plan.Net"
-}
-
 class HymnRequest(BaseModel):
     topic: str
 
 
 app = ServeAPI()
 
-templates = Jinja2Templates(
+templates = Templates(
     directory=Path(__file__).parent.joinpath("templates"))
-app.mount("/static", StaticFiles(
-    directory=Path(__file__).parent.joinpath("static")), name="static")
 
 @app.get("/", summary="Hymn Creator",
             description="Creates a short hymn using openai and crewai.",
             version="1.0.0",
             author="m.rau@house-of-communication.com",
-            tags=["CrewAI", "Test"],
+            tags=["CrewAI", "Test1", "Test2"],
             entry=True)
 async def get(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(

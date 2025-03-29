@@ -1,15 +1,17 @@
 import inspect
 import traceback
 from typing import Any, Callable, Optional, Union, Coroutine
-
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.exceptions import ValidationException
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 
 from kodosumi.runner.const import KODOSUMI_LAUNCH
 from kodosumi.runner.main import create_runner
 from kodosumi.service.endpoint import KODOSUMI_API
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
+import kodosumi.service.admin
 
 ANNONYMOUS_USER = "_annon_"
 
@@ -97,3 +99,19 @@ class ServeAPI(FastAPI):
         @self.exception_handler(ValidationException)
         async def generic_exception_handler(request: Request, exc: Exception):
             return HTMLResponse(content=traceback.format_exc(), status_code=500)
+
+def _static(path):
+    return ":/static" + path
+
+class Templates(Jinja2Templates):
+    def __init__(self, *args, **kwargs):
+        main_dir = Path(
+            kodosumi.service.admin.__file__).parent.joinpath("templates")
+        if "directory" not in kwargs:
+            kwargs["directory"] = []
+        else:
+            if not isinstance(kwargs["directory"], list):
+                kwargs["directory"] = [kwargs["directory"]]
+        kwargs["directory"].insert(0, main_dir)
+        super().__init__(*args, **kwargs)
+        self.env.globals['static'] = _static

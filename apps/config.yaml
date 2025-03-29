@@ -21,7 +21,23 @@ applications:
 
 - name: example3
   route_prefix: /example3
-  import_path: apps.example3.fast_app
+  import_path: apps.example3:fast_app
+  runtime_env:
+    pip:
+    - crewai==0.86.*
+    - crewai_tools==0.17.*
+
+- name: example4
+  route_prefix: /example4
+  import_path: apps.example4.service:fast_app
+  runtime_env:
+    pip:
+    - crewai==0.86.*
+    - crewai_tools==0.17.*
+
+- name: example5
+  route_prefix: /example5
+  import_path: apps.example5.service:fast_app
   runtime_env:
     pip:
     - crewai==0.86.*

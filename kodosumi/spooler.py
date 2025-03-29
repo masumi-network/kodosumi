@@ -22,10 +22,22 @@ class SpoolerLock:
 
     def __init__(self, pid: int):
         self.pid = pid
-    
+        self.active = 0
+        self.total = 0
+
     def get_pid(self):
         return self.pid
 
+    def get_meta(self):
+        return {
+            "pid": self.pid,
+            "active": self.active,
+            "total": self.total
+        }
+
+    def update(self, active: int, total: int):
+        self.active = active
+        self.total = total
 
 class Spooler:
     def __init__(self, 
@@ -143,8 +155,9 @@ class Spooler:
                         self.monitor[state.name] = task
                         logger.info(f"streaming {state.name}")
                         total += 1
+                        self.lock.update(len(self.monitor), total)
                     except Exception as e:
-                        logger.critial(
+                        logger.critical(
                             f"failed to stream {state.name}", exc_info=True)
             dead = [name for name, task in self.monitor.items() if task.done()]
             for state in dead:

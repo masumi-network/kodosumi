@@ -98,21 +98,33 @@ async def process(request: Request,
             func = find_armstrong_numbers
         return Launch(request, func, inputs={"start": 0, "end": int(n)})
     return HTMLResponse(content=f"""
-        <html>
-            <body>
-                <h1>Armstrong Numbers</h1>
-                <p>This is a simple kodosumi example service.</p>
-                <p>The service calculates Armstrong Numbers.</p>
-                { "<p><b>Error:</b> value must be a positive integer</p>" if error else "" }
-                <form method="POST">
-                    <input type="text" name="n" value="{n if n else 1000000}"/><br/>
-                    <input type="checkbox" id="use_ray" name="use_ray" value="true"/>
-                    <label for="use_ray">use ray concurrency</label>
-                    <br/>
-                    <input type="submit"/>
-                </form>
-            </body>
-        </html>
+<html>
+<head>
+    <link href="https://cdn.jsdelivr.net/npm/beercss@3.9.7/dist/cdn/beer.min.css" rel="stylesheet">
+    <script type="module" src="https://cdn.jsdelivr.net/npm/beercss@3.9.7/dist/cdn/beer.min.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/material-dynamic-colors@1.1.2/dist/cdn/material-dynamic-colors.min.js"></script>
+</head>
+<body class="light">
+    <main class="responsive">
+        <h1>Armstrong Numbers</h1>
+        <p>This is a simple kodosumi example service.<br/>
+        The service calculates Armstrong Numbers.</p>
+        { "<p><b>Error:</b> value must be a positive integer</p>" if error else "" }
+        <form method="POST">
+            <div class="field border">
+                <input type="text" name="n" value="{n if n else 1000000}"/><br/>
+            </div>
+            <label class="checkbox">
+            <input type="checkbox" id="use_ray" name="use_ray" value="true">
+            <span>use ray concurrency</span>
+            </label>
+            <div class="field">
+                <button type="submit">Submit</button>
+            </div>
+        </form>
+    </main>
+</body>
+</html>
     """)
     
 

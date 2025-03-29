@@ -28,8 +28,9 @@ class DefaultFormatter(Formatter):
     def ansi2html(self, message: str) -> str:
         return self.ansi.convert(message, full=False)
 
-    def AgentFinish(self, values) -> str:
-        ret = ['<div class="info-l1">Agent Finish</div>']
+    def AgentFinish(self, values, title=None) -> str:
+        title = title or "Agent Finish"
+        ret = [f'<div class="info-l1">{title}</div>']
         if values.get("thought", None):
             ret.append(
                 f'<div class="info-l2">Thought</div>"' + self.md(
@@ -38,6 +39,15 @@ class DefaultFormatter(Formatter):
             ret.append(self.md(values['text']))
         elif values.get("output", None):
             ret.append(self.md(values['output']))
+        return "\n".join(ret)
+
+    def AgentAction(self, value) -> str:
+        return self.AgentFinish(value, "Agent Action")
+
+    def ToolResult(self, values) -> str:
+        ret = ['<div class="info-l1">Tool Result</div>']
+        if values.get("result", None):
+            ret.append(self.md(values['result']))
         return "\n".join(ret)
 
     def TaskOutput(self, values) -> str:
@@ -62,6 +72,8 @@ class DefaultFormatter(Formatter):
             ret.append(self.md(values['raw']))
         else:
             ret.append("no output found")
+        for task in values.get("tasks_output", []):
+            ret.append(self.TaskOutput(task))
         return "\n".join(ret)
 
     def Text(self, values) -> str:

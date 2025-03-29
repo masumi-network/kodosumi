@@ -22,7 +22,9 @@ def update_links(base_url, html_content) -> str:
         if tag.name == 'a' or tag.name == 'link':
             href = tag.get('href')
             if href and not href.startswith(('http://', 'https://')):
-                if href.startswith("/"):
+                if href.startswith(":"):
+                    tag['href'] = href.lstrip(':')
+                elif href.startswith("/"):
                     tag['href'] = base_url + href.lstrip('/')
         elif tag.name == 'form':
             action = tag.get('action')
@@ -32,7 +34,9 @@ def update_links(base_url, html_content) -> str:
         else:
             src = tag.get('src')
             if src and not src.startswith(('http://', 'https://')):
-                if src.startswith("/"):
+                if src.startswith(":"):
+                    tag['src'] = src.lstrip(':')
+                elif src.startswith("/"):
                     tag['src'] = base_url + src.lstrip('/')
     return str(soup)
 
