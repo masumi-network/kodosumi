@@ -86,88 +86,13 @@ Stop the kodosumi services and spooler by hitting `CNTRL+C` in the corresponding
 
 # development notes
 
-These development notes provide an overview of creating a web app using FastAPI and Ray Serve, alongside an agentic service using `crewai`. 
+The development notes provide an overview for various flavours on how to run and deploy agentic services.
 
+Follow the examples:
 
-```python
-import sys
-from pathlib import Path
-from typing import Annotated
-
-import uvicorn
-from fastapi import Form, Request, Response
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
-
-from ray import serve
-from kodosumi.serve import Launch, ServeAPI, Templates
-
-
-class HymnRequest(BaseModel):
-    topic: str
-
-
-app = ServeAPI()
-
-templates = Templates(
-    directory=Path(__file__).parent.joinpath("templates"))
-
-@app.get("/", summary="Hymn Creator",
-            description="Creates a short hymn using openai and crewai.",
-            version="1.0.0",
-            author="m.rau@house-of-communication.com",
-            tags=["CrewAI", "Test"],
-            entry=True)
-async def get(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request=request, name="hymn.html", context={})
-
-@app.post("/", entry=True)
-async def post(request: Request, 
-                data: Annotated[HymnRequest, Form()]) -> Response:
-    return Launch(request, "apps.example3:crew", data, reference=get)
-
-
-@serve.deployment
-@serve.ingress(app)
-class Example1: pass
-
-
-fast_app = Example1.bind()  # type: ignore
-
-
-if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-
-    import uvicorn
-    sys.path.append(str(Path(__file__).parent.parent))
-    uvicorn.run("apps.example3:app", host="0.0.0.0", port=8004, reload=True)
-```
-
-Component [`kodosumi.serve.ServeAPI`](./kodosumi/serve.py#ServeAPI) inherits from `fastapi.FastAPI` and is the application servicing one endpoint with `GET` and `POST /`. Method `get` returns a Jinja2 template. HTML file `hymn.html` defines a form which follows pydantic model `HymnRequest`. With _form submission_ the request, the entrypoint (`apps.xample3:crew`), and the annotated form `data` is passed to `Launch` the crew. This crew is defined in package `apps.example3` as object `crew`.
-
-The application in `apps.example3` is not in scope of `apps/config.yaml`. To launch the application with **uvicorn** follow the steps:
-
-```bash
-ray start --head
-python -m apps.example3
-# in a new terminal
-koco serve --register http://localhost:8004/openapi.json
-```
-
-If you prefer to launch the application with Ray you can either run or deploy it to a running Ray cluster.
-
-```bash
-ray start --head
-serve deploy apps.example3:fast_app
-koco serve --register http://localhost:8000/-/routes
-```
-
-# further reads
-
-* ray serve
-  * [getting started](https://docs.ray.io/en/latest/serve/getting_started.html)
-  * [set up FastAPI with ray](https://docs.ray.io/en/latest/serve/http-guide.html) - **IMPORTANT:** you will have to use `kodosumi.serve.ServeAPI` instead of `FastAPI` to use kodosumi.
-  * [development workflow with ray](https://docs.ray.io/en/latest/serve/advanced-guides/dev-workflow.html)
-  * [serve config files](https://docs.ray.io/en/latest/serve/production-guide/config.html)
+* [Function Blueprint - ](apps/example7.py)
+* [Search for Armstrong Numbers](apps/example1.py)
+* [Search for Armstrong Numbers with nested remote calls](apps/example2.py)
+* [Crew of Agents to draft a Hymn using OpenAI - ](apps/example3.py)
+* [Crew of Agents to draft a Marketing Campaign using OpenAI - ](apps/example4/service.py)
+* [Crew of Agents to draft a Job Posting using OpenAI - ](apps/example4/service.py)

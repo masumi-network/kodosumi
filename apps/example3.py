@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from ray import serve
 
-from kodosumi.serve import Launch, ServeAPI, Templates
+from kodosumi.core import Launch, ServeAPI, Templates
 
 # Agents
 story_architect = Agent(

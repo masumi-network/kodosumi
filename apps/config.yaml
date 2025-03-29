@@ -42,3 +42,7 @@ applications:
     pip:
     - crewai==0.86.*
     - crewai_tools==0.17.*
+
+- name: example7
+  route_prefix: /example7
+  import_path: apps.example7:fast_app

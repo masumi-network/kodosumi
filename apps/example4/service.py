@@ -3,14 +3,13 @@ from pathlib import Path
 from typing import Annotated
 
 import uvicorn
-from crewai import Agent, Crew, Process, Task
 from fastapi import Form, Request, Response
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from ray import serve
 
-from kodosumi.core import Tracer, Launch, ServeAPI, Templates
+from kodosumi.core import Launch, ServeAPI, Templates
+
 
 class JobPostingRequest(BaseModel):
     company_domain: str

@@ -4,11 +4,11 @@ from typing import Annotated
 
 import uvicorn
 from fastapi import Form, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from ray import serve
-from kodosumi.serve import Launch, ServeAPI, Templates
+from kodosumi.core import Launch, ServeAPI, Templates
 
 
 class HymnRequest(BaseModel):
@@ -32,7 +32,7 @@ async def get(request: Request) -> HTMLResponse:
 
 @app.post("/", entry=True)
 async def post(request: Request, 
-                data: Annotated[HymnRequest, Form()]) -> Response:
+                data: Annotated[HymnRequest, Form()]) -> JSONResponse:
     return Launch(request, "apps.example3:crew", data, reference=get)
 
 
