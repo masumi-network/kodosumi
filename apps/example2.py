@@ -78,6 +78,8 @@ async def find_armstrong_numbers_parallel(inputs: dict, tracer: Tracer):
     md = ["#### Armstrong Numbers", "###### (Parallel Distributed Ray Version)"]
     for num in sorted(all_results):
         md.append(f"* {num}")
+    md.append(
+        f"\n**Found total of {len(all_results)} Armstrong numbers**")
     return response.Markdown(md)
 
 
