@@ -58,7 +58,7 @@ async def get(request: Request) -> HTMLResponse:
 async def post(request: Request, 
                 n: str =Form()) -> Response:
     return Launch(request, 
-                  "apps.example7:execute", 
+                  "apps.example7.service:execute", 
                   inputs={"n": int(n)}, 
                   reference=get)
 
@@ -77,4 +77,7 @@ if __name__ == "__main__":
 
     import uvicorn
     sys.path.append(str(Path(__file__).parent.parent))
-    uvicorn.run("apps.example7:app", host="0.0.0.0", port=8005, reload=True)
+    uvicorn.run("apps.example7.service:app", 
+                host="0.0.0.0", 
+                port=8005, 
+                reload=True)
