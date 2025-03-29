@@ -75,7 +75,7 @@ koco start --register http://localhost:8001/-/routes
 Please be patient if the Ray serve applications take a while to setup, install and deploy. Follow progress in the [Ray Dashboard](http://localhost:8265). On my laptop initial deployment takes three to four minutes.
 
 
-### STEP 7 - Look around
+### STEP 6 - Look around
 
 Visit kodosumi admin panel at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit [Routes Screen](http://localhost:3370/admin/routes) in the [Admin Panel](http://localhost:3370/admin/flow). See also the [OpenAPI documents with Swagger](http://localhost:3370/schema/swagger). 
 
