@@ -6,8 +6,6 @@ import uvicorn
 from crewai import Agent, Crew, Process, Task
 from fastapi import Form, Request, Response
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from ray import serve
 
@@ -74,7 +72,7 @@ templates = Templates(
             description="Creates a short hymn using openai and crewai.",
             version="1.0.0",
             author="m.rau@house-of-communication.com",
-            tags=["CrewAI", "Test1", "Test2"],
+            tags=["CrewAI", "Test"],
             entry=True)
 async def get(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(

@@ -11,16 +11,16 @@ kodosumi is one component of a larger ecosystem with [masumi and sokosumi](https
 
 # introduction
 
-kodosumi consists of three building blocks:
+kodosumi consists of three main building blocks:
 
-1. The ray cluster to execute agentic services at scale.
+1. The Ray cluster to execute agentic services at scale.
 2. The kodosumi web interface and API services.
-3. The kodosumi spooler monitoring agentic service execution and results.
+3. Agentic Services delivered through kodosumi and executed through Ray.
 
 
 # installation
 
-This installation has been tested with versions `ray==2.43.0` and `python==3.12.6`.
+This installation has been tested with versions `ray==2.44.1` and `python==3.12.6`.
 
 ### STEP 1 - clone and install kodosumi.
 
@@ -41,108 +41,128 @@ ray start --head
 
 Check ray status with `ray status` and visit ray dashboard at [http://localhost:8265](http://localhost:8265). For more information about ray visit [ray's documentation](https://docs.ray.io/en/latest).
 
-### STEP 3 - start kodosumi spooler.
 
-```bash
-koco spool
-```
-
-> [!NOTE]
->
-> This starts the spooler as a daemon. To stop the spooler daemon run
->
->     koco spool --stop
->
-> You can start a blocking spooler instead with
->
->     koco spool --block
-
-
-### STEP 4 - prepare environment
+### STEP 3 - prepare environment
 
 To use [openai](https://openai.com/) API you need to create a local file `.env` to define the following API keys:
 
 ```
 OPENAI_API_KEY=...
+EXA_API_KEY=...
+SERPER_API_KEY=...
 ```
 
 
-### STEP 5 - deploy with `ray serve`
+### STEP 4 - deploy example apps with `ray serve`
 
-Deploy the example services available in folder `./apps`. To deploy _example2_ and _example3_ use file `apps/config.yaml`.
+Deploy the example services available in folder `./apps`. Use file `apps/config.yaml`.
 
 ```bash
 serve deploy apps/config.yaml
 ```
 
 
-### STEP 6 - start kodosumi services
+### STEP 5 - start kodosumi
 
-Finally start the kodosumi service and register ray endpoints available at 
-[http://0.0.0.0:8001/-/routes](http://0.0.0.0:8001/-/routes).
+Finally start the kodosumi components and register ray endpoints available at 
+[http://localhost:8001/-/routes](http://localhost:8001/-/routes).
 
 
 ```bash
-koco serve --register http://0.0.0.0:8001/-/routes
+koco start --register http://localhost:8001/-/routes
 ```
 
-### STEP 7 - finish
+Please be patient if the Ray serve applications take a while to setup, install and deploy. Follow progress in the [Ray Dashboard](http://localhost:8265). On my laptop initial deployment takes three to four minutes.
 
-Visit kodosumi admin panel at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`.
 
-If all went well, then you see two test services:
+### STEP 7 - Look around
 
-3. [Armstrong Numbers Generator](./apps/example2.py)
-2. [Hymn Creator](./apps/example3.py)
+Visit kodosumi admin panel at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit [Routes Screen](http://localhost:3370/admin/routes) in the [Admin Panel](http://localhost:3370/admin/flow). See also the [OpenAPI documents with Swagger](http://localhost:3370/schema/swagger). 
+
+If all went well, then you see a couple of test services. Be aware you need some OpenAPI, Exa and Serper API keys if you want to use all Agentic Services.
 
 Stop the kodosumi services and spooler by hitting `CNTRL+C` in the corresponding terminal. Stop Ray _serve_ with `serve shutdown --yes`. Stop the ray daemon with command `ray stop`.
+
 
 # development notes
 
 These development notes provide an overview of creating a web app using FastAPI and Ray Serve, alongside an agentic service using `crewai`. 
 
+
 ```python
-# ./tests/app/hymn.py
-
+import sys
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import Request
+import uvicorn
+from fastapi import Form, Request, Response
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from ray.serve import deployment, ingress
+from pydantic import BaseModel
 
-from kodosumi.serve import Launch, ServeAPI
+from ray import serve
+from kodosumi.serve import Launch, ServeAPI, Templates
 
 
-app = ServeAPI()  # instead of FastAPI !!!
+class HymnRequest(BaseModel):
+    topic: str
 
-templates = Jinja2Templates(
+
+app = ServeAPI()
+
+templates = Templates(
     directory=Path(__file__).parent.joinpath("templates"))
 
-@deployment
-@ingress(app)
-class HymnTest:
+@app.get("/", summary="Hymn Creator",
+            description="Creates a short hymn using openai and crewai.",
+            version="1.0.0",
+            author="m.rau@house-of-communication.com",
+            tags=["CrewAI", "Test"],
+            entry=True)
+async def get(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request, name="hymn.html", context={})
 
-    @app.get("/", 
-             name="Hymn Generator", 
-             description="Creates a short hymn using openai and crewai.")
+@app.post("/", entry=True)
+async def post(request: Request, 
+                data: Annotated[HymnRequest, Form()]) -> Response:
+    return Launch(request, "apps.example3:crew", data, reference=get)
 
-    async def get(self, request: Request) -> HTMLResponse:
-        return templates.TemplateResponse(
-            request=request, name="hymn.html", context={})
 
-    @app.post("/", response_model=None)
-    async def post(self, request: Request):
-        form_data = await request.form()
-        topic: str = str(form_data.get("topic", ""))
-        if topic.strip():
-            return Launch(request, "app.crew:crew", {"topic": topic})
-        return await self.get(request)
+@serve.deployment
+@serve.ingress(app)
+class Example1: pass
 
-fast_app = HymnTest.bind()
+
+fast_app = Example1.bind()  # type: ignore
+
+
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+
+    import uvicorn
+    sys.path.append(str(Path(__file__).parent.parent))
+    uvicorn.run("apps.example3:app", host="0.0.0.0", port=8004, reload=True)
 ```
 
-Component [`kodosumi.serve.ServeAPI`](./kodosumi/serve.py#ServeAPI) inherits from `fastapi.FastAPI` and represents the deployment (`@deployment`) and entry point (`@ingress`) for ray serve. The deployment implements one endpoint `/` with methods `GET` and `POST`. For user interaction the `GET` method delivers a form (see template [`hymn.html`](./tests/app/templates/hymn.html)). The `POST` method consumes the form data and launches _CrewAI_ object `crew` in module [`app.crew`](./tests/app/crew.py) in folder [`tests`](./tests/). Please note that the `config.yaml` file includes the [`./tests`](./tests/) directory as a `PYTHONPATH`.
+Component [`kodosumi.serve.ServeAPI`](./kodosumi/serve.py#ServeAPI) inherits from `fastapi.FastAPI` and is the application servicing one endpoint with `GET` and `POST /`. Method `get` returns a Jinja2 template. HTML file `hymn.html` defines a form which follows pydantic model `HymnRequest`. With _form submission_ the request, the entrypoint (`apps.xample3:crew`), and the annotated form `data` is passed to `Launch` the crew. This crew is defined in package `apps.example3` as object `crew`.
+
+The application in `apps.example3` is not in scope of `apps/config.yaml`. To launch the application with **uvicorn** follow the steps:
+
+```bash
+ray start --head
+python -m apps.example3
+# in a new terminal
+koco serve --register http://localhost:8004/openapi.json
+```
+
+If you prefer to launch the application with Ray you can either run or deploy it to a running Ray cluster.
+
+```bash
+ray start --head
+serve deploy apps.example3:fast_app
+koco serve --register http://localhost:8000/-/routes
+```
 
 # further reads
 
@@ -151,18 +171,3 @@ Component [`kodosumi.serve.ServeAPI`](./kodosumi/serve.py#ServeAPI) inherits fro
   * [set up FastAPI with ray](https://docs.ray.io/en/latest/serve/http-guide.html) - **IMPORTANT:** you will have to use `kodosumi.serve.ServeAPI` instead of `FastAPI` to use kodosumi.
   * [development workflow with ray](https://docs.ray.io/en/latest/serve/advanced-guides/dev-workflow.html)
   * [serve config files](https://docs.ray.io/en/latest/serve/production-guide/config.html)
-
-# disclaimer
-
-kodosumi is under development. The kodosumi web app is a simple admin panel. There are still many features missing or not working. All bug reports and feature requests are much appreciated.
-
-The following list provides a first glimpse of upcoming features.
-
-* improve and harden interaction between ray and kodosumi spooler on long-running agentic services
-* kill and remove jobs
-* authentication and user/role management
-* improve the admin panel
-* agentic service registry for agent-to-agent interaction
-* result formatting
-* cluster and job monitoring
-* much and many more
