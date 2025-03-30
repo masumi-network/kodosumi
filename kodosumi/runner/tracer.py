@@ -45,17 +45,17 @@ class Tracer:
 
     def init(self):
         if not self._init:
+            self._init = True
             self._original_stdout = sys.stdout
             self._original_stderr = sys.stderr
             sys.stdout = StdoutHandler(self)
             sys.stderr = StderrHandler(self)
-            self._init = True
 
     def shutdown(self):
         if self._init:
             sys.stdout = self._original_stdout
             sys.stderr = self._original_stderr
-            self.queue.shutdown()
+            # self.queue.shutdown()
 
     async def _put_async(self, kind: str, payload: Any):
         self.init()

@@ -93,18 +93,32 @@ class Spooler:
         fid: str = str(state.name)
         username = await runner.get_username.remote()
         conn = self.setup_database(username, fid)
-        events = await runner.get_queue.remote()
+        while True:
+            done, undone = ray.wait(
+                [runner.get_queue.remote()], timeout=0.01)
+            if done:
+                ret = await asyncio.gather(*done)
+                events = ret[0]
+                break
+            await asyncio.sleep(0.01)
+        # events = await runner.get_queue.remote()
         n = 0
         try:
             while not self.shutdown_event.is_set(): 
-                       #or not ray.get(runner.is_active.remote())):
                 done, undone = ray.wait(
                     [runner.is_active.remote()], timeout=0.01)
                 if done:
-                    ret = ray.get(done)
+                    ret = await asyncio.gather(*done)
+                    #ret = ray.get(done)
                     if ret:
                         if ret[0] == False:
                             break
+                            # if events.size() == 0:
+                            #     break
+                            # else:
+                            #     logger.info(
+                            #         f"still {fid} with {events.size()} records")
+                            #     await asyncio.sleep(0.01)
                 batch = events.get_nowait_batch(
                     min(self.batch_size, events.size()))
                 #logger.debug(f"retrieved {len(batch)} records for {fid}")
@@ -113,7 +127,18 @@ class Spooler:
                     logger.debug(f"saved {len(batch)} records for {fid}")
                     n += len(batch)
                 await asyncio.sleep(0.01)
-            ray.get(runner.shutdown.remote())
+
+            # trial = 0
+            # while True:
+            #     trial += 1
+            #     done, undone = ray.wait(
+            #         [runner.shutdown.remote()], timeout=0.01)
+            #     if done:
+            #         ret = await asyncio.gather(*done)
+            #         break
+            #     await asyncio.sleep(0.01)
+
+            # ray.get(runner.shutdown.remote())
             ray.kill(runner)
             logger.info(f"finished {fid} with {n} records")
         except Exception as e:
@@ -155,7 +180,7 @@ class Spooler:
                         self.monitor[state.name] = task
                         logger.info(f"streaming {state.name}")
                         total += 1
-                        self.lock.update(len(self.monitor), total)
+                        self.lock.update.remote(len(self.monitor), total)
                     except Exception as e:
                         logger.critical(
                             f"failed to stream {state.name}", exc_info=True)

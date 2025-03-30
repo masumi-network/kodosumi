@@ -15,62 +15,6 @@ from kodosumi.runner.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
 from kodosumi.runner.tracer import Tracer
 
 
-class MessageQueue:
-    def __init__(self, batch_size: int = 10, batch_timeout: float = 0.1):
-        self.queue: asyncio.Queue = asyncio.Queue()
-        self.batch_size = batch_size
-        self.batch_timeout = batch_timeout
-        self._shutdown = asyncio.Event()
-        self._lock = asyncio.Lock()
-        self._is_flushing = False
-
-    async def put(self, message: dict) -> None:
-        await self.queue.put(message)
-
-    async def get_batch(self,
-                        size: Optional[int] = None,
-                        timeout: Optional[float] = None) -> list[dict]:
-        batch: list[dict] = []
-        try:
-            message = await asyncio.wait_for(
-                self.queue.get(),
-                timeout=timeout if timeout is not None else self.batch_timeout)
-            batch.append(message)
-
-            max_size = size if size is not None else self.batch_size
-            for _ in range(max_size - 1):
-                try:
-                    message = self.queue.get_nowait()
-                    batch.append(message)
-                except asyncio.QueueEmpty:
-                    break
-        except asyncio.TimeoutError:
-            pass
-
-        return batch
-
-    async def flush(self):
-        async with self._lock:
-            if self._is_flushing:
-                return
-            self._is_flushing = True
-        try:
-            while not self.queue.empty():
-                batch = await self.get_batch()
-                if batch:
-                    yield batch
-        finally:
-            async with self._lock:
-                self._is_flushing = False
-
-    def is_empty(self) -> bool:
-        return self.queue.empty()
-
-    async def shutdown(self) -> None:
-        self._shutdown.set()
-        while not self.queue.empty():
-            await asyncio.sleep(0.1)
-
 def parse_entry_point(entry_point: str) -> Callable:
     if ":" in entry_point:
         module_name, obj = entry_point.split(":", 1)
@@ -82,7 +26,6 @@ def parse_entry_point(entry_point: str) -> Callable:
     for comp in components[1:]:
         module = getattr(module, comp)
     return getattr(module, obj)
-
 
 
 @ray.remote
@@ -234,12 +177,18 @@ class Runner:
 
     async def shutdown(self):
         try:
+            queue_actor = self.message_queue.actor
             while True:
-                if self.message_queue.empty():
-                    break
+                done, undone = ray.wait([
+                    queue_actor.empty.remote()], timeout=0.01)
+                if done:
+                    ret = await asyncio.gather(*done)
+                    if ret:
+                        if ret[0] == True:
+                            break
                 await asyncio.sleep(0.1)
             self.tracer.shutdown()
-            # await self.message_queue.shutdown()
+            self.message_queue.shutdown()
         except: 
             pass
         self.active = False
