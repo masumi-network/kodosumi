@@ -15,7 +15,7 @@ logging_config:
 
 applications:
 
-- name: example1
+- name: example2
   route_prefix: /example2
   import_path: apps.example2:fast_app
 
@@ -45,4 +45,4 @@ applications:
 
 - name: example7
   route_prefix: /example7
-  import_path: apps.example7:fast_app
+  import_path: apps.example7.service:fast_app
