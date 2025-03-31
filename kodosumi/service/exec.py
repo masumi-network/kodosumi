@@ -22,6 +22,8 @@ from kodosumi.runner.const import DB_FILE
 from kodosumi.runner.formatter import DefaultFormatter, Formatter
 
 
+SLEEP = 0.25
+
 async def _query(
         db_file: Path, state: State, with_final: bool=False) -> Execution:
     conn = sqlite3.connect(str(db_file), isolation_level=None)
@@ -83,14 +85,14 @@ async def _follow(state,
         if result.status not in STATUS_FINAL:
             follow.append(db_file)
         yield f"{result.model_dump_json()}\n"
-    await asyncio.sleep(0.25)
+    await asyncio.sleep(SLEEP)
     while follow:
         db_file = follow.pop(0)
         result = await _query(db_file, state, with_final)
         if result.status not in STATUS_FINAL:
             follow.append(db_file)
         yield f"UPDATE: {result.model_dump_json()}\n\n"
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(SLEEP)
 
 
 async def _event(
@@ -115,8 +117,7 @@ async def _event(
         status = row[0]
         if status not in STATUS_FINAL:
             try:
-                runner = ray.get_actor(db_file.parent.name, 
-                                       namespace=NAMESPACE)
+                ray.get_actor(db_file.parent.name, namespace=NAMESPACE)
             except ValueError:
                 cursor.execute("""
                     INSERT INTO monitor (timestamp, kind, message) 
@@ -150,13 +151,11 @@ async def _event(
                         "id": _id,
                         "data": out
                     }
-                    # yield f"{kind}: {timestamp}:{message}\n\n"
                 offset = _id
                 n += 1
-            # print(status, n, lst)
             if status in STATUS_FINAL and lst and lst + 10 < now():
                 break
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(SLEEP)
             if now() > t0 + 1:
                 t0 = now()
                 yield {
@@ -290,9 +289,7 @@ class ExecutionControl(litestar.Controller):
         start = p * pp
         end = start + pp
         return Stream(
-            _follow(state, listing, start, end), 
-            media_type="text/plain"
-        )
+            _follow(state, listing, start, end), media_type="text/plain")
 
     @get("/{fid:str}", include_in_schema=False)
     async def execution_detail(
@@ -308,7 +305,7 @@ class ExecutionControl(litestar.Controller):
         while not db_file.exists():
             if not loop:
                 loop = True
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(SLEEP)
             if now() > t0 + waitfor:
                 raise NotFoundException(
                     f"Execution {fid} not found after {waitfor}s.")
@@ -316,9 +313,7 @@ class ExecutionControl(litestar.Controller):
             logger.debug(f"{fid} - found after {now() - t0:.2f}s")
         listing = [db_file]
         return Stream(
-            _follow(state, listing, with_final=True), 
-            media_type="text/plain"
-        )
+            _follow(state, listing, with_final=True), media_type="text/plain")
 
     @get("/state/{fid:str}", summary="Execution State",
          description="Retrieve execution state.")
@@ -335,7 +330,7 @@ class ExecutionControl(litestar.Controller):
         while not db_file.exists():
             if not loop:
                 loop = True
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(SLEEP)
             if now() > t0 + waitfor:
                 raise NotFoundException(
                     f"Execution {fid} not found after {waitfor}s.")
@@ -356,7 +351,7 @@ class ExecutionControl(litestar.Controller):
         while not db_file.exists():
             if not loop:
                 loop = True
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(SLEEP)
             if now() > t0 + waitfor:
                 raise NotFoundException(
                     f"Execution {fid} not found after {waitfor}s.")
@@ -432,7 +427,7 @@ class ExecutionControl(litestar.Controller):
         while not db_file.exists():
             if not loop:
                 loop = True
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(SLEEP)
             if now() > t0 + waitfor:
                 raise NotFoundException(
                     f"Execution {fid} not found after {waitfor}s.")

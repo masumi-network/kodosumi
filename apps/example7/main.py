@@ -1,11 +1,10 @@
+import asyncio
+import ray
+import os
+import sys
+
 from kodosumi import response
 from kodosumi.core import Tracer
-import asyncio
-
-import ray
-
-
-import os
 
 
 @ray.remote
@@ -16,6 +15,8 @@ def hello(_id: int, tracer: Tracer):
     tid = ctx.get_task_id()
     pid = os.getpid()
     tracer.init()
+    print(f"hello {_id} from sys.stdout")
+    sys.stderr.write(f"hello {_id} from sys.stderr\n")
     tracer.debug_sync(f"hello debug from {_id}")
     return f"Hello from {_id}: " \
            f"jid={jid}, " \

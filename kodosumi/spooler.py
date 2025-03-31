@@ -94,51 +94,30 @@ class Spooler:
         username = await runner.get_username.remote()
         conn = self.setup_database(username, fid)
         while True:
-            done, undone = ray.wait(
+            done, _ = ray.wait(
                 [runner.get_queue.remote()], timeout=0.01)
             if done:
                 ret = await asyncio.gather(*done)
                 events = ret[0]
                 break
             await asyncio.sleep(0.01)
-        # events = await runner.get_queue.remote()
         n = 0
         try:
             while not self.shutdown_event.is_set(): 
-                done, undone = ray.wait(
+                done, _ = ray.wait(
                     [runner.is_active.remote()], timeout=0.01)
                 if done:
                     ret = await asyncio.gather(*done)
-                    #ret = ray.get(done)
                     if ret:
                         if ret[0] == False:
                             break
-                            # if events.size() == 0:
-                            #     break
-                            # else:
-                            #     logger.info(
-                            #         f"still {fid} with {events.size()} records")
-                            #     await asyncio.sleep(0.01)
                 batch = events.get_nowait_batch(
                     min(self.batch_size, events.size()))
-                #logger.debug(f"retrieved {len(batch)} records for {fid}")
                 if batch:
                     self.save(conn, fid, batch)
                     logger.debug(f"saved {len(batch)} records for {fid}")
                     n += len(batch)
                 await asyncio.sleep(0.01)
-
-            # trial = 0
-            # while True:
-            #     trial += 1
-            #     done, undone = ray.wait(
-            #         [runner.shutdown.remote()], timeout=0.01)
-            #     if done:
-            #         ret = await asyncio.gather(*done)
-            #         break
-            #     await asyncio.sleep(0.01)
-
-            # ray.get(runner.shutdown.remote())
             ray.kill(runner)
             logger.info(f"finished {fid} with {n} records")
         except Exception as e:

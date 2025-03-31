@@ -44,7 +44,6 @@ class Runner:
         self.inputs = inputs
         self.extra = extra
         self.active = True
-        #self.message_queue = MessageQueue()
         self.message_queue = ray.util.queue.Queue()
         self.tracer = Tracer(self.message_queue)
         self.tracer.init()
@@ -59,9 +58,6 @@ class Runner:
         return self.active
 
     async def run(self):
-        # from kodosumi.helper import debug
-        # debug()
-        # breakpoint()
         final_kind = STATUS_END
         try:
             await self.start()
@@ -119,7 +115,6 @@ class Runner:
         # obj is a decorated crew class
         if hasattr(obj, "is_crew_class"):
             obj = obj().crew()
-
         # obj is a crew
         if hasattr(obj, "kickoff"):
             obj.step_callback = self.tracer.action_sync
@@ -179,7 +174,7 @@ class Runner:
         try:
             queue_actor = self.message_queue.actor
             while True:
-                done, undone = ray.wait([
+                done, _ = ray.wait([
                     queue_actor.empty.remote()], timeout=0.01)
                 if done:
                     ret = await asyncio.gather(*done)

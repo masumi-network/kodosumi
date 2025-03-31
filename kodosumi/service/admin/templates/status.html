@@ -18,6 +18,9 @@
         color: var(--tertiary);
         font-weight: normal;
     }
+    .stderr {
+        color: var(--error);
+    }
 </style>
 {% endblock %}
 
@@ -266,6 +269,9 @@ Job: <em><span id="summary"></span></em>
     });
     ev.addEventListener('stderr', function(event) {
         const [timestamp, data] = splitData(event.data);
+        data.split('\n').forEach(line => {
+            elmStdout.innerHTML += '<span class="stderr">' + line + "</span><br/>";
+        });
     });
     ev.addEventListener('error', function(event) {
         const [timestamp, data] = splitData(event.data);

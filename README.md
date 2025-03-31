@@ -61,6 +61,8 @@ Deploy the example services available in folder `./apps`. Use file `apps/config.
 serve deploy apps/config.yaml
 ```
 
+Please be patient if the Ray serve applications take a while to setup, install and deploy. Follow the deployment process with the Ray dashboard at [http://localhost:8265/#/serve](http://localhost:8265/#/serve). On my laptop initial deployment takes three to four minutes.
+
 
 ### STEP 5 - start kodosumi
 
@@ -71,8 +73,6 @@ Finally start the kodosumi components and register ray endpoints available at
 ```bash
 koco start --register http://localhost:8001/-/routes
 ```
-
-Please be patient if the Ray serve applications take a while to setup, install and deploy. Follow progress in the [Ray Dashboard](http://localhost:8265). On my laptop initial deployment takes three to four minutes.
 
 
 ### STEP 6 - Look around
@@ -90,7 +90,7 @@ The development notes provide an overview for various flavours on how to run and
 
 Follow the examples:
 
-* [Function Blueprint - ](apps/example7.py)
+* [Function Blueprint](apps/example7/service.py)
 * [Search for Armstrong Numbers](apps/example1.py)
 * [Search for Armstrong Numbers with nested remote calls](apps/example2.py)
 * [Crew of Agents to draft a Hymn using OpenAI - ](apps/example3.py)

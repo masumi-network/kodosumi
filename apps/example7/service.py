@@ -24,6 +24,7 @@ async def post(request: Request, n: str =Form()) -> Response:
                   "apps.example7.main:execute", 
                   inputs={"n": int(n)}, 
                   reference=get)
+
 @serve.deployment
 @serve.ingress(app)
 class Example1: pass

@@ -1,16 +1,17 @@
-EVENT_META    = "meta"
-EVENT_AGENT   = "agent"
-EVENT_DEBUG   = "debug"
-EVENT_STATUS  = "status"
-EVENT_ERROR   = "error"
-EVENT_DATA    = "data"
-EVENT_RESULT  = "result"
-EVENT_ACTION  = "action"
-EVENT_INPUTS  = "inputs"
-EVENT_FINAL   = "final"
-EVENT_STDOUT  = "stdout"
-EVENT_STDERR  = "stderr"
+# event stream kinds:
+EVENT_META    = "meta"  # flow metadata and entry point information
+EVENT_INPUTS  = "inputs" # user input data
+EVENT_AGENT   = "agent" # agent information
+EVENT_DEBUG   = "debug" # debug message
+EVENT_STDOUT  = "stdout" # stdout information
+EVENT_STDERR  = "stderr" # stderr information
+EVENT_STATUS  = "status" # flow status change
+EVENT_ERROR   = "error" # error information
+EVENT_ACTION  = "action" # action information
+EVENT_RESULT  = "result" # task result information
+EVENT_FINAL   = "final" # final result information
 
+# flow status and lifecycle:
 STATUS_STARTING = "starting"
 STATUS_RUNNING  = "running"
 STATUS_END      = "finished"

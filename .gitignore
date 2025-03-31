@@ -172,3 +172,4 @@ crews/dev/*.yaml
 db/
 .DS_Store
 *.zip
+stats/
