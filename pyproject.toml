@@ -9,7 +9,7 @@ namespaces = false
 
 [project]
 name = "kodosumi"
-version = "0.0.0"
+version = "0.0.1"
 description = "kodosumi framework to execute and orchestrate agentic services safe and at scale"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -47,7 +47,8 @@ tests = [
     "isort",
     "autopep8",
     "debugpy",
-    "pytest_httpserver"
+    "pytest_httpserver",
+    "toml"
 ]
 
 [project.scripts]
