@@ -98,7 +98,31 @@ def create_git_tag(version: str):
         print(f"Error creating Git tag: {e}")
         sys.exit(1)
 
+def ensure_main_branch():
+    """Verifies we're on the main branch before making changes."""
+    try:
+        # Get current branch
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        current_branch = result.stdout.strip()
+        
+        if current_branch != "main":
+            print(f"Error: You must be on the main branch to update version.")
+            print(f"Current branch: {current_branch}")
+            sys.exit(1)
+            
+    except subprocess.CalledProcessError as e:
+        print(f"Error checking branch: {e}")
+        sys.exit(1)
+
 def main():
+    # Ensure we're on main branch before proceeding
+    ensure_main_branch()
+    
     current_version, _ = get_current_version()
     print(f"Current version: {current_version}")
     
