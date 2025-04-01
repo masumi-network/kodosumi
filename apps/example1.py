@@ -40,7 +40,7 @@ async def find_armstrong_numbers(inputs: dict, tracer: Tracer):
     return response.Markdown(md)
 
 
-@app.get("/", tags=["test"], entry=True,
+@app.get("/", tags=["Test"], entry=True,
          summary="Calculate Armstrong numbers",
          description="This service calculates Armstrong numbers within a given range.",
          author="m.rau@house-of-communication.com",

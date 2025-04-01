@@ -2,7 +2,7 @@
 
 > [!NOTE]
 >
-> This is an early development version of kodosumi.
+> This is an early development version of kodosumi. The documentation is under development, too. See the [key concepts](docs/concepts.md).
 
 kodosumi is a runtime environment to manage and execute agentic services at scale. The system is based on [ray](https://ray.io) - a distributed computing framework - and a combination of [litestar](https://litestar.dev/) and [fastapi](https://fastapi.tiangolo.com/) to deliver men/machine interaction.
 
@@ -91,8 +91,7 @@ The development notes provide an overview for various flavours on how to run and
 Follow the examples:
 
 * [Function Blueprint](apps/example7/service.py)
-* [Search for Armstrong Numbers](apps/example1.py)
-* [Search for Armstrong Numbers with nested remote calls](apps/example2.py)
-* [Crew of Agents to draft a Hymn using OpenAI - ](apps/example3.py)
-* [Crew of Agents to draft a Marketing Campaign using OpenAI - ](apps/example4/service.py)
-* [Crew of Agents to draft a Job Posting using OpenAI - ](apps/example4/service.py)
+* [Search for Armstrong Numbers](apps/example1.py) and with [nested remote calls](apps/example2.py)
+* [Crew of Agents to craft a Hymn using OpenAI](apps/example3.py)
+* [Crew of Agents to craft a Marketing Campaign using OpenAI](apps/example4/service.py)
+* [Crew of Agents to craft a Job Posting using OpenAI](apps/example4/service.py)

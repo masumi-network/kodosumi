@@ -10,9 +10,18 @@ namespaces = false
 [project]
 name = "kodosumi"
 version = "0.0.1"
+authors = [{ name="Michael Rau", email="m.rau@house-of-communication.com" }]
 description = "kodosumi framework to execute and orchestrate agentic services safe and at scale"
 readme = "README.md"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 requires-python = ">=3.10"
 dependencies = [
     "click",
@@ -39,6 +48,11 @@ dependencies = [
     "markdown"
 ]
 
+[project.urls]
+Homepage = "https://www.masumi.network/"
+Repository = "https://github.com/masumi-network/kodosumi"
+Issues = "https://github.com/masumi-network/kodosumi/issues"
+
 [project.optional-dependencies]
 tests = [
     "pytest",
@@ -48,11 +62,15 @@ tests = [
     "autopep8",
     "debugpy",
     "pytest_httpserver",
-    "toml"
+    "toml",
+    "twine"
 ]
 
 [project.scripts]
 koco = "kodosumi.cli:cli"
 
-# [tool.setuptools.package-data]
-# "kodosumi.service" = ["static/**/*", "templates/*"]
+[tool.setuptools.package-data]
+"kodosumi" = [
+    "kodosumi/service/admin/static/*", 
+    "kodosumi/service/admin/templates/*"
+]
