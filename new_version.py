@@ -42,8 +42,21 @@ def update_version(major: bool, minor: bool, patch: bool) -> str:
     elif patch:
         patch_ver += 1
     
-    new_version = f"{major_ver}.{minor_ver}.{patch_ver}"
-    return new_version
+    suggested_version = f"{major_ver}.{minor_ver}.{patch_ver}"
+    
+    print(f"\nSuggested new version: {suggested_version}")
+    print("Press Enter to accept or type a custom version (e.g., 1.2.3):")
+    custom_version = input().strip()
+    
+    if not custom_version:
+        return suggested_version
+    
+    # Validate custom version format
+    if not re.match(r'^\d+\.\d+\.\d+$', custom_version):
+        print("Error: Invalid version format. Please use format X.Y.Z")
+        sys.exit(1)
+    
+    return custom_version
 
 def update_files(new_version: str):
     """Updates the version number in both files."""
