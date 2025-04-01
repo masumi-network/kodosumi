@@ -25,12 +25,7 @@ This installation has been tested with versions `ray==2.44.1` and `python==3.12.
 ### STEP 1 - clone and install kodosumi.
 
 ```bash
-git clone https://github.com/masumi-network/kodosumi.git
-cd kodosumi
-git checkout feature/candidate
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+pip install kodosumi
 ```
 
 ### STEP 2 - start ray as a daemon.
