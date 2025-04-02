@@ -5,6 +5,7 @@ import click
 import psutil
 import ray
 
+from kodosumi.core import __version__
 import kodosumi.service.server
 import kodosumi.spooler
 from kodosumi import helper
@@ -14,9 +15,10 @@ from kodosumi.runner.const import NAMESPACE
 
 
 @click.group()
+@click.version_option(version=__version__, prog_name="kodosumi")
 def cli():
-    """CLI for managing kodosumi services."""
-
+    """Kodosumi CLI tool."""
+    pass
 
 @cli.command("spool")
 @click.option("--ray-server", default=None, 
