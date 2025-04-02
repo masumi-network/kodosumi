@@ -24,8 +24,8 @@ applications:
   import_path: apps.example3:fast_app
   runtime_env:
     pip:
-    - crewai==0.86.*
-    - crewai_tools==0.17.*
+    - crewai
+    - crewai_tools
 
 # - name: example4
 #   route_prefix: /example4
