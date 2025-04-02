@@ -164,8 +164,10 @@ class Spooler:
                         logger.critical(
                             f"failed to stream {state.name}", exc_info=True)
             dead = [name for name, task in self.monitor.items() if task.done()]
-            for state in dead:
-                del self.monitor[state]
+            if dead:
+                for state in dead:
+                    del self.monitor[state]
+                self.lock.update.remote(len(self.monitor), total)
             if sys.stdout.isatty():
                 print(f"{progress[p]} Actors active ({len(self.monitor)}) - "
                     f"total: ({total})", " "*20, end="\r", flush=True)
