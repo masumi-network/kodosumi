@@ -6,6 +6,10 @@ from ansi2html import Ansi2HTMLConverter
 
 from kodosumi.dtypes import DynamicModel
 
+MARKDOWN_EXTENSIONS = [
+    "markdown.extensions.nl2br",
+    "markdown.extensions.fenced_code"
+]
 
 class Formatter:
 
@@ -19,7 +23,7 @@ class DefaultFormatter(Formatter):
         self.ansi = Ansi2HTMLConverter()
 
     def md(self, text: str) -> str:
-        return markdown.markdown(text, extensions=['nl2br'])
+        return markdown.markdown(text, extensions=MARKDOWN_EXTENSIONS)
 
     def dict2yaml(self, message: str) -> str:
         model = DynamicModel.model_validate_json(message)

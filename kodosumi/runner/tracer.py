@@ -1,6 +1,6 @@
 import sys
 from typing import Any
-
+import asyncio
 import ray.util.queue
 
 from kodosumi import dtypes
@@ -27,6 +27,10 @@ class StdoutHandler:
     def isatty(self) -> bool:
         return False
 
+    def writelines(self, datas):
+        for data in datas:
+            self.write(data)
+
 
 class StderrHandler(StdoutHandler):
 
@@ -45,17 +49,16 @@ class Tracer:
 
     def init(self):
         if not self._init:
-            self._init = True
             self._original_stdout = sys.stdout
             self._original_stderr = sys.stderr
             sys.stdout = StdoutHandler(self)
             sys.stderr = StderrHandler(self)
+            self._init = True
 
     def shutdown(self):
         if self._init:
             sys.stdout = self._original_stdout
             sys.stderr = self._original_stderr
-            # self.queue.shutdown()
 
     async def _put_async(self, kind: str, payload: Any):
         self.init()
@@ -67,11 +70,12 @@ class Tracer:
 
     def _put(self, kind: str, payload: Any):
         self.init()
-        self.queue.put({
+        data = {
             "timestamp": now(), 
             "kind": kind, 
             "payload": payload
-        })  
+        }
+        self.queue.actor.put.remote(data)  # type: ignore
 
     async def debug(self, message: str):
         await self._put_async(EVENT_DEBUG, message + "\n")
@@ -95,10 +99,22 @@ class Tracer:
         await self._put_async(EVENT_RESULT, serialize(
             dtypes.Markdown(body=message)))
 
+    def markdown_sync(self, message: str):
+        self._put(EVENT_RESULT, serialize(
+            dtypes.Markdown(body=message)))
+
     async def html(self, message: str):
         await self._put_async(EVENT_RESULT, serialize(
             dtypes.HTML(body=message)))
 
+    def html_sync(self, message: str):
+        self._put(EVENT_RESULT, serialize(
+            dtypes.HTML(body=message)))
+
     async def text(self, message: str):
         await self._put_async(EVENT_RESULT, serialize(
+            dtypes.Text(body=message)))
+
+    def text_sync(self, message: str):
+        self._put(EVENT_RESULT, serialize(
             dtypes.Text(body=message)))
