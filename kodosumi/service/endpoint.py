@@ -33,6 +33,7 @@ def _extract(openapi_url, js) -> dict:
     base_elm = urlparse(base_url)
     root = f"/{base_elm.hostname}/{base_elm.port}{base_elm.path}/-/"
     register = []
+    lookback = {}
     for path, specs in js.get("paths", {}).items():
         for meth, meta in specs.items():
             if meta.get(KODOSUMI_API, False):
@@ -46,6 +47,12 @@ def _extract(openapi_url, js) -> dict:
                 details["uid"] = md5(details["url"].encode()).hexdigest()
                 details["source"] = openapi_url
                 ep = EndpointResponse.model_validate(details)
+                if meth == "get":
+                    lookback[path] = ep
+                elif path in lookback:
+                    for field in ep.model_fields:
+                        if getattr(ep, field) is None:
+                            setattr(ep, field, getattr(lookback[path], field))
                 register.append(ep)
                 logger.debug(f"register {openapi_url}: {ep.url} ({ep.uid})")
     return {
