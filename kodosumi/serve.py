@@ -20,7 +20,9 @@ ANNONYMOUS_USER = "_annon_"
 def Launch(request: Request,
            entry_point: Union[Callable, str], 
            inputs: Any=None,
-           reference: Optional[Callable] = None) -> JSONResponse:
+           reference: Optional[Callable] = None,
+           summary: Optional[str] = None,
+           description: Optional[str] = None) -> JSONResponse:
     if reference is None:
         for sf in inspect.stack():
             if getattr(sf.frame.f_globals.get(sf.function), "_kodosumi_", None):
@@ -30,6 +32,10 @@ def Launch(request: Request,
         extra = {}
     else:
         extra = request.app._method_lookup.get(reference)
+    if summary is not None:
+        extra["summary"] = summary
+    if description is not None:
+        extra["description"] = description
     fid, runner = create_runner(
         username=request.state.user, base_url=request.state.prefix, 
         entry_point=entry_point, inputs=inputs, extra=extra)
