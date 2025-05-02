@@ -6,7 +6,7 @@ import pytest
 import ray
 
 from kodosumi.helper import now
-from kodosumi.runner import create_runner
+from kodosumi.runner.main import create_runner
 from kodosumi.spooler import Spooler, DB_FILE
 
 

@@ -16,8 +16,7 @@ from tests.test_role import auth_client
 def start_spooler(tmp_path):
     settings = Settings()
     settings.EXEC_DIR = str(tmp_path.joinpath("data"))
-    proc = Process(target=kodosumi.spooler.main, args=(settings,),
-                   kwargs={"force": True})
+    proc = Process(target=kodosumi.spooler.main, args=(settings,), kwargs={})
     proc.start()
     yield
     proc.kill()
