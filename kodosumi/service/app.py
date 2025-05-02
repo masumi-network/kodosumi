@@ -39,6 +39,7 @@ from kodosumi.service.flow import FlowControl
 from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
+from kodosumi.service.inputs.controller import InputsController
 
 
 def app_exception_handler(request: Request, 
@@ -170,6 +171,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/admin", route_handlers=[AdminControl]),
             Router(path="/flow", route_handlers=[FlowControl]),
             Router(path="/exec", route_handlers=[ExecutionControl]),
+            Router(path="/inputs", route_handlers=[InputsController]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],
