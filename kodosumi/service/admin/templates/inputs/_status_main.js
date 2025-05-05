@@ -1,5 +1,7 @@
 const fid = "{{ fid }}"; 
 const eventSource = new EventSource(`/outputs/main/${fid}`);
+let ioSource = null;
+let sse_loaded = false;
 
 elmToggleIcon.addEventListener('click', () => {
     elmDetailsElement.open = !elmDetailsElement.open;
@@ -9,6 +11,7 @@ elmToggleIcon.addEventListener('click', () => {
 eventSource.onopen = function() {
     console.log("main SSE connection opened.");
 };
+
 eventSource.addEventListener('status', function(event) {
     const [ts, js] = parseData(event);
     applyToAll(elmStatus, (elm) => {elm.innerText = js});
@@ -42,7 +45,6 @@ eventSource.addEventListener('meta', function(event) {
 });
 eventSource.addEventListener('inputs', function(event) {
     const [ts, body] = parseData(event);
-    // console.log("have inputs", body);
     applyToAll(elmInputs, (elm) => {elm.innerText = body});
 });
 eventSource.addEventListener('result', function(event) {
@@ -61,7 +63,6 @@ eventSource.addEventListener('final', function(event) {
     }
 });
 eventSource.addEventListener('error', function(event) {
-    // console.log('Stream error:', event);
     const [ts, js] = parseData(event);
     if (js != null) {
         elmFinal.innerHTML += '<pre><code class="error-text">' + js + '</code></pre>'; 
@@ -79,56 +80,7 @@ eventSource.addEventListener('eof', function(event) {
     eventSource.close();
     stopAutoSpark();
 });
-window.addEventListener('beforeunload', () => {
-    if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
-        eventSource.close();
-        stopAutoSpark();
-    }
-});
-window.addEventListener('resize', () => {
-    const page = activePage().split("-")[1];
-    const mainWidth = document.querySelector("#article-" + page).offsetWidth;
-    // console.log("active page", page, "width", mainWidth);
-    elmArticleHead.style.width = `${mainWidth}px`;
-    redrawDynamicCharts();
-});
 
-let ioSource = null;
-
-function startSTDIO() {
-
-    ioSource = new EventSource(`/outputs/stdio/${fid}`);
-    ioSource.onopen = function() {
-        console.log("stdio SSE connection opened.");
-    };
-    ioSource.addEventListener('stdout', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="primary-text">' +  js + "<br/>";
-            scrollDown();
-        }
-    });
-    ioSource.addEventListener('stderr', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
-            scrollDown();
-        }
-    });
-    ioSource.addEventListener('error', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
-            scrollDown();
-        }
-    });
-    ioSource.addEventListener('eof', function(event) {
-        ioSource.close();
-    });
-
-}
-
-// Placeholder function to be called when the tab becomes active
 function startStdioSSE() {
     if (ioSource == null) {
         startSTDIO();
@@ -145,38 +97,9 @@ const stdio_observer = new MutationObserver((mutationsList, stdio_observer) => {
         }
     }
 });
-
 stdio_observer.observe(elmStdioPage, { attributes: true, attributeFilter: ['class'] });
 if (elmStdioPage.classList.contains('active')) {
     startStdioSSE();
-}
-
-let sse_loaded = false;
-
-async function startEventSSE() {
-    const url = `/outputs/stream/${fid}`;
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-        throw new Error(`Failed to fetch stream: ${response.statusText}`);
-    }
-
-    if (sse_loaded) {
-        return;
-    }
-    
-    sse_loaded = true;
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        elmEvent.innerHTML += chunk; 
-    }
 }
 
 const event_observer = new MutationObserver((mutationsList, event_observer) => {
@@ -191,8 +114,21 @@ const event_observer = new MutationObserver((mutationsList, event_observer) => {
         }
     }
 });
-
 event_observer.observe(elmEventPage, { attributes: true, attributeFilter: ['class'] });
 if (elmEventPage.classList.contains('active')) {
     startEventSSE();
 }
+
+window.addEventListener('resize', () => {
+    const page = activePage().split("-")[1];
+    const mainWidth = document.querySelector("#article-" + page).offsetWidth;
+    elmArticleHead.style.width = `${mainWidth}px`;
+    redrawDynamicCharts();
+});
+
+window.addEventListener('beforeunload', () => {
+    if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
+        eventSource.close();
+        stopAutoSpark();
+    }
+});

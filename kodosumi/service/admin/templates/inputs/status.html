@@ -13,11 +13,11 @@
 {% block header %}
 <div id="status-header-container">
     <nav>
-        <img src="/static/word.png" style="margin-top: 8px; margin-left: 8px; margin-bottom: -28px;">
+        <img src="/static/word.png" class="logo-img">
     </nav>
     <nav class="responsive">
         <div id="status-header" class="max large-padding">
-            <article id="article-head" class="max small-elevate" style="height: 100%; overflow-y: scroll; " >
+            <article id="article-head" class="max small-elevate article-container">
                 <nav class="bottom-align max left-align">
                     <h3><a href="#"><i id="details-toggle">arrow_drop_down</i></a> <span class="summary"><progress class="circle small"></progress></span></h3>
                     <div class="max"></div>
@@ -33,54 +33,54 @@
                 <div class="small-divider"></div>
                 <details open id="status-details" class="max">
                     <summary></summary>
-                    <div id="status-grid" class="invalid grid margin" style="margin: 0px !important; margin-left: 6px !important;">
+                    <div id="status-grid" class="invalid grid margin status-grid">
                         <div class="s12 m6 l2">
                             <legend>Status</legend>
-                            <article id="status-valid" class="middle-align border small-padding small-round card" style="height: 42px; overflow: hidden; white-space: nowrap">
+                            <article id="status-valid" class="middle-align border small-padding small-round card status-card">
                                 <a href="#"><i id="status-icon">pause</i></a> &nbsp;
                                 <span class="status">loading ...</span>
                             </article>
                         </div>
                         <div class="s12 m6 l1">
                         <legend>Progress</legend>
-                        <article style="height: 42px;"  class="border small-padding small-round card center-align middle-align">
-                            <progress id="progress"style="border-radius: 4px !important; height: 14px;"class="fill small-round" max="100">
+                        <article class="border small-padding small-round card center-align middle-align status-card">
+                            <progress id="progress" class="fill small-round progress-bar" max="100">
                             </progress>
                         </article>
                     </div>
                     <div class="s12 m6 l2">
                         <legend>Startup</legend>
-                        <article class="border small-padding small-round card" style="height: 42px; overflow: hidden; white-space: nowrap">
+                        <article class="border small-padding small-round card status-card">
                             <span class="startup">-</span>
                         </article>
                     </div>
                     <div class="s12 m6 l1">
                         <legend>Runtime</legend>
-                        <article class="border small-padding left-align small-round card" style="height: 42px; overflow: hidden; white-space: nowrap;">
+                        <article class="border small-padding left-align small-round card status-card">
                             <span class="runtime">-</span>
                         </article>
                     </div>
                     <div class="s12 m6 l2">
                         <legend>Finish</legend>
-                        <article class="border small-padding small-round card" style="height: 42px; overflow: hidden; white-space: nowrap;">
+                        <article class="border small-padding small-round card status-card">
                             <span class="finish">-</span>
                         </article>
                     </div>
                     <div class="s12 m6 l2">
                         <legend>Events</legend>
-                        <article style="height: 42px;"  class="border small-padding small-round card center-align bottom-align">
-                            <div style="width: 100%; height: 80%;" id="sparkline" class="no-round sparkline-container"></div>
+                        <article class="border small-padding small-round card center-align bottom-align status-card">
+                            <div id="sparkline" class="no-round sparkline-container"></div>
                         </article>
                     </div>
                     <div class="s12 m6 l1">
                         <legend>Size</legend>
-                        <article style="height: 42px;"  class="border small-padding small-round card left-align middle-align">
+                        <article class="border small-padding small-round card left-align middle-align status-card">
                             <span class="size">-</span>kB
                         </article>
                     </div>
                     <div class="s12 m6 l1">
                         <legend>&nbsp;</legend>
-                        <article class="border small-padding small-round card" style="height: 42px; overflow: hidden; white-space: nowrap">
+                        <article class="border small-padding small-round card status-card">
                             <a href="#"><i>menu</i> &nbsp;&nbsp;
                             <span>Action</span></a>
                         </article>
@@ -93,9 +93,9 @@
 {% endblock %}
 
 {% block main %}
-<main class="responsive max large-padding" style="padding-top: 0px !important; overflow-y: hidden;">
+<main class="responsive max large-padding main-container">
     <div class="active page" id="page-output">
-        <article id="article-output" class="max margin small-elevate large-padding" style="height: 100%; overflow-y: auto; ">
+        <article id="article-output" class="max margin small-elevate large-padding article-container">
             <p style="display: none;" class="final-result info-l1"><span class="info-text">RESULT</span></p>
             <div><span id="output" class=""></span><a id="output-end"></a></div>
             <a name="final-result"></a>
@@ -107,7 +107,7 @@
             <div class="medium-space"></div>
             <div id="about" style="display: none;">
                 <p class="info-l1"><span class="info-text">ABOUT THIS DOCUMENT</span></p>
-                <table class="border small-space min" style="width: 70%; min-width: 300px;">
+                <table class="border small-space min about-table">
                     <tbody>
                         <tr><td><b>DATE/ TIME:</b></td>
                             <td><span class="startup"></span></td>
@@ -151,24 +151,24 @@
         </article>
     </div>
     <div class="page" id="page-event">
-        <article id="article-event" class="max margin small-elevate large-padding" style="height: 100%; overflow-y: auto; ">
+        <article id="article-event" class="max margin small-elevate large-padding article-container">
             <p class="info-l1"><span class="info-text">EVENT STREAM</span></p>
             <div><span class="stdio" id="event"></span><a id="event-end"></a></div>
         </article>
     </div>
     <div class="page" id="page-stdio">
-        <article id="article-stdio" class="max margin small-elevate large-padding" style="height: 100%; overflow-y: auto; ">
+        <article id="article-stdio" class="max margin small-elevate large-padding article-container">
             <p class="info-l1"><span class="info-text">INPUT</span></p>
-            <pre><code class="inputs"></code></pre>
+            <pre><code class="inputs monospace"></code></pre>
             <p class="info-l1"><span class="info-text">OUTPUT</span></p>
             <div><span class="stdio" id="stdio"></span><a id="stdio-end"></a></div>
         </article>
     </div>
 </main>
+
+<!-- JavaScript-Definition -->
 <script>
-
 document.addEventListener('DOMContentLoaded', (event) => {
-
     const elmArticleHead = document.getElementById('article-head');
     const elmToggleIcon = document.getElementById('details-toggle');
     const elmDetailsElement = document.getElementById('status-details');
@@ -209,10 +209,11 @@ document.addEventListener('DOMContentLoaded', (event) => {
     const elmKodosumiVersion = document.getElementsByClassName('kodosumi');
 
     const elmInputs = document.getElementsByClassName('inputs');
+    const tabModes = document.querySelectorAll('.tab-mode');
 
-    {% include "inputs/_status_follow.js" %};
-    {% include "inputs/_status_func.js" %};
-    {% include "inputs/_status_main.js" %};
+    {% include "inputs/_status_follow.js" %}
+    {% include "inputs/_status_func.js" %}
+    {% include "inputs/_status_main.js" %}
     
 });
 </script>

@@ -1,14 +1,13 @@
 let active = true;
 let total = 0;
 let startup = null;
-const updateInterval = 1000; 
 let eventActivity = new Map();
 let currentSecond = null;
 let autoSpark = null;
-const sparkInterval = 500; // 
-const activityWindowSeconds = 90;
-let scrollDebounceTimer = null; // Timer ID for scroll debouncing
-const scrollDebounceMs = 250; // Debounce time in milliseconds
+const sparkInterval = 500; 
+let scrollDebounceTimer = null;
+const scrollDebounceMs = 250;
+const windowSize = 120;
 
 function drawSparklineBarChart(targetSelector, data) {
     const container = d3.select(targetSelector);
@@ -78,11 +77,10 @@ function drawSparklineBarChart(targetSelector, data) {
 
 function redrawDynamicCharts() {
     if (eventActivity.size === 0) {
-        drawSparklineBarChart("#sparkline", []); // Handle empty case
+        drawSparklineBarChart("#sparkline", []); 
         return;
     }
     const latestTimestamp = Math.max(...eventActivity.keys());
-    const windowSize = 120;
     const startTimestamp = latestTimestamp - (windowSize - 1);
     const chartData = [];
     for (let ts = startTimestamp; ts <= latestTimestamp; ts++) {
@@ -127,14 +125,13 @@ function splitData(event) {
 
 function parseData(event, updateTotal = true) {
     const [id, ts, js] = splitData(event);
-    const currentSecond = Math.floor(ts); // Define currentSecond early
-
+    const currentSecond = Math.floor(ts);
+    if (ts == null) {
+        return [null, null];
+    }
     if (startup == null) {
         startup = ts;
         applyToAll(elmStartup, (elm) => {elm.innerText = formatUnixTime(ts)});
-        
-        // Prefill with zeros for the 120 seconds leading up to the first timestamp
-        const windowSize = 120;
         const startSecond = currentSecond - (windowSize - 1);
         for (let sec = startSecond; sec <= currentSecond; sec++) {
             if (!eventActivity.has(sec)) {
@@ -143,39 +140,29 @@ function parseData(event, updateTotal = true) {
         }
     }
     if (startup && active && ts) {
-        // console.log("redraw NOW", ts, startup, ts - startup);
         applyToAll(
             elmRuntime, 
             (elm) => {elm.innerText = secondsToHHMMSS(ts - startup)});
     }
-
-    // Remove entries older than the window before adding the new one
-    const windowSize = 120; // Define windowSize again or move definition outside
     const oldestAllowedSecond = currentSecond - (windowSize - 1);
     for (const key of eventActivity.keys()) {
         if (key < oldestAllowedSecond) {
             eventActivity.delete(key);
         }
     }
-    
-    // Ensure the current second exists (might be redundant after prefill/cleanup, but safe)
     if (!eventActivity.has(currentSecond)) {
         eventActivity.set(currentSecond, 0);
     }
-
     total += event.data.length;
-    // Correctly update the map value for the current second
     eventActivity.set(currentSecond, (eventActivity.get(currentSecond) || 0) + event.data.length);
-    applyToAll(elmSize, (elm) => {elm.innerText = (total / 1024).toFixed(1)}); // Convert to KB with 1 decimal place
+    applyToAll(elmSize, (elm) => {elm.innerText = (total / 1024).toFixed(1)}); 
     if (autoSpark == null) {
         redrawDynamicCharts();
     }
-    // throttledScrollToBottom();
     return [ts, js];
 }
 
 function startAutoSpark() {
-    // console.log("startAutoSpark");
     if (autoSpark == null) {
         const tick = () => {
             const nowSeconds = Math.floor(Date.now() / 1000);
@@ -183,7 +170,6 @@ function startAutoSpark() {
                 eventActivity.set(nowSeconds, 0);
             }
             redrawDynamicCharts();
-            // console.log("redraw", nowSeconds, startup, nowSeconds - startup);
             applyToAll(
                 elmRuntime, 
                 (elm) => {elm.innerText = secondsToHHMMSS(nowSeconds - startup)});
@@ -208,3 +194,55 @@ function activePage() {
     }
     return null;
 }
+
+function startSTDIO() {
+    ioSource = new EventSource(`/outputs/stdio/${fid}`);
+    ioSource.onopen = function() {
+        console.log("stdio SSE connection opened.");
+    };
+    ioSource.addEventListener('stdout', function(event) {
+        const [id, ts, js] = splitData(event);
+        if (js != null) {
+            elmStdio.innerHTML += '<span class="primary-text">' +  js + "<br/>";
+            scrollDown();
+        }
+    });
+    ioSource.addEventListener('stderr', function(event) {
+        const [id, ts, js] = splitData(event);
+        if (js != null) {
+            elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
+            scrollDown();
+        }
+    });
+    ioSource.addEventListener('error', function(event) {
+        const [id, ts, js] = splitData(event);
+        if (js != null) {
+            elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
+            scrollDown();
+        }
+    });
+    ioSource.addEventListener('eof', function(event) {
+        ioSource.close();
+    });
+}
+
+async function startEventSSE() {
+    const url = `/outputs/stream/${fid}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch stream: ${response.statusText}`);
+    }
+    if (sse_loaded) {
+        return;
+    }
+    sse_loaded = true;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        elmEvent.innerHTML += chunk; 
+    }
+}
+
