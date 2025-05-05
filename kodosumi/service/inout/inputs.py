@@ -1,36 +1,48 @@
-import litestar
-from litestar import Request, get, post, MediaType
-from litestar.datastructures import State
-from litestar.exceptions import NotAuthorizedException
-from litestar.response import Redirect, Template, Response
-from httpx import AsyncClient
+import asyncio
 import json
+import sqlite3
+from pathlib import Path
+from typing import AsyncGenerator, Optional, List
 
-import kodosumi.service.endpoint
-from kodosumi.service.auth import TOKEN_KEY
-from kodosumi.service.jwt import operator_guard
-from kodosumi.service.proxy import KODOSUMI_USER, KODOSUMI_BASE, KODOSUMI_LAUNCH, update_links
-from kodosumi.log import logger
-from kodosumi.service.inputs.forms import Model
+import litestar
+import ray
+from httpx import AsyncClient
+from litestar import Request, get, post
+from litestar.datastructures import State
+from litestar.exceptions import NotFoundException
+from litestar.response import Redirect, ServerSentEvent, Template
+from litestar.types import SSEData
+
 from kodosumi import helper
+from kodosumi.helper import now
+from kodosumi.log import logger
+from kodosumi.runner.const import (DB_FILE, EVENT_STATUS, NAMESPACE,
+                                   STATUS_FINAL)
+from kodosumi.runner.formatter import DefaultFormatter, Formatter
+from kodosumi.service.inout.forms import Model
+from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
+
+FORM_TEMPLATE = "inputs/form.html"
+#STATUS_REDIRECT = "/admin/exec/{fid}"
+STATUS_REDIRECT = "/outputs/status/{fid}"
 
 
 class InputsController(litestar.Controller):
 
     tags = ["Admin Panel"]
-    include_in_schema = False
+    include_in_schema = True
 
-    @get("/{path:path}")
+    @get("/-/{path:path}")
     async def get_scheme(self, 
                          path: str, 
                          state: State,
                          request: Request) -> Template:
-        schema_url = str(request.base_url).rstrip("/") + path
+        schema_url = str(request.base_url).rstrip("/") + f"/-/{path}"
         timeout = state["settings"].PROXY_TIMEOUT
         async with AsyncClient(timeout=timeout) as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
-            request_headers[KODOSUMI_BASE] = path
+            request_headers[KODOSUMI_BASE] = f"/-/{path}"
             host = request.headers.get("host", None)
             response = await client.get(url=schema_url, headers=request_headers)
             response_headers = dict(response.headers)
@@ -46,21 +58,21 @@ class InputsController(litestar.Controller):
                     f"Get Schema error: {response.status_code} {response.text}")
                 response_content = response.text
         response_headers["content-type"] = "text/html"
-        return Template("inputs/_master.html", 
+        return Template(FORM_TEMPLATE, 
                         context={"html": response_content}, 
                         headers=response_headers)
 
-    @post("/{path:path}")
+    @post("/-/{path:path}")
     async def post(self, 
                     path: str, 
                     state: State,
                     request: Request) -> Template:
-        schema_url = str(request.base_url).rstrip("/") + path
+        schema_url = str(request.base_url).rstrip("/") + f"/-/{path}"
         timeout = state["settings"].PROXY_TIMEOUT
         async with AsyncClient(timeout=timeout) as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
-            request_headers[KODOSUMI_BASE] = path
+            request_headers[KODOSUMI_BASE] = f"/-/{path}"
             request_headers.pop("content-length", None)
             host = request.headers.get("host", None)
             data = await request.form()
@@ -78,16 +90,24 @@ class InputsController(litestar.Controller):
                 elements = response.json().get("elements", [])
                 if result:
                     fid = json.loads(result.get("body")).get("fid", None)
-                    return Redirect(f"/admin/exec/{fid}")
+                    return Redirect(STATUS_REDIRECT.format(fid=fid))
                 model = Model.model_validate(elements, errors=errors)
                 model.set_data(dict(data))
                 html = model.render()
             else:
                 logger.error(
                     f"Get Schema error: {response.status_code} {response.text}")
-                response_content = response.text
+                html = f"<h1>500 Server Error</h1>"
+                try:
+                    js = response.json()
+                    text = js.get("detail")
+                except:
+                    text = response.text
+                html += f"<pre><code>{text}</code></pre>"
+                
         response_headers["content-type"] = "text/html"
-        return Template("inputs/_master.html", 
+        return Template(FORM_TEMPLATE, 
                         context={"html": html}, 
                         status_code=response.status_code,
                         headers=response_headers)
+

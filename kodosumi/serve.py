@@ -14,8 +14,8 @@ from kodosumi.runner.const import KODOSUMI_LAUNCH
 from kodosumi.runner.main import create_runner
 from kodosumi.service.endpoint import KODOSUMI_API
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
-from kodosumi.service.inputs.errors import InputsError
-from kodosumi.service.inputs.forms import Model, Checkbox
+from kodosumi.service.inout.errors import InputsError
+from kodosumi.service.inout.forms import Model, Checkbox
 #from kodosumi.errors import InputsError
 
 #from kodosumi.entry import _create_get_handler, _create_post_handler

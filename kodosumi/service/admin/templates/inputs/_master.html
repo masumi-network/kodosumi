@@ -7,17 +7,18 @@
     <title>kodosumi</title>
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <link href="/static/beer.min.css" rel="stylesheet">
+    <link href="/static/kodosumi.css" rel="stylesheet">
     <script type="module" src="/static//beer.min.js"></script>
     <script type="module" src="/static/material-dynamic-colors.min.js"></script>
+    <script type="module" src="/static/d3.v7.min.js"></script>
+    {% block head %}{% endblock %}
 </head>
 
 <body class="light">
     <header class="max fixed">
+        {% block header %}{% endblock %}
     </header>
-    <main class="responsive">
-        <form method="post">
-            {{ html | safe }}
-        </form>
-    </main>
+    {% block nav %}{% endblock %}
+    {% block main %}{% endblock %}
 </body>
 </html>

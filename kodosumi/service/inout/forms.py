@@ -35,7 +35,7 @@ class HTML(Element):
 
 class Break(HTML):
     def __init__(self):
-        super().__init__("<br/>")
+        super().__init__('<div class="space"></div>')
 
 
 class Markdown(Element):
@@ -178,6 +178,7 @@ class ActionElement(FormElement):
             "text": self.text
         }
 
+
 class Submit(ActionElement):
     _id = "submit"
 
@@ -187,6 +188,7 @@ class Submit(ActionElement):
     def render(self) -> str:
         return f'<button type="submit">{self.text}</button>'
 
+
 class Cancel(ActionElement):
     _id = "cancel"
 
@@ -194,12 +196,7 @@ class Cancel(ActionElement):
         super().__init__("cancel", text=text, error=error)
 
     def render(self) -> str:
-        return "\n".join([
-            "<button name=\"__cancel__\" value=\"__cancel__\">",
-            self.text,
-            '</button>'
-        ])
-
+        return "\n".join(["<a class=\"button\" href=\"/\">", self.text, '</a>'])
 
 
 class Action(FormElement):

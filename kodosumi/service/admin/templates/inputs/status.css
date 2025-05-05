@@ -1,0 +1,47 @@
+#status-grid legend {
+    margin-bottom: -16px;
+}
+#status-header-container {
+    margin-bottom: 0px !important;
+    padding-bottom: 0px !important;
+}
+#status-header {
+    margin-bottom: 0px !important;
+    padding-bottom: 0px !important;
+}
+main {
+    margin-top: 0px !important;
+    margin-bottom: 0px !important;
+    padding-top: 0px !important;
+}
+.stdio {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: monospace;
+}
+
+.ansi1 { font-weight: bold; }
+.ansi92 { color: var(--primary); }
+.ansi95 { color: var(--secondary); }
+.ansi94 { color: var(--tertiary); }
+
+.info-text {
+    background-color: var(--tertiary);
+    padding: 0.25rem;
+}
+.info-l1, .info-l2, .info-l3 {
+    color: var(--on-tertiary);
+    padding: 0px;
+    font-weight: normal;
+    font-size: 0.875rem;
+    margin-top: 24px;
+    margin-bottom: 24px;
+    text-transform: uppercase;
+    text-align: left;
+    border-bottom: 2px solid var(--tertiary);
+    border-radius: 0px;
+    line-height: 1.5rem;
+}
+pre {
+    font-size: 0.875rem;
+}
