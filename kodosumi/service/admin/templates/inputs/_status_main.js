@@ -63,6 +63,12 @@ eventSource.addEventListener('final', function(event) {
 eventSource.addEventListener('error', function(event) {
     // console.log('Stream error:', event);
     const [ts, js] = parseData(event);
+    if (js != null) {
+        elmFinal.innerHTML += '<pre><code class="error-text">' + js + '</code></pre>'; 
+        scrollDown();
+        Array.prototype.forEach.call(elmFinalResult, (elm) => {elm.style.display = "block"});
+        scrollDown();
+    }
 });
 eventSource.addEventListener('alive', function(event) {
     const [ts, js] = parseData(event, false);
