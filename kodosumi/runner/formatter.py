@@ -91,7 +91,6 @@ class DefaultFormatter(Formatter):
         body = values.get("body", "")
         return self.md(textwrap.dedent(body))
 
-
     def obj2html(self, message: str) -> str:
         model = DynamicModel.model_validate_json(message)
         ret = []

@@ -7,6 +7,7 @@ import ray.util.queue
 from bson.objectid import ObjectId
 from pydantic import BaseModel
 
+import kodosumi.core
 from kodosumi.helper import now, serialize
 from kodosumi.runner.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                                    EVENT_INPUTS, EVENT_META, EVENT_STATUS,
@@ -96,7 +97,7 @@ class Runner:
             obj = parse_entry_point(self.entry_point)
         else:
             obj = self.entry_point
-        origin = {}
+        origin = {"kodosumi": kodosumi.core.__version__}
         if isinstance(self.extra, dict):
             for field in ("tags", "summary", "description", "deprecated"):
                 origin[field] = self.extra.get(field, None)
