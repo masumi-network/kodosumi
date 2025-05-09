@@ -122,3 +122,16 @@ pre {
     }
 }
 
+#page-output a {
+    text-decoration: underline;
+    color: #4169E1;
+    transition: color 0.2s ease-in-out;
+}
+
+#page-output a:hover {
+    color: #00008B;
+    text-decoration: none;
+}
+
+
+
