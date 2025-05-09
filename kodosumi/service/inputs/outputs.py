@@ -18,10 +18,10 @@ from kodosumi.helper import now
 from kodosumi.log import logger
 from kodosumi.runner.const import *
 from kodosumi.runner.formatter import DefaultFormatter, Formatter
-from kodosumi.service.inout.forms import Model
+from kodosumi.service.inputs.forms import Model
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
 
-STATUS_TEMPLATE = "inputs/status.html"
+STATUS_TEMPLATE = "status/status.html"
 SLEEP = 0.4
 AFTER = 10
 PING = 3.
@@ -79,6 +79,7 @@ async def _event(
             placeholders = ','.join('?' * len(filters))
             kind_filter = f" AND kind IN ({placeholders})"
             filter_params.extend(filters)
+        t0 = now()
         while True:
             where_part = "WHERE id > ?"
             current_query = f"{select} {where_part}{kind_filter}{order}"

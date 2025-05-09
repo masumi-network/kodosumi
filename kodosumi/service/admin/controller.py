@@ -1,3 +1,4 @@
+from typing import Any, Dict
 import litestar
 from litestar import Request, get, post
 from litestar.datastructures import State
@@ -46,7 +47,7 @@ class AdminControl(litestar.Controller):
                   if line.strip()]
         state["routing"] = {}
         state["endpoints"] = {}
-        result = {}
+        result: Dict[str, Any] = {}
         for url in routes:
             try:
                 ret = await kodosumi.service.endpoint.register(state, url)
@@ -58,13 +59,13 @@ class AdminControl(litestar.Controller):
             "routes": result
         })
 
-    @get("/exec")
-    async def exec_list(self) -> Template: 
-        return Template("exec.html", context={})
+    # @get("/exec")
+    # async def exec_list(self) -> Template: 
+    #     return Template("exec.html", context={})
 
-    @get("/exec/{fid:str}")
-    async def exec(self, fid: str) -> Template: 
-        return Template("status.html", context={"fid": fid})
+    # @get("/exec/{fid:str}")
+    # async def exec(self, fid: str) -> Template: 
+    #     return Template("status.html", context={"fid": fid})
 
     @get("/logout")
     async def logout(self, request: Request) -> Redirect:

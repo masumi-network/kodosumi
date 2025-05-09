@@ -4,11 +4,11 @@
 }
 
 /* Header Container Styles */
-#status-header-container {
+#header-container {
     margin-bottom: -0px !important;
     padding-bottom: 0 !important;
 }
-#status-header {
+#header {
     padding-bottom: 0 !important;
     padding-top: 0 !important;
     margin-top: -12px !important;
@@ -108,3 +108,17 @@ pre {
     margin-bottom: 10px !important;
     margin-top: -24px !important;
 }
+
+.rotating {
+    animation: rotation 2s infinite linear;
+}
+
+@keyframes rotation {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+

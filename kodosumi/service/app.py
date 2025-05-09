@@ -39,8 +39,9 @@ from kodosumi.service.flow import FlowControl
 from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
-from kodosumi.service.inout.inputs import InputsController
-from kodosumi.service.inout.outputs import OutputsController
+from kodosumi.service.inputs.inputs import InputsController
+from kodosumi.service.inputs.outputs import OutputsController
+from kodosumi.service.inputs.timeline.controller import TimelineController
 
 
 def app_exception_handler(request: Request, 
@@ -174,6 +175,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/exec", route_handlers=[ExecutionControl]),
             Router(path="/inputs", route_handlers=[InputsController]),
             Router(path="/outputs", route_handlers=[OutputsController]),
+            Router(path="/timeline", route_handlers=[TimelineController]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],

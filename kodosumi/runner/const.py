@@ -25,3 +25,5 @@ STATUS_FINAL    = (STATUS_END, STATUS_ERROR)
 NAMESPACE = "kodosumi"
 KODOSUMI_LAUNCH = "kodosumi_launch"
 DB_FILE = "sqlite3.db"
+DB_FILE_WAL = "sqlite3.db-wal"
+DB_FILE_SHM = "sqlite3.db-shm"

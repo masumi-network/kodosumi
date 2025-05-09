@@ -90,9 +90,13 @@ def get_endpoints(state: State,
         if query is None:
             return True
         return query.lower() in "".join([
-            str(i) for i in [item.uid, item.method, item.url, item.summary, 
-                             item.description, item.author, item.organization, 
-                             "".join(item.tags)] if i]).lower()
+            str(i) for i in [
+                item.summary, 
+                item.description, 
+                item.author, 
+                item.organization, 
+                "".join(item.tags)
+            ] if i]).lower()  
 
     scope = [item for nest in state["endpoints"].values() 
              for item in nest if find(item)]

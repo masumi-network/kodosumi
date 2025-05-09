@@ -1,62 +1,55 @@
-{% extends "_main.html" %}
+{% extends "_frame.html" %}
 
-{% block head %}
-<style>
-    block
-</style>
-{% endblock %}
-
-{% block headline %}
-Agentic Routes
+{% block styles %}
 {% endblock %}
 
 {% block menu %}
-<div class="field prefix">
-    <i>directions</i>
-    <input type="text" readonly placeholder="Routes"/>
+<h3>Agentic Control</h3>
+<div class="max"></div>
+<div class="tabs right-align" style="height: 50px;">
 </div>
 {% endblock %}
 
-{% block main %}
-<div class="large"></div>
-<p>
-    The following agentic nodes have been registered. The endpoints either
-    address an <code>openapi.json</code> endpoint or a <code>/-/routes</code>
-    endpoint.
-</p>
-<form method="POST">
-    <div class="field textarea border large">
-        <div class="row right-align">
-            <div>
-                <a target="_blank"href="/schema/swagger">
-                    <i class="small">help</i>
-                    <div>&nbsp;openapi</div>
-                </a>
+{% block details %}
+{% endblock %}
+
+{% block page %}
+<div class="active page">
+    <div class="max large-margin large-padding article-container" style="">
+        <h5>Routes</h5>
+        <p>
+            The following agentic nodes have been registered. <br/>
+            The endpoints either address an <code>/openapi.json</code> endpoint 
+            or a <span class="italic">Ray</span><code>/-/routes</code> endpoint.
+        </p>
+        <form method="POST">
+            <div class="field textarea border extra">
+                <textarea name="routes">{{ items | join("\n") }}</textarea>
             </div>
-          </div>
-        <textarea name="routes">{{ items | join("\n") }}</textarea>
+            <button class="tertiary" type="submit">Reconnect</button>
+        </form>
+        
+        {% if routes %}
+        <div class="space large"></div>
+        <h5>Reconnected Service Routes:</h5>
+        <div class="space large"></div>
+            {% for route in routes %}
+            <details>
+                <summary>
+                    <i class="small">expand_content</i>
+                    <bold>
+                        {{ route }}
+                    </bold>
+                </summary>
+                <p><article><pre style="font-family: monospace; white-space: pre-wrap;">{{ routes[route] | tojson(indent=2) }}</article></pre></p>
+            </details>
+            <div class="space"></div>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
-    <div class="space"></div>
-    <button class="tertiary" type="submit">Reconnect</button>
-</form>
-
-{% if routes %}
-<div class="space large"></div>
-<h3>Connected Service Routes:</h3>
-<div class="space large"></div>
-    {% for route in routes %}
-    <details>
-        <summary>
-            <i class="small">expand_content</i>
-            <bold>
-                {{ route }}
-            </bold>
-        </summary>
-        <p><article><pre style="font-family: monospace; white-space: pre-wrap;">{{ routes[route] | tojson(indent=2) }}</article></pre></p>
-      </details>
-    <div class="space"></div>
-    {% endfor %}
 </div>
-{% endif %}
+{% endblock %}
 
+{% block script %}
 {% endblock %}

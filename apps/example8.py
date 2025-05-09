@@ -65,6 +65,14 @@ async def runner(inputs: dict, tracer: Tracer) -> dict:
            description="This is a highly simple test.",
            tags=["Test"])
 async def enter(request: Request, inputs: dict) -> Response:
+    stdio = inputs.get("stdio", None)
+    error = InputsError()
+    if not stdio:
+        stdio = 30
+    elif not stdio.isdigit() or int(stdio) > 1000:
+            error.add(stdio="must be less than 1000 and a number, please")
+    if error.has_errors():
+        raise error
     return Launch(request, runner, inputs)
 
 @serve.deployment

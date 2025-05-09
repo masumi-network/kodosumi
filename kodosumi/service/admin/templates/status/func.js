@@ -7,7 +7,7 @@ let autoSpark = null;
 const sparkInterval = 500; 
 let scrollDebounceTimer = null;
 const scrollDebounceMs = 250;
-const windowSize = 120;
+const windowSize = 90;
 
 function drawSparklineBarChart(targetSelector, data) {
     const container = d3.select(targetSelector);

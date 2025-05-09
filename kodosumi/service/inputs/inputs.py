@@ -19,10 +19,10 @@ from kodosumi.log import logger
 from kodosumi.runner.const import (DB_FILE, EVENT_STATUS, NAMESPACE,
                                    STATUS_FINAL)
 from kodosumi.runner.formatter import DefaultFormatter, Formatter
-from kodosumi.service.inout.forms import Model
+from kodosumi.service.inputs.forms import Model
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
 
-FORM_TEMPLATE = "inputs/form.html"
+FORM_TEMPLATE = "form.html"
 #STATUS_REDIRECT = "/admin/exec/{fid}"
 STATUS_REDIRECT = "/outputs/status/{fid}"
 
