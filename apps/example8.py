@@ -8,8 +8,8 @@ from fastapi import Request, Response
 from ray import serve
 
 from kodosumi.core import ServeAPI, Launch, Tracer
-from kodosumi.service.inout.forms import *
-from kodosumi.service.inout.errors import InputsError
+from kodosumi.service.inputs.forms import *
+from kodosumi.service.inputs.errors import InputsError
 from kodosumi import response
 
 app = ServeAPI()

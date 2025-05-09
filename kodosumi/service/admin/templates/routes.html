@@ -26,13 +26,9 @@
             <div class="field textarea border extra">
                 <textarea name="routes">{{ items | join("\n") }}</textarea>
             </div>
-            <button class="tertiary" type="submit">Reconnect</button>
-        </form>
-        
-        {% if routes %}
-        <div class="space large"></div>
-        <h5>Reconnected Service Routes:</h5>
-        <div class="space large"></div>
+            {% if routes %}
+            <h5 class="small">Reconnected Service Routes:</h5>
+            <div class="space"></div>
             {% for route in routes %}
             <details>
                 <summary>
@@ -43,10 +39,17 @@
                 </summary>
                 <p><article><pre style="font-family: monospace; white-space: pre-wrap;">{{ routes[route] | tojson(indent=2) }}</article></pre></p>
             </details>
-            <div class="space"></div>
             {% endfor %}
-        </div>
-        {% endif %}
+            <div class="space"></div>
+            {% endif %}
+            <button class="tertiary" type="submit">Reconnect</button>
+        </form>
+        <div class="space"></div>
+        <div class="large-divider"></div>
+        <h5>Help</h5>
+        <p>
+            <a target="_blank" href="/schema/swagger">Swagger UI</a>
+        </p>
     </div>
 </div>
 {% endblock %}

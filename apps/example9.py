@@ -8,8 +8,8 @@ from fastapi import Request, Response
 from ray import serve
 
 from kodosumi.core import ServeAPI, Launch, Tracer
-from kodosumi.service.inout.forms import *
-from kodosumi.service.inout.errors import InputsError
+from kodosumi.service.inputs.forms import *
+from kodosumi.service.inputs.errors import InputsError
 from kodosumi import response
 
 app = ServeAPI()
@@ -79,13 +79,17 @@ mock = [
     ("MemoryMirror", "A memory service that reflects your past in a digital format."),
 ]
 for i, (summary, description) in enumerate(mock):
-    @app.enter(f"/{i}", 
-            model, 
-            summary=summary, 
-            description=description,
-            tags=["Test"])
-    async def enter(request: Request, inputs: dict) -> Response:
-        return Launch(request, runner, inputs)
+    def create_enter_function(i, summary, description):
+        @app.enter(f"/{i}", 
+                model, 
+                summary=summary, 
+                description=description,
+                tags=["Test"])
+        async def enter(request: Request, inputs: dict) -> Response:
+            return Launch(request, runner, inputs, reference=enter)
+        return enter
+
+    create_enter_function(i, summary, description)
 
 @serve.deployment
 @serve.ingress(app)
