@@ -3,7 +3,19 @@
 {% block menu %}
 <h3>Timeline</h3>
 <div class="max"></div>
-<div class="bottom-align" style="height: 50px;">
+<div class="right-align bottom-align no-margin no-padding" style="height: 50px;">
+  <nav class="center-align middle-align margin">
+    <div>
+      <a href="#"><i id="select-all" class="small">add_box</i></a>
+    </div>
+    <div id="select-all-label">select</div>
+    <div>
+      <a href="#"><i id="delete-select" class="small">delete</i></a>
+    </div>
+    <div>
+      delete
+    </div>
+  </nav>
 </div>
 {% endblock %}
 
@@ -12,17 +24,7 @@
 {% endblock %}
 
 {% block page %}
-<style>
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
-  .rotating-circle {
-    animation: spin 4s linear infinite;
-    transform-origin: center;
-  }
-</style>
-
+{% include "_kill.html" %}
 <div class="active page">
     <div class="max padding article-container" style="margin-top: 18px;">
         <ul id="timeline" class="list border">
@@ -30,31 +32,13 @@
         {% include "_eof.html" %}
     </div>
 </div>
-
 {% endblock %}
 
 {% block script %}
-let isLoading = false;
-let currentPage = 1;
-let origin = null;
-let offset = null;
-let timestamp = null;
-
-let lastLoadTime = 0;
-const MIN_NEXT_INTERVAL = 200;
-const MIN_UPDATE_INTERVAL = 1200;
-const PER_PAGE = 25;
-let currentQuery = '';
-let observer = null;
-let endOfFile = null;
-let enfOfList = null;
-let container = null;
-let updateTimer = null;
-let hasReachedEnd = false;
-
+{% include "timeline/func.js" %}
 {% include "_search.js" %}
 {% include "timeline/progress.js" %}
-{% include "timeline/func.js" %}
 {% include "timeline/load.js" %}
-
+{% include "timeline/select.js" %}
+{% include "_kill.js" %}
 {% endblock %}

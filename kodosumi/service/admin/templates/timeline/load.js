@@ -1,3 +1,37 @@
+// Konstanten
+const MIN_NEXT_INTERVAL = 200;
+const MIN_UPDATE_INTERVAL = 1200;
+const PER_PAGE = 25;
+
+const LoadingState = {
+    IDLE: 'idle',
+    LOADING: 'loading',
+    ERROR: 'error',
+    COMPLETE: 'complete'
+};
+
+// Globale Variablen für das Laden
+let isLoading = false;
+let currentPage = 1;
+let origin = null;
+let offset = null;
+let timestamp = null;
+let lastLoadTime = 0;
+let currentQuery = '';
+let observer = null;
+let endOfFile = null;
+let endOfList = null;
+let container = null;
+let updateTimer = null;
+let hasReachedEnd = false;
+let loadingTimeout = null;
+let isSearching = false;
+let isLoadAll = false;
+let currentLoadingState = LoadingState.IDLE;
+// let closeIcon = null;
+// let searchInput = null;
+// let selectAll = null;
+
 function startUpdateTimer() {
     if (updateTimer) return;
     // console.log("startUpdateTimer");
@@ -13,25 +47,77 @@ function stopUpdateTimer() {
     }
 }
 
-function search() {
+function updateLoadingState(newState, mode) {
+    if (currentLoadingState === newState) return;
+    
+    currentLoadingState = newState;
+    const progressBar = document.getElementById('load-progress');
+    
+    if (!progressBar) {
+        console.warn('Progress bar element not found');
+        return;
+    }
+    
+    // Zeige Progress-Bar nur bei NEXT-Mode
+    if (mode === "update") {
+        return;
+    }
+    
+    if (isLoadAll) {
+        return;
+    }
+    
+    console.log("do it", mode, isLoadAll);
+    switch (newState) {
+        case LoadingState.LOADING:
+            progressBar.style.display = 'block';
+            progressBar.removeAttribute('value'); // Macht den Balken unbestimmt
+            break;
+        case LoadingState.IDLE:
+        case LoadingState.COMPLETE:
+        case LoadingState.ERROR:
+            // Verzögertes Ausblenden für sanften Übergang
+            if (loadingTimeout) clearTimeout(loadingTimeout);
+            loadingTimeout = setTimeout(() => {
+                progressBar.style.display = 'none';
+            }, 300);
+            break;
+    } 
+    if (!isLoadAll) {   
+        startUpdateTimer();
+    }
+}
+
+// Modifizierte search Funktion mit Debouncing
+function handleSearch() {
+    if (observer) {
+        observer.disconnect();
+    }
     stopUpdateTimer();    
     if (isLoading) {
-        setTimeout(search, 100);
+        setTimeout(handleSearch, 100);
         return;
     }
     offset = null;
     origin = null;
     timestamp = null;
     hasReachedEnd = false;
-    const searchInput = document.getElementById('search-input');
+    isSearching = true;
     currentQuery = searchInput ? searchInput.value : '';
     endOfFile.style.display = 'none';
     container.innerHTML = '';
+    updateLoadingState(LoadingState.LOADING, "next");
+    loadMoreTimelineItems("next");
+    // Observer wieder verbinden
     if (observer) {
-        observer.disconnect();
         observer.observe(endOfList);
     }
-    loadMoreTimelineItems("next");
+}
+
+// Überschreibe die globale search Funktion
+function search() {
+    clearTimeout(debounceTimeout);
+    debounceTimeout = setTimeout(handleSearch, 300);
 }
 
 function debouncedLoadMore() {
@@ -57,23 +143,22 @@ function debouncedLoadMore() {
 
 function checkVisibility() {
     const rect = endOfList.getBoundingClientRect();
-    // console.log(rect);
     const isVisible = (
         rect.top >= 0 &&
         rect.left >= 0 &&
         rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
         rect.right <= (window.innerWidth || document.documentElement.clientWidth)
     );
+    
     if (isVisible) {
-        // console.log("visible");
-        if (!hasReachedEnd) {
-            if (!isLoading) {
-                debouncedLoadMore();
-                return;
-            }
+        if (!hasReachedEnd && !isLoading) {
+            debouncedLoadMore();
+            return;
         }
     } 
-    startUpdateTimer();
+    if (!isLoadAll) {   
+        startUpdateTimer();
+    }
 }
 
 // Konstanten für Status und Formatierung
@@ -115,19 +200,17 @@ function createProgressElement(item) {
 
 function processTimelineItems(items, mode) {
     if (!items) return;
-    
     const processMap = {
         update: (item) => {
             const existingItem = container.querySelector(`[name="${item.fid}"]`);
-            console.log("update", item.fid, existingItem == null);
+            // console.log("update", item.fid, existingItem == null);
             if (existingItem) {
                 updateTimelineItem(existingItem, item);
             }
         },
         insert: (item) => {
-            // Prüfen, ob das Item bereits existiert
             const existingItem = container.querySelector(`[name="${item.fid}"]`);
-            console.log("insert", item.fid, existingItem == null);
+            // console.log("insert", item.fid, existingItem == null);
             if (!existingItem) {
                 const li = createTimelineItem(item);
                 container.insertBefore(li, container.firstChild);
@@ -135,10 +218,17 @@ function processTimelineItems(items, mode) {
         },
         append: (item) => {
             const existingItem = container.querySelector(`[name="${item.fid}"]`);
-            console.log("append", item.fid, existingItem == null);
+            // console.log("append", item.fid, existingItem == null);
             if (mode === "next") {
                 const li = createTimelineItem(item);
                 container.appendChild(li);
+            }
+        },
+        delete: (fid) => {
+            const existingItem = container.querySelector(`[name="${fid}"]`);
+            // console.log("delete", fid, existingItem == null);
+            if (existingItem) {
+                existingItem.remove();
             }
         }
     };
@@ -151,6 +241,11 @@ function processTimelineItems(items, mode) {
     // Dann Inserts verarbeiten
     if (items.insert && items.insert.length > 0) {
         items.insert.forEach(item => processMap.insert(item));
+    }
+    
+    // Dann Deletes verarbeiten
+    if (items.delete && items.delete.length > 0) {
+        items.delete.forEach(fid => processMap.delete(fid));
     }
     
     // Zuletzt Appends verarbeiten
@@ -176,7 +271,6 @@ function createTimelineItem(item) {
     else {
         inputs = "";
     }
-    
     li.innerHTML = `
         <label class="checkbox large">
             <input type="checkbox"/>
@@ -189,7 +283,7 @@ function createTimelineItem(item) {
         </div>
         <div class="follow">
             <h5 class="small bold">${item.summary}</h5>
-            <!--<span class="small">${item.fid}</span>-->
+            <span class="small">${item.fid}</span>
             <div style="text-wrap: balance; word-break: break-word; overflow-wrap: break-word; max-width: 100%;" class="italic">${inputs}</div>
         </div>
         <div class="max"></div>
@@ -200,7 +294,6 @@ function createTimelineItem(item) {
             <span class="max">&nbsp;</span>
         </div>
     `;
-    
     const svg = li.querySelector('svg');
     if (progressClass === "progress-circle") {
         create_progress_circle(svg);
@@ -209,27 +302,20 @@ function createTimelineItem(item) {
     } else if (progressClass === "empty-circle") {
         create_empty_circle(svg);
     }
-    
     addClickHandlers(li, item.fid);
     return li;
 }
 
 function updateTimelineItem(element, item) {
     const { statusIcon, format, progressClass, progressValue } = createProgressElement(item);
-    
-    // Update status and progress
     const statusChip = element.querySelector('.chip');
     const svg = element.querySelector('svg');
-    
     statusChip.className = `left-align chip ${format}`;
     statusChip.innerHTML = `<i>${statusIcon}</i>${item.status}`;
-    
-    // Update progress circle
     svg.className = progressClass;
     if (progressValue) {
         svg.setAttribute('value', item.progress);
     }
-    
     if (progressClass === "progress-circle") {
         create_progress_circle(svg);
     } else if (progressClass === "spinner-circle") {
@@ -237,8 +323,6 @@ function updateTimelineItem(element, item) {
     } else if (progressClass === "empty-circle") {
         create_empty_circle(svg);
     }
-    
-    // Update runtime
     const runtimeLabel = element.querySelector('.follow:last-child label:first-child');
     runtimeLabel.textContent = formatRuntime(item.runtime);
 }
@@ -254,35 +338,56 @@ function addClickHandlers(element, fid) {
             if (clickTimer === null) {
                 clickTimer = setTimeout(() => {
                     clickTimer = null;
-                    window.location.href = `/outputs/status/${fid}`;
+                    window.location.href = `/outputs/status/view/${fid}`;
                 }, 300);
             } else {
                 clearTimeout(clickTimer);
                 clickTimer = null;
-                window.open(`/outputs/status/${fid}`, '_blank');
+                window.open(`/outputs/status/view/${fid}`, '_blank');
             }
         };
     });
 }
 
-async function loadMoreTimelineItems(mode) {
-    if (isLoading) {
-        showPulse();
-        if (mode === "next") {
-            debouncedLoadMore();
-        }
-        return;
+async function loadAll() {
+    if (isLoading) return;
+    
+    isLoadAll = true;
+    console.log("set loadAll", isLoadAll);
+    const progressBar = document.getElementById('load-progress');
+    if (progressBar) {
+        progressBar.style.display = 'block';
+        progressBar.removeAttribute('value');
     }
-    hidePulse();
-    let data = null;
+    
+    try {
+        while (!hasReachedEnd) {
+            await loadMoreTimelineItems("next");
+        }
+    } finally {
+        console.log("reset it");
+        isLoadAll = false;
+        checkAll();
+        if (progressBar) {
+            progressBar.style.display = 'none';
+        }
+    }
+}
+
+async function loadMoreTimelineItems(mode, pp = PER_PAGE) {
+    if (isLoading) return;
+    
     try {
         isLoading = true;
+        if (!isLoadAll) {
+            updateLoadingState(LoadingState.LOADING, mode);
+        }
         lastLoadTime = Date.now();
         const params = new URLSearchParams();
-        params.append('pp', PER_PAGE);
+        params.append('pp', pp);
         params.append('mode', mode);
         if (currentQuery) params.append('q', currentQuery);
-        if (mode === "update") {
+        if (origin) {
             params.append('origin', origin);
         }
         if (offset) {
@@ -290,71 +395,92 @@ async function loadMoreTimelineItems(mode) {
         }
         if (timestamp) params.append('timestamp', timestamp);
         const url = `/timeline?${params.toString()}`;
-        // showPulse();
         const response = await fetch(url);
         if (!response.ok) throw new Error('/timeline error');
         data = await response.json();
-        // console.log("Received data", mode, data);
+        
+        console.log('Server response:', {
+            mode,
+            end: hasReachedEnd,
+            timestamp: data.timestamp,
+            updates: data.items?.update?.length || 0,
+            inserts: data.items?.insert?.length || 0,
+            deletes: data.items?.delete?.length || 0,
+            appends: data.items?.append?.length || 0
+        });
         
         // Update pagination parameters from response
         if (data.origin) {
-            // Nur origin aktualisieren, wenn wir im update Modus sind
-            // oder wenn wir noch keine origin haben
             if (mode === "update" || !origin) {
                 origin = data.origin;
             }
         }
-        if (data.offset) offset = data.offset;
-        if (data.timestamp) timestamp = data.timestamp;
-        
         // Process all items
         processTimelineItems(data.items, mode);
         
-        // Check if we've reached the end of the list
+        // Check if we've reached the end
         if (!data.offset) {
-            // console.log("Reached end of list");
+            // console.log('Setting hasReachedEnd to true');
             hasReachedEnd = true;
             const count = container.querySelectorAll('li').length;
-            // console.log("reached end of list", count);
             endOfFile.textContent = `(${count} item${count > 1 ? 's' : ''})`;
             endOfFile.style.display = 'block';
-            observer.unobserve(endOfList);
+            if (observer) {
+                observer.unobserve(endOfList);
+            }
+        } else {
+            // console.log('Setting hasReachedEnd to false');
+            hasReachedEnd = false;
         }
-        // hidePulse();
-        
+        offset = data.offset;
+        timestamp = data.timestamp;
+
+        if (!isLoadAll) {
+            updateLoadingState(LoadingState.COMPLETE, mode);
+        }
     } catch (error) {
-        console.error('Error loading timeline:', error, data);
+        console.error('Error loading timeline items:', data, error);
+        if (!isLoadAll) {
+            updateLoadingState(LoadingState.ERROR, mode);
+        }
     } finally {
         isLoading = false;
+        if (isSearching && hasReachedEnd) {
+            isSearching = false;
+        }
         if (mode === "next" && !hasReachedEnd) {
             checkVisibility();
-        }
-        else {
+        } else {
             startUpdateTimer();
         }
+        updateAction();
     }
 }
 
+// Event-Handler für die Initialisierung
 document.addEventListener('DOMContentLoaded', (event) => {
+    // Initialisierung der DOM-Elemente
+    container = document.getElementById('timeline');
     endOfFile = document.getElementById('end-of-file');
     endOfList = document.getElementById('end-of-list');
     closeIcon = document.getElementById('close-icon');
     searchInput = document.getElementById('search-input');
-    container = document.getElementById('timeline');
+    selectAll = document.getElementById('select-all');
+    
+    // Initialisierung des Intersection Observer
     observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting && !hasReachedEnd) {
-                // console.log("Intersection detected", { hasReachedEnd });
                 debouncedLoadMore();
             } 
-        })
+        });
     }, {
         root: null,
         rootMargin: '100px',
         threshold: 0.1
     });
-        
-    observer.observe(endOfList);
+
+    // Event-Listener für die Suche
     const searchForm = document.querySelector('form[role="search"]');
     if (searchForm) {
         searchForm.addEventListener('submit', (e) => {
@@ -362,6 +488,16 @@ document.addEventListener('DOMContentLoaded', (event) => {
             search();
         });
     }
-    // Start initial load
+
+    // Event-Listener für pageshow
+    window.addEventListener('pageshow', function(event) {
+        stopUpdateTimer();
+        container.innerHTML = '';
+        endOfFile.style.display = 'none';
+        currentQuery = searchInput.value;
+        observer.observe(endOfList);
+    });
+    
+    // Initialer Ladevorgang
     loadMoreTimelineItems("next");
 });

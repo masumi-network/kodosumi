@@ -1,18 +1,15 @@
-let circle = null;
+let loadProgress = null;
 
 document.addEventListener('DOMContentLoaded', (event) => {
-    circle = document.querySelector('.pulse-circle');
+    loadProgress = document.querySelector('#load-progress');
+    console.log("got it")
 });
 
 function showPulse() {
-    circle.style.display = 'block';
-    circle.classList.add('visible');
-    circle.classList.remove('hidden');
+    loadProgress.style.display = 'block';
 }
 
 function hidePulse() {
-    circle.style.display = 'none';
-    circle.classList.add("hidden");
-    circle.classList.remove('visible');
+    loadProgress.style.display = 'none';
 }
 

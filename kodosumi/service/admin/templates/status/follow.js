@@ -1,9 +1,55 @@
 let last_active = null;
+let active = false;
 let follow = {
-    "page-event": false, 
-    "page-output": true,
-    "page-stdio": true
+    "page-stdio": true,
+    "page-event": true,
+    "page-output": true
 };
+let scrollDebounceTimer = null;
+const scrollDebounceMs = 100;
+tabModes = document.querySelectorAll('.tab-mode');
+
+// Event-Handler für die Initialisierung
+document.addEventListener('DOMContentLoaded', (event) => {
+    tabModes = document.querySelectorAll('.tab-mode');
+    tabModes.forEach(tabMode => {
+        tabMode.addEventListener('click', (event) => {
+            const target = event.target;
+            const ui = target.getAttribute('data-ui').substring(1);
+            if (last_active != ui) {
+                active = false;
+            }
+            else {
+                active = true;
+            }
+            if (active) {
+                follow[ui] = !follow[ui];
+                if (follow[ui]) {
+                    document.querySelector('#' + ui + '-follow').classList.add('fill');
+                }
+                else {
+                    document.querySelector('#' + ui + '-follow').classList.remove('fill');
+                }
+            }
+            if (follow[ui]) {
+                scrollBottom();
+            }
+            last_active = ui;
+        });
+    });
+    elmOutputArticle = document.getElementById('article-output');
+    elmOutputArticle.addEventListener('click', () => {
+        disableFollow('page-output');
+    });
+    elmStdioArticle = document.getElementById('article-stdio');
+    elmStdioArticle.addEventListener('click', () => {
+        disableFollow('page-stdio');
+    });
+    elmEventArticle = document.getElementById('article-event');
+    elmEventArticle.addEventListener('click', () => {
+        disableFollow('page-event');
+    });
+});
 
 function scrollBottom() {
     if (follow["page-stdio"]) {
@@ -36,32 +82,6 @@ function scrollDown() {
     }, scrollDebounceMs);
 }
 
-tabModes.forEach(tabMode => {
-    tabMode.addEventListener('click', (event) => {
-        const target = event.target;
-        const ui = target.getAttribute('data-ui').substring(1);
-        if (last_active != ui) {
-            active = false;
-        }
-        else {
-            active = true;
-        }
-        if (active) {
-            follow[ui] = !follow[ui];
-            if (follow[ui]) {
-                document.querySelector('#' + ui + '-follow').classList.add('fill');
-            }
-            else {
-                document.querySelector('#' + ui + '-follow').classList.remove('fill');
-            }
-        }
-        if (follow[ui]) {
-            scrollBottom();
-        }
-        last_active = ui;
-    });
-});
-
 function disableFollow(key) {
     if (follow[key]) {
         follow[key] = false;
@@ -71,15 +91,3 @@ function disableFollow(key) {
         }
     }
 }
-
-elmOutputArticle.addEventListener('click', () => {
-    disableFollow('page-output');
-});
-
-elmStdioArticle.addEventListener('click', () => {
-    disableFollow('page-stdio');
-});
-
-elmEventArticle.addEventListener('click', () => {
-    disableFollow('page-event');
-});

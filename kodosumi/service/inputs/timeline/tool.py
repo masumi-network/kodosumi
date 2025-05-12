@@ -122,9 +122,10 @@ def load_page(root: Union[Path, str],
     append_items: list[dict] = []
     insert_items: list[dict] = []
     update_items: list[dict] = []
+    delete_items: list[str] = []
     next_offset = offset
 
-    def _load(db_file, match=True):
+    def _load(db_file, target, match=True):
         fid = db_file.parent.name
         try:
             result = load_result(db_file)
@@ -133,26 +134,32 @@ def load_page(root: Union[Path, str],
                 if query and match:
                     search = build_search(result)
                     if query.lower() not in search:
-                        return None
-                return {
+                        return False
+                rec = {
                     k: v for k, v in result.items() 
                     if k in DELIVER_FIELDS
                 }
-            return None
+                target.append(rec)
+                return True
         except Exception as e:
             logger.error(f"failed to load {db_file}: {e}")
-
+        return False
+    
     for dir_path in all_dirs:
         fid = dir_path.name
         db_file = dir_path / const.DB_FILE
+        archive = db_file.parent.joinpath(db_file.name + const.DB_ARCHIVE)
+        is_archive = False
         if not db_file.exists():
-            continue
+            if archive.exists():
+                is_archive = True
+                db_file = archive
+            else:
+                continue
         # case 1: new element
-        if origin and fid > origin:
+        if origin and fid > origin and not is_archive:
             logger.debug(f"new execution: {fid}")
-            rec = _load(db_file, match=True)
-            if rec:
-                insert_items.append(rec)
+            if _load(db_file, insert_items, match=True):
                 continue
         # case 2: modified element
         mod_time = db_file.stat().st_mtime
@@ -161,30 +168,29 @@ def load_page(root: Union[Path, str],
             if supp.exists():
                 mod_time = max(mod_time, supp.stat().st_mtime)
         if timestamp and mod_time > timestamp:
-            logger.debug(f"modified execution: {fid}")
-            rec = _load(db_file, match=False)
-            update_items.append(rec)
-            continue        
+            if is_archive:
+                logger.debug(f"archived execution: {fid}")
+                delete_items.append(fid)
+            else:
+                logger.debug(f"modified execution: {fid}")
+                _load(db_file, update_items, match=False)
+            continue
+        if is_archive:
+            continue
         # case 3: elements for current page request
         if mode == "next" and (next_offset is None or fid < next_offset):
             if len(append_items) < pp:
-                rec = _load(db_file, match=True)
-                if rec:
-                    append_items.append(rec)
+                _load(db_file, append_items, match=True)
                 next_offset = fid
             if len(append_items) >= pp:
                 break
-    # if mode == "next" and append_items:
-    #     updated_offset = next_offset
-    # else:
-    #     updated_offset = offset
     if insert_items:
         sorted_inserts = sorted(
             insert_items, key=lambda x: x["fid"], reverse=True)
         new_origin = sorted_inserts[0]["fid"]
     else:
         new_origin = origin
-    if append_items or insert_items or update_items:
+    if append_items or insert_items or update_items or delete_items:
         timestamp = current_timestamp
     result = {
         "total": total,
@@ -194,10 +200,10 @@ def load_page(root: Union[Path, str],
         "items": {
             "append": append_items,
             "insert": insert_items,
-            "update": update_items
+            "update": update_items,
+            "delete": delete_items
         },
         "query": query
     }
-    
     return result
 

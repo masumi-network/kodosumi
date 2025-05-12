@@ -2,26 +2,29 @@ import asyncio
 import json
 import sqlite3
 from pathlib import Path
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, Optional, List, Union, Dict, Tuple
 
 import litestar
 import ray
 from httpx import AsyncClient
-from litestar import Request, get, post
+from litestar import Request, get, post, MediaType, delete
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
 from litestar.response import Redirect, ServerSentEvent, Template
 from litestar.types import SSEData
 
 from kodosumi import helper
-from kodosumi.helper import now
+from kodosumi.helper import now, wants
 from kodosumi.log import logger
 from kodosumi.runner.const import *
 from kodosumi.runner.formatter import DefaultFormatter, Formatter
+from kodosumi.runner.main import kill_runner
 from kodosumi.service.inputs.forms import Model
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
+from kodosumi import dtypes
 
 STATUS_TEMPLATE = "status/status.html"
+SHORT_WAIT = 1
 SLEEP = 0.4
 AFTER = 10
 PING = 3.
@@ -42,18 +45,37 @@ async def _verify_actor(name: str, cursor):
         """, (now(),))
         return False
 
-
-
-async def _event(
-        db_file: Path, 
-        filter_events: Optional[List[str]]=None,
-        formatter:Optional[Formatter]=None) -> AsyncGenerator[SSEData, None]:
-    status = None
-    offset = 0
+async def _connect(fid: str, 
+                   request: Request, 
+                   state: State,
+                   extended: bool) -> Tuple[sqlite3.Connection, Path]:
+    db_file = Path(state["settings"].EXEC_DIR).joinpath(
+        request.user, fid, DB_FILE)
+    waitfor = state["settings"].WAIT_FOR_JOB if extended else SHORT_WAIT
+    loop = False
+    t0 = helper.now()
+    while not db_file.exists():
+        if not loop:
+            loop = True
+        await asyncio.sleep(SLEEP)
+        if helper.now() > t0 + waitfor:
+            raise NotFoundException(
+                f"Execution {fid} not found after {waitfor}s.")
+    if loop:
+        logger.debug(f"{fid} - found after {now() - t0:.2f}s")
     conn = sqlite3.connect(str(db_file), isolation_level=None)
     conn.execute('pragma journal_mode=wal;')
     conn.execute('pragma synchronous=normal;')
     conn.execute('pragma read_uncommitted=true;')
+    return (conn, db_file)
+
+async def _event(
+        fid: str,
+        conn: sqlite3.Connection, 
+        filter_events: Optional[List[str]]=None,
+        formatter:Optional[Formatter]=None) -> AsyncGenerator[SSEData, None]:
+    status = None
+    offset = 0
     cursor = conn.cursor()
     cursor.execute("""
         SELECT message FROM monitor WHERE kind = 'status'
@@ -64,7 +86,7 @@ async def _event(
     if row:
         status = row[0]
         if status not in STATUS_FINAL:
-            await _verify_actor(db_file.parent.name, cursor)
+            await _verify_actor(fid, cursor)
     try:
         t0 = last = None
         check = now()
@@ -107,7 +129,7 @@ async def _event(
                 if t0 > check + CHECK_ALIVE:
                     if status not in STATUS_FINAL:
                         check = t0
-                        if await _verify_actor(db_file.parent.name, cursor):
+                        if await _verify_actor(fid, cursor):
                             yield {
                                 "id": 0,
                                 "event": "alive",
@@ -127,6 +149,68 @@ async def _event(
     finally:
         conn.close()
 
+
+async def _status(conn: sqlite3.Connection) -> Dict:
+    status = None
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT MAX(timestamp) 
+        FROM monitor 
+        WHERE kind IN ('status', 'final', 'meta', 'alive')
+    """)
+    last_timestamp = cursor.fetchone()[0]
+    cursor.execute("""
+        SELECT message 
+        FROM monitor 
+        WHERE kind = 'status'
+        ORDER BY timestamp DESC, id DESC
+        LIMIT 1
+    """)
+    row = cursor.fetchone()
+    if row:
+        status = row[0]
+    cursor.execute("""
+        SELECT message 
+        FROM monitor 
+        WHERE kind = 'final'
+        ORDER BY timestamp DESC, id DESC
+        LIMIT 1
+    """)
+    row = cursor.fetchone()
+    final = row[0] if row else None
+    cursor.execute("""
+        SELECT message 
+        FROM monitor 
+        WHERE kind = 'meta'
+        ORDER BY timestamp DESC, id DESC
+        LIMIT 1
+    """)
+    row = cursor.fetchone()
+    if row:
+        meta_data = dtypes.DynamicModel.model_validate_json(row[0])
+        meta = meta_data.root.get("dict", {})
+    else:
+        meta = {}
+    response = {
+        "status": status,
+        "timestamp": last_timestamp,
+        "final": final,
+        "fid": meta.get("fid"),
+        "summary": meta.get("summary"),
+        "description": meta.get("description"),
+        "tags": meta.get("tags"),
+        "deprecated": meta.get("deprecated"),
+        "author": meta.get("author"),
+        "organization": meta.get("organization"),
+        "version": meta.get("version"),
+        "kodosumi_version": meta.get("kodosumi_version"),
+        "base_url": meta.get("base_url"),
+        "entry_point": meta.get("entry_point"),
+        "username": meta.get("username")
+    }
+    conn.close()
+    return response
+
 class OutputsController(litestar.Controller):
 
     tags = ["Admin Panel"]
@@ -136,60 +220,126 @@ class OutputsController(litestar.Controller):
     async def get_status(self, 
                          fid: str, 
                          state: State,
-                         request: Request) -> Template:
+                         request: Request,
+                         extended: bool=False) -> Union[Template, Dict]:
+        conn, _ = await _connect(fid, request, state, extended)
+        if not conn:
+            raise NotFoundException(f"Execution {fid} not found.")
+        return await _status(conn)
+
+    @get("/status/view/{fid:str}")
+    async def view_status(self, fid: str) -> Template:
         return Template(STATUS_TEMPLATE, context={"fid": fid})
+
+    @get("/html/{fid:str}")
+    async def final_view(self, fid: str) -> Template:
+        pass
+
+    @get("/raw/{fid:str}")
+    async def final_raw(self, fid: str) -> Template:
+        pass
+
+    @delete("/{fid:str}", summary="Delete or Kill Execution",
+         description="Kills an active deletes a completed execution.")
+    async def delete_execution(
+            self, 
+            fid: str, 
+            request: Request, 
+            state: State) -> None:
+        conn, db_file = await _connect(fid, request, state, False)
+        if not conn:
+            raise NotFoundException(f"Execution {fid} not found.")
+        job = await _status(conn)
+        if job["status"] not in STATUS_FINAL:
+            try:
+                kill_runner(fid)
+            except:
+                logger.critical(f"failed to kill {fid}", exc_info=True)
+            else:
+                logger.warning(f"killed {fid}")
+        try:
+            newdb = db_file.parent.joinpath(db_file.name + DB_ARCHIVE)
+            db_file.rename(newdb)
+            newdb.touch()
+        except:
+            logger.critical(f"failed to archive {fid}", exc_info=True)
+        else:
+            logger.warning(f"archived {fid}")
 
     @get("/stream/{fid:str}")
     async def get_stream(self, 
                          fid: str, 
                          request: Request, 
-                         state: State) -> ServerSentEvent:
+                         state: State,
+                         extended: bool=False) -> ServerSentEvent:
         return await self._stream(fid, state, request, filter_events=None,
-                                  formatter=None)
+                                  formatter=None, extended=extended)
 
     @get("/main/{fid:str}")
-    async def get_main_stream(self, 
-                              fid: str, 
-                              request: Request, 
-                              state: State) -> ServerSentEvent: 
+    async def get_main_stream(
+            self, 
+            fid: str, 
+            request: Request, 
+            state: State,
+            extended: bool=True) -> ServerSentEvent: 
         if "raw" in request.query_params:
             formatter = None
         else:
             formatter = DefaultFormatter()
         return await self._stream(
-            fid, state, request, filter_events=MAIN_EVENTS, formatter=formatter)
+            fid, state, request, filter_events=MAIN_EVENTS, formatter=formatter,
+            extended=extended)
 
     @get("/stdio/{fid:str}")
-    async def get_stdio_stream(self, 
-                               fid: str, 
-                               request: Request, 
-                               state: State) -> ServerSentEvent: 
+    async def get_stdio_stream(
+            self, 
+            fid: str, 
+            request: Request, 
+            state: State,
+            extended: bool=False) -> ServerSentEvent: 
         if "raw" in request.query_params:
             formatter = None
         else:
             formatter = DefaultFormatter()
         return await self._stream(
             fid, state, request, filter_events=STDIO_EVENTS, 
-            formatter=formatter)
+            formatter=formatter, extended=extended)
 
     async def _stream(self, 
                       fid, 
                       state: State, 
                       request: Request,
                       filter_events=None,
-                      formatter=None) -> ServerSentEvent:
-        db_file = Path(state["settings"].EXEC_DIR).joinpath(
-            request.user, fid, DB_FILE)
-        t0 = helper.now()
-        loop = False
-        waitfor = state["settings"].WAIT_FOR_JOB
-        while not db_file.exists():
-            if not loop:
-                loop = True
-            await asyncio.sleep(SLEEP)
-            if helper.now() > t0 + waitfor:
-                raise NotFoundException(
-                    f"Execution {fid} not found after {waitfor}s.")
-        if loop:
-            logger.debug(f"{fid} - found after {now() - t0:.2f}s")
-        return ServerSentEvent(_event(db_file, filter_events, formatter))
+                      formatter=None,
+                      extended: bool=False) -> ServerSentEvent:
+        conn, db_file = await _connect(fid, request, state, extended)        
+        return ServerSentEvent(_event(fid, conn, filter_events, formatter))
+ 
+    @delete("/", summary="Delete or Kill list of Executions",
+         description="Kills active and deletes selected executions.")
+    async def delete_list(
+            self, 
+            request: Request, 
+            state: State) -> None:
+        js = await request.json()
+        for fid in js.get("fid", []):
+            conn, db_file = await _connect(fid, request, state, False)
+            if not conn:
+                raise NotFoundException(f"Execution {fid} not found.")
+            job = await _status(conn)
+            if job["status"] not in STATUS_FINAL:
+                try:
+                    kill_runner(fid)
+                except:
+                    logger.critical(f"failed to kill {fid}", exc_info=True)
+                else:
+                    logger.warning(f"killed {fid}")
+            try:
+                newdb = db_file.parent.joinpath(db_file.name + DB_ARCHIVE)
+                db_file.rename(newdb)
+                newdb.touch()
+            except:
+                logger.critical(f"failed to archive {fid}", exc_info=True)
+            else:
+                logger.warning(f"archived {fid}")
+

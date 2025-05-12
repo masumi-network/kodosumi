@@ -1,14 +1,3 @@
-let active = true;
-let total = 0;
-let startup = null;
-let eventActivity = new Map();
-let currentSecond = null;
-let autoSpark = null;
-const sparkInterval = 500; 
-let scrollDebounceTimer = null;
-const scrollDebounceMs = 250;
-const windowSize = 90;
-
 function drawSparklineBarChart(targetSelector, data) {
     const container = d3.select(targetSelector);
     const node = container.node();
@@ -123,68 +112,6 @@ function splitData(event) {
     }
 }
 
-function parseData(event, updateTotal = true) {
-    const [id, ts, js] = splitData(event);
-    const currentSecond = Math.floor(ts);
-    if (ts == null) {
-        return [null, null];
-    }
-    if (startup == null) {
-        startup = ts;
-        applyToAll(elmStartup, (elm) => {elm.innerText = formatUnixTime(ts)});
-        const startSecond = currentSecond - (windowSize - 1);
-        for (let sec = startSecond; sec <= currentSecond; sec++) {
-            if (!eventActivity.has(sec)) {
-                eventActivity.set(sec, 0);
-            }
-        }
-    }
-    if (startup && active && ts) {
-        applyToAll(
-            elmRuntime, 
-            (elm) => {elm.innerText = secondsToHHMMSS(ts - startup)});
-    }
-    const oldestAllowedSecond = currentSecond - (windowSize - 1);
-    for (const key of eventActivity.keys()) {
-        if (key < oldestAllowedSecond) {
-            eventActivity.delete(key);
-        }
-    }
-    if (!eventActivity.has(currentSecond)) {
-        eventActivity.set(currentSecond, 0);
-    }
-    total += event.data.length;
-    eventActivity.set(currentSecond, (eventActivity.get(currentSecond) || 0) + event.data.length);
-    applyToAll(elmSize, (elm) => {elm.innerText = (total / 1024).toFixed(1)}); 
-    if (autoSpark == null) {
-        redrawDynamicCharts();
-    }
-    return [ts, js];
-}
-
-function startAutoSpark() {
-    if (autoSpark == null) {
-        const tick = () => {
-            const nowSeconds = Math.floor(Date.now() / 1000);
-            if (!eventActivity.has(nowSeconds)) {
-                eventActivity.set(nowSeconds, 0);
-            }
-            redrawDynamicCharts();
-            applyToAll(
-                elmRuntime, 
-                (elm) => {elm.innerText = secondsToHHMMSS(nowSeconds - startup)});
-            autoSpark = setTimeout(tick, sparkInterval);
-        };
-        autoSpark = setTimeout(tick, sparkInterval);
-    }
-}
-
-function stopAutoSpark() {
-    if (autoSpark) {
-        clearTimeout(autoSpark);
-        autoSpark = null;
-    }
-}
 
 function activePage() {
     for (const page of [elmStdioPage, elmEventPage, elmOutputPage]) {
@@ -195,54 +122,4 @@ function activePage() {
     return null;
 }
 
-function startSTDIO() {
-    ioSource = new EventSource(`/outputs/stdio/${fid}`);
-    ioSource.onopen = function() {
-        console.log("stdio SSE connection opened.");
-    };
-    ioSource.addEventListener('stdout', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="primary-text">' +  js + "<br/>";
-            scrollDown();
-        }
-    });
-    ioSource.addEventListener('stderr', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
-            scrollDown();
-        }
-    });
-    ioSource.addEventListener('error', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
-            scrollDown();
-        }
-    });
-    ioSource.addEventListener('eof', function(event) {
-        ioSource.close();
-    });
-}
-
-async function startEventSSE() {
-    const url = `/outputs/stream/${fid}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch stream: ${response.statusText}`);
-    }
-    if (sse_loaded) {
-        return;
-    }
-    sse_loaded = true;
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        elmEvent.innerHTML += chunk; 
-    }
-}
 
