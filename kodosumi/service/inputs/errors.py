@@ -1,10 +1,14 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 class InputsError(Exception):
-    def __init__(self, message: str = "Input validation failed"):
+    def __init__(self, 
+                 message: str = "Input validation failed",
+                 **kwargs):
         super().__init__(message)
         self.errors: Dict[str, List[str]] = {}
+        for key, value in kwargs.items():
+            self.errors.setdefault(key, []).append(value)
 
     def add(self, **kwargs):
         for field, message in kwargs.items():

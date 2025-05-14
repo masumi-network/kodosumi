@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional, Sequence, Union
+from textwrap import dedent
 from pydantic import BaseModel
 import re
 from kodosumi import dtypes
@@ -50,9 +51,9 @@ class Markdown(Element):
         }
 
     def render(self) -> str:
-        # Konvertiere Markdown zu HTML mit Erweiterungen
+        text = dedent(self.text)# Konvertiere Markdown zu HTML mit Erweiterungen
         return markdown.markdown(
-            self.text, 
+            text, 
             extensions=[
                 'extra',
                 'codehilite',
@@ -543,3 +544,8 @@ class Model:
 #             return None
 
 
+
+__all__ = [
+    "Model", "Break", "InputText", "Action", "Submit", "Cancel", 
+    "Markdown", "HTML", 
+]

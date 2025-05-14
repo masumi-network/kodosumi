@@ -4,13 +4,13 @@ This document provides an overview of the key concepts that constitute the Kodos
 
 ## Core Concepts
 
-### Flows
+### Flow
 
 A _Flow_ represents an automated process, workflow, or system of interconnected tasks working towards a common objective. While similar concepts exist in different contexts (such as _[agents](#agents)_, _workflows_, _objects_, _methods_, _functions_, _models_, or _[agentic services](#agentic-service)_), we use the term _Flow_ to emphasize its process-oriented nature. 
 
 ### Agentic Service
 
-An Agentic Service is a self-contained, deployable unit within the Kodosumi framework. It integrates one or more [Flows](#flows) with required resources and configurations to deliver complete functionality. An agentic service comprises [endpoints](#endpoints) and [flows](#flows). Service [endpoints](#endpoints) implement request/response patterns, while [flows](#flows) implement business logic and return intermediate and final results among other events.
+An Agentic Service is a self-contained, deployable unit within the Kodosumi framework. It integrates one or more [Flows](#flows) with required resources and configurations to deliver complete functionality. An agentic service comprises [endpoints](#endpoints) and [entrypoints](#entrypoints) into [flows](#flows). Service [endpoints](#endpoints) implement request/response patterns, while [flows](#flows) implement business logic and return intermediate and final results among other events. The [entrypoint](#entrypoints) is a Python object or callable to enter flow execution.
 
 ### Agent
 
@@ -51,15 +51,15 @@ The Ray Driver is the process that runs the main program in a Ray cluster. It is
 
 ## Flow Execution
 
-### Flow Registers
+### Flow Register
 
 Flow Registers are the source locations where Flow [endpoints](#endpoints) are registered in the system. They maintain a catalog of available Flow sources, their endpoints, and their [entrypoints](#entrypoints), enabling the discovery and routing of Flow operations.
 
-### Endpoints
+### Endpoint
 
 Endpoints are the defined interfaces of an Agentic Service that expose its functionality externally. They implement the Request/Response pattern and enable service interaction through standardized protocols.
 
-### Entrypoints
+### Entrypoint
 
 Entrypoints are the internal entry locations within an Agentic Service where Flows can be initiated or connected. They serve as the bridge between [Endpoints](#endpoints) and [Flow implementations](#flows), defining how external requests are transformed into Flow executions.
 
