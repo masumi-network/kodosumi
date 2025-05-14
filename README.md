@@ -3,13 +3,10 @@
 > [!NOTE]
 >
 > This is an early development version of kodosumi. 
-> The documentation is under development. 
+> You can find the full documentation  with installation guide [here](https://docs.kodosumi.io/). 
+> To learn more Kodosumi-related concepts see [knowledge base](https://docs.kodosumi.io/knowledge-base/key-agentic-concepts).
 
-You can find the full documentation  with installation guide [here](https://docs.kodosumi.io/). 
-
-To learn more Kodosumi-related concepts see [knowledge base](https://docs.kodosumi.io/knowledge-base/key-agentic-concepts).
-
-Kodosumi is a runtime environment to manage and execute agentic services at scale. The system is based on [ray](https://ray.io) - a distributed computing framework - and a combination of [Litestar](https://litestar.dev/) and [Fastapi](https://fastapi.tiangolo.com/) to deliver men/machine interaction.
+Kodosumi is a runtime environment to manage and execute agentic services at scale. The system is based on [Ray](https://ray.io) - a distributed computing framework - and a combination of [Litestar](https://litestar.dev/) and [Fastapi](https://fastapi.tiangolo.com/) to deliver men/machine interaction.
 
 Kodosumi is one component of a larger ecosystem with [Masumi](https://www.masumi.network/) and Sokosumi.
 
@@ -19,7 +16,7 @@ Kodosumi is one component of a larger ecosystem with [Masumi](https://www.masumi
   <em>Kodosumi Ecosystem Overview</em>
 </div>
 
-# introduction
+# Introduction
 
 kodosumi consists of three main building blocks:
 
@@ -28,7 +25,7 @@ kodosumi consists of three main building blocks:
 3. Agentic Services delivered through kodosumi and executed through Ray.
 
 
-You can find full documentation and setup guide on [Gitbook](https://docs.kodosumi.io/).
+You can find full documentation and setup guide on [Kodocumi docs website](https://docs.kodosumi.io/).
 
 
 
