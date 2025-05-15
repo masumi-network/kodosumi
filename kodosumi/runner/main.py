@@ -6,13 +6,15 @@ from typing import Any, Callable, Optional, Tuple, Union
 import ray.util.queue
 from bson.objectid import ObjectId
 from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 
 import kodosumi.core
 from kodosumi.helper import now, serialize
 from kodosumi.runner.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                                    EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                                    NAMESPACE, STATUS_END, STATUS_ERROR,
-                                   STATUS_RUNNING, STATUS_STARTING)
+                                   STATUS_RUNNING, STATUS_STARTING,
+                                   KODOSUMI_LAUNCH)
 from kodosumi.runner.tracer import Tracer
 
 
@@ -217,3 +219,28 @@ def create_runner(username: str,
             extra=extra
     )
     return fid, actor
+
+def Launch(request: Any,
+           entry_point: Union[Callable, str], 
+           inputs: Any=None,
+           reference: Optional[Callable] = None,
+           summary: Optional[str] = None,
+           description: Optional[str] = None) -> Any:
+    if reference is None:
+        for sf in inspect.stack():
+            if getattr(sf.frame.f_globals.get(sf.function), "_kodosumi_", None):
+                reference = sf.frame.f_globals.get(sf.function)
+                break
+    if reference is None:
+        extra = {}
+    else:
+        extra = request.app._method_lookup.get(reference)
+    if summary is not None:
+        extra["summary"] = summary
+    if description is not None:
+        extra["description"] = description
+    fid, runner = create_runner(
+        username=request.state.user, base_url=request.state.prefix, 
+        entry_point=entry_point, inputs=inputs, extra=extra)
+    runner.run.remote()  # type: ignore
+    return JSONResponse(content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})

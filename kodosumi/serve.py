@@ -1,54 +1,21 @@
 import inspect
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Optional, Union, List, Dict
+from typing import Any, Callable, Dict
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import ValidationException
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.routing import APIRoute
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 import kodosumi.service.admin
-from kodosumi.runner.const import KODOSUMI_LAUNCH
-from kodosumi.runner.main import create_runner
 from kodosumi.service.endpoint import KODOSUMI_API
-from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
 from kodosumi.service.inputs.errors import InputsError
-from kodosumi.service.inputs.forms import Model, Checkbox
-#from kodosumi.errors import InputsError
+from kodosumi.service.inputs.forms import Checkbox, Model
+from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
 
-#from kodosumi.entry import _create_get_handler, _create_post_handler
 
 ANNONYMOUS_USER = "_annon_"
-
-
-def Launch(request: Request,
-           entry_point: Union[Callable, str], 
-           inputs: Any=None,
-           reference: Optional[Callable] = None,
-           summary: Optional[str] = None,
-           description: Optional[str] = None) -> JSONResponse:
-    if reference is None:
-        for sf in inspect.stack():
-            if getattr(sf.frame.f_globals.get(sf.function), "_kodosumi_", None):
-                reference = sf.frame.f_globals.get(sf.function)
-                break
-    if reference is None:
-        extra = {}
-    else:
-        extra = request.app._method_lookup.get(reference)
-    if summary is not None:
-        extra["summary"] = summary
-    if description is not None:
-        extra["description"] = description
-    fid, runner = create_runner(
-        username=request.state.user, base_url=request.state.prefix, 
-        entry_point=entry_point, inputs=inputs, extra=extra)
-    runner.run.remote()  # type: ignore
-    return JSONResponse(content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})
-
-
 
 class ServeAPI(FastAPI):
 
