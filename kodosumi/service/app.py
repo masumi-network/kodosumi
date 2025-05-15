@@ -212,6 +212,7 @@ def create_app(**kwargs) -> Litestar:
     )
     app_logger(settings)
     logger.info(f"app server started at {settings.APP_SERVER}")
+    logger.info(f"exec source path {settings.EXEC_DIR}")
     logger.debug(f"admin database at {settings.ADMIN_DATABASE}")
     logger.debug(f"screen log level: {settings.APP_STD_LEVEL}, "
                  f"file log level: {settings.APP_LOG_FILE_LEVEL}, "

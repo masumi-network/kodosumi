@@ -139,6 +139,7 @@ class Spooler:
             name="Spooler",
             namespace=NAMESPACE).remote(pid=os.getpid())
         pid = await self.lock.get_pid.remote()
+        logger.info(f"exec source path {self.exec_dir}")
         logger.info(f"spooler started, pid={pid}")
         total = 0
         progress = """|/-\\|/-\\"""
