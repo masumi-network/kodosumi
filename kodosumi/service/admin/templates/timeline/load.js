@@ -28,6 +28,7 @@ let loadingTimeout = null;
 let isSearching = false;
 let isLoadAll = false;
 let currentLoadingState = LoadingState.IDLE;
+let isInitialized = false;
 // let closeIcon = null;
 // let searchInput = null;
 // let selectAll = null;
@@ -203,14 +204,14 @@ function processTimelineItems(items, mode) {
     const processMap = {
         update: (item) => {
             const existingItem = container.querySelector(`[name="${item.fid}"]`);
-            // console.log("update", item.fid, existingItem == null);
+            console.log("update", item.fid, existingItem == null);
             if (existingItem) {
                 updateTimelineItem(existingItem, item);
             }
         },
         insert: (item) => {
             const existingItem = container.querySelector(`[name="${item.fid}"]`);
-            // console.log("insert", item.fid, existingItem == null);
+            console.log("insert", item.fid, existingItem == null);
             if (!existingItem) {
                 const li = createTimelineItem(item);
                 container.insertBefore(li, container.firstChild);
@@ -218,15 +219,15 @@ function processTimelineItems(items, mode) {
         },
         append: (item) => {
             const existingItem = container.querySelector(`[name="${item.fid}"]`);
-            // console.log("append", item.fid, existingItem == null);
             if (mode === "next") {
                 const li = createTimelineItem(item);
                 container.appendChild(li);
+                console.log("append", item.fid, existingItem == null, container, li);
             }
         },
         delete: (fid) => {
             const existingItem = container.querySelector(`[name="${fid}"]`);
-            // console.log("delete", fid, existingItem == null);
+            console.log("delete", fid, existingItem == null);
             if (existingItem) {
                 existingItem.remove();
             }
@@ -260,11 +261,11 @@ function createTimelineItem(item) {
     li.setAttribute('name', item.fid);
     
     const { statusIcon, format, progressClass, progressValue } = createProgressElement(item);
-
+    
     if (item.inputs) {
         let validInputs = Object.fromEntries(
             Object.entries(Object.values(item.inputs)[0])
-                .filter(([_, value]) => value !== null)
+            .filter(([_, value]) => value !== null)
         );
         inputs = formatInputs(validInputs);
     }
@@ -272,27 +273,27 @@ function createTimelineItem(item) {
         inputs = "";
     }
     li.innerHTML = `
-        <label class="checkbox large">
-            <input type="checkbox"/>
-            <span></span>
-        </label>
-        <div class="follow small-round"> 
-            <p class="left-align chip ${format}" style="width: 110px;">
-                <i>${statusIcon}</i>${item.status}
-            </p>
-        </div>
-        <div class="follow">
-            <h5 class="small bold">${item.summary}</h5>
-            <span class="small">${item.fid}</span>
-            <div style="text-wrap: balance; word-break: break-word; overflow-wrap: break-word; max-width: 100%;" class="italic">${inputs}</div>
-        </div>
-        <div class="max"></div>
-        <div class="follow">
-            <label>${formatRuntime(item.runtime)}</label>
-            <svg class="${progressClass}" ${progressValue}></svg>
-            <label>${formatDateTime(item.startup)}</label>
-            <span class="max">&nbsp;</span>
-        </div>
+    <label class="checkbox large">
+    <input type="checkbox"/>
+    <span></span>
+    </label>
+    <div class="follow small-round"> 
+    <p class="left-align chip ${format}" style="width: 110px;">
+    <i>${statusIcon}</i>${item.status}
+    </p>
+    </div>
+    <div class="follow">
+    <h5 class="small bold">${item.summary}</h5>
+    <span class="small">${item.fid}</span>
+    <div style="text-wrap: balance; word-break: break-word; overflow-wrap: break-word; max-width: 100%;" class="italic">${inputs}</div>
+    </div>
+    <div class="max"></div>
+    <div class="follow">
+    <label>${formatRuntime(item.runtime)}</label>
+    <svg class="${progressClass}" ${progressValue}></svg>
+    <label>${formatDateTime(item.startup)}</label>
+    <span class="max">&nbsp;</span>
+    </div>
     `;
     const svg = li.querySelector('svg');
     if (progressClass === "progress-circle") {
@@ -491,13 +492,16 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
     // Event-Listener für pageshow
     window.addEventListener('pageshow', function(event) {
+        if (isInitialized) return;
+        isInitialized = true;
+        
         stopUpdateTimer();
         container.innerHTML = '';
         endOfFile.style.display = 'none';
         currentQuery = searchInput.value;
         observer.observe(endOfList);
+        
+        // Initialer Ladevorgang
+        loadMoreTimelineItems("next");
     });
-    
-    // Initialer Ladevorgang
-    loadMoreTimelineItems("next");
 });
