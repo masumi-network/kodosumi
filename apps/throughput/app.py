@@ -9,6 +9,7 @@ from ray import serve
 import kodosumi.core as core
 from kodosumi.core import forms as F
 
+
 app = core.ServeAPI()
 
 
@@ -152,6 +153,11 @@ if __name__ == "__main__":
     from pathlib import Path
 
     import uvicorn
-    sys.path.append(str(Path(__file__).parent.parent))
-    # with reload == True we pass the application as a factory string
-    uvicorn.run("apps.throughput:app", host="0.0.0.0", port=8001, reload=True)
+    sys.path.append(str(Path(__file__).parent.parent.parent))
+    uvicorn.run(
+        # with reload == True we pass the application as a factory string
+        "apps.throughput.app:app", 
+        reload=True,
+        host="0.0.0.0", 
+        port=8001
+    )

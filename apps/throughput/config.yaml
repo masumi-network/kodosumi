@@ -1,0 +1,24 @@
+proxy_location: EveryNode
+http_options:
+  host: 0.0.0.0
+  port: 8001
+grpc_options:
+  port: 9000
+  grpc_servicer_functions: []
+
+logging_config:
+  encoding: TEXT
+  log_level: INFO
+  logs_dir: null
+  enable_access_log: true
+  additional_log_standard_attrs: []
+
+applications:
+- name: throughput
+  route_prefix: /throughput
+  import_path: apps.throughput.app:fast_app
+  runtime_env: 
+    pip:
+    - lorem-text
+  deployments:
+  - name: ThroughputRunner
