@@ -1,7 +1,3 @@
-let selectAll = null;
-let selectAllLabel = null;
-let deleteSelect = null;
-
 document.addEventListener('DOMContentLoaded', (event) => {
     // Initialisierung der DOM-Elemente
     selectAll = document.getElementById('select-all');

@@ -29,6 +29,8 @@ let closeIcon = null;
 let searchInput = null;
 let selectAll = null;
 let debounceTimeout = null;
+let selectAllLabel = null;
+let deleteSelect = null;
 
 function startUpdateTimer() {
     if (updateTimer) return;
