@@ -246,6 +246,9 @@ document.addEventListener('DOMContentLoaded', (event) => {
             stopAutoSpark();
             elmProgress.value = 100;
             applyToAll(elmFinish, (elm) => {elm.innerText = formatUnixTime(ts)});
+            applyToAll(
+                elmRuntime, 
+                (elm) => {elm.innerText = secondsToHHMMSS(ts - startup)});
             redrawDynamicCharts();
             elmAbout.style.display = 'block';
             if (js === "error") {
