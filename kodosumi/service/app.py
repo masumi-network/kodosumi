@@ -165,7 +165,8 @@ def create_app(**kwargs) -> Litestar:
     admin_console = Path(kodosumi.service.admin.__file__).parent.joinpath
 
     app = Litestar(
-        cors_config=CORSConfig(allow_origins=settings.CORS_ORIGINS),
+        cors_config=CORSConfig(allow_origins=settings.CORS_ORIGINS,
+                               allow_credentials=True),
         route_handlers=[
             Router(path="/", route_handlers=[LoginControl]),
             Router(path="/role", route_handlers=[RoleControl]),
