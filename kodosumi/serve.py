@@ -2,6 +2,7 @@ import inspect
 import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict
+import copy
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import ValidationException
@@ -134,16 +135,22 @@ class ServeAPI(FastAPI):
 
         def decorator(user_func: Callable):
             get_handler = _create_get_handler()
-            self.add_api_route(path, get_handler, methods=["GET"], **kwargs)
+            kwargs_copy = copy.deepcopy(kwargs)
+            kwargs_copy['openapi_extra'][KODOSUMI_API] = True
+            self.add_api_route(
+                path, get_handler, methods=["GET"], **kwargs_copy)
             self._method_lookup[user_func] = {
                  'path': path, 
                  'model': model, 
                  'method': 'GET', 
-                 **kwargs 
+                 **kwargs_copy 
             }
             self._route_lookup[("get", path)] = user_func 
-            post_handler = _create_post_handler(user_func)            
-            self.add_api_route(path, post_handler, methods=["POST"], **kwargs)
+            post_handler = _create_post_handler(user_func)
+            kwargs_copy = copy.deepcopy(kwargs)
+            kwargs_copy['openapi_extra'][KODOSUMI_API] = False
+            self.add_api_route(
+                path, post_handler, methods=["POST"], **kwargs_copy)
             self._route_lookup[("post", path)] = user_func 
             user_func._kodosumi_ = True 
             return user_func 
