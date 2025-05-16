@@ -1,14 +1,6 @@
-// Globale Variablen
-let trashButton = null;
-let elmStatusIcon = null;
-
-// Event-Handler für die Initialisierung
 document.addEventListener('DOMContentLoaded', (event) => {
-    // Initialisierung der DOM-Elemente
     trashButton = document.getElementById('trash-button');
     elmStatusIcon = document.getElementById('status-icon');
-
-    // Event-Listener hinzufügen
     if (trashButton) {
         trashButton.addEventListener('click', () => {
             if (elmStatusIcon.textContent === "pause") {

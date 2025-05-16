@@ -1,8 +1,3 @@
-let searchInput = null;
-let debounceTimeout = null;
-let closeIcon = null;
-
-// Globale search Funktion, die von der Timeline überschrieben werden kann
 function search() {
     if (searchInput.value) {
         closeIcon.style.display = 'inline';

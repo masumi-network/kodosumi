@@ -1,7 +1,6 @@
 let ioSource = null;
 let sse_loaded = false;
 
-// DOM Element Variablen
 let elmArticleHead = null;
 let elmToggleIcon = null;
 let elmDetailsElement = null;
@@ -52,6 +51,20 @@ let autoSpark = null;
 let eventActivity = new Map();
 let total = 0;
 
+let last_active = null;
+let active = false;
+let follow = {
+    "page-stdio": true,
+    "page-event": true,
+    "page-output": true
+};
+let scrollDebounceTimer = null;
+const scrollDebounceMs = 100;
+let flow_active = true;
+
+let trashButton = null;
+let elmStatusIcon = null;
+
 
 function parseData(event, updateTotal = true) {
     const [id, ts, js] = splitData(event);
@@ -69,7 +82,7 @@ function parseData(event, updateTotal = true) {
             }
         }
     }
-    if (startup && active && ts) {
+    if (startup && flow_active && ts) {
         applyToAll(
             elmRuntime, 
             (elm) => {elm.innerText = secondsToHHMMSS(ts - startup)});
@@ -100,9 +113,11 @@ function startAutoSpark() {
                 eventActivity.set(nowSeconds, 0);
             }
             redrawDynamicCharts();
-            applyToAll(
-                elmRuntime, 
-                (elm) => {elm.innerText = secondsToHHMMSS(nowSeconds - startup)});
+            if (flow_active) {
+                applyToAll(
+                    elmRuntime, 
+                    (elm) => {elm.innerText = secondsToHHMMSS(nowSeconds - startup)});
+            }
             autoSpark = setTimeout(tick, sparkInterval);
         };
         autoSpark = setTimeout(tick, sparkInterval);
@@ -119,7 +134,7 @@ function stopAutoSpark() {
 function startSTDIO() {
     ioSource = new EventSource(`/outputs/stdio/${fid}`);
     ioSource.onopen = function() {
-        console.log("stdio SSE connection opened.");
+        console.log("stdio SSE stream opened.");
     };
     ioSource.addEventListener('stdout', function(event) {
         const [id, ts, js] = splitData(event);
@@ -144,6 +159,7 @@ function startSTDIO() {
     });
     ioSource.addEventListener('eof', function(event) {
         ioSource.close();
+        console.log("stdio SSE stream closed.");
     });
 }
 
@@ -223,26 +239,23 @@ document.addEventListener('DOMContentLoaded', (event) => {
     elmKodosumiVersion = document.getElementsByClassName('kodosumi');
 
     elmInputs = document.getElementsByClassName('inputs');
-
     eventSource = new EventSource(`/outputs/main/${fid}?extended=true`);
 
     elmToggleIcon.addEventListener('click', () => {
         elmDetailsElement.open = !elmDetailsElement.open;
         elmToggleIcon.textContent = elmDetailsElement.open ? 'arrow_drop_down' : 'arrow_right';
     });
-    
-    
-    
     eventSource.onopen = function() {
-        console.log("main SSE connection opened.");
+        console.log("main SSE stream opened.");
     };
-    
+    eventSource.onerror = function() {
+        console.log("main SSE stream error.");
+    };
     eventSource.addEventListener('status', function(event) {
         const [ts, js] = parseData(event);
         applyToAll(elmStatus, (elm) => {elm.innerText = js});
         if (js === "finished" || js === "error") {
-            active = false;
-            eventSource.close();
+            flow_active = false;
             stopAutoSpark();
             elmProgress.value = 100;
             applyToAll(elmFinish, (elm) => {elm.innerText = formatUnixTime(ts)});
@@ -304,7 +317,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
         startAutoSpark();
     });
     eventSource.addEventListener('eof', function(event) {
-        console.log('main Stream closed:', event);
+        console.log('main SSE stream closed.');
         eventSource.close();
         stopAutoSpark();
     });
@@ -315,7 +328,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     }
 
     const event_observer = new MutationObserver((mutationsList, event_observer) => {
-        console.log("event_observer", mutationsList);
+        // console.log("event_observer", mutationsList);
         for(const mutation of mutationsList) {
             if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
                 const targetElement = mutation.target;

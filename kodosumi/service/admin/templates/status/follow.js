@@ -1,15 +1,3 @@
-let last_active = null;
-let active = false;
-let follow = {
-    "page-stdio": true,
-    "page-event": true,
-    "page-output": true
-};
-let scrollDebounceTimer = null;
-const scrollDebounceMs = 100;
-tabModes = document.querySelectorAll('.tab-mode');
-
-// Event-Handler für die Initialisierung
 document.addEventListener('DOMContentLoaded', (event) => {
     tabModes = document.querySelectorAll('.tab-mode');
     tabModes.forEach(tabMode => {

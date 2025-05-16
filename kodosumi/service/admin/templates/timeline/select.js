@@ -1,16 +1,12 @@
-// Globale Variablen für die Auswahl
 let selectAll = null;
 let selectAllLabel = null;
 let deleteSelect = null;
 
-// Event-Handler für die Initialisierung
 document.addEventListener('DOMContentLoaded', (event) => {
     // Initialisierung der DOM-Elemente
     selectAll = document.getElementById('select-all');
     selectAllLabel = document.getElementById('select-all-label');
     deleteSelect = document.getElementById('delete-select');
-
-    // Event-Listener hinzufügen
     if (selectAll) {
         selectAll.addEventListener('click', handleSelect);
     }
@@ -101,7 +97,7 @@ function getSelectedFids() {
 
 async function killAll() {
     const content = JSON.stringify({ fid: getSelectedFids() });
-    console.log("killAll", getSelectedFids(), content);
+    // console.log("killAll", getSelectedFids(), content);
     const response = await fetch(`/outputs`, {
         method: 'DELETE',
         headers: {
@@ -126,4 +122,3 @@ function handleDelete(e) {
         );
     }
 }
-

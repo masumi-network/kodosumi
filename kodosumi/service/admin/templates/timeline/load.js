@@ -1,16 +1,12 @@
-// Konstanten
 const MIN_NEXT_INTERVAL = 200;
 const MIN_UPDATE_INTERVAL = 1200;
 const PER_PAGE = 25;
-
 const LoadingState = {
     IDLE: 'idle',
     LOADING: 'loading',
     ERROR: 'error',
     COMPLETE: 'complete'
 };
-
-// Globale Variablen für das Laden
 let isLoading = false;
 let currentPage = 1;
 let origin = null;
@@ -29,13 +25,13 @@ let isSearching = false;
 let isLoadAll = false;
 let currentLoadingState = LoadingState.IDLE;
 let isInitialized = false;
-// let closeIcon = null;
-// let searchInput = null;
-// let selectAll = null;
+let closeIcon = null;
+let searchInput = null;
+let selectAll = null;
+let debounceTimeout = null;
 
 function startUpdateTimer() {
     if (updateTimer) return;
-    // console.log("startUpdateTimer");
     updateTimer = setInterval(() => {
         loadMoreTimelineItems("update");
     }, MIN_UPDATE_INTERVAL);
@@ -58,26 +54,20 @@ function updateLoadingState(newState, mode) {
         console.warn('Progress bar element not found');
         return;
     }
-    
-    // Zeige Progress-Bar nur bei NEXT-Mode
     if (mode === "update") {
         return;
     }
-    
     if (isLoadAll) {
         return;
     }
-    
-    console.log("do it", mode, isLoadAll);
     switch (newState) {
         case LoadingState.LOADING:
             progressBar.style.display = 'block';
-            progressBar.removeAttribute('value'); // Macht den Balken unbestimmt
+            progressBar.removeAttribute('value'); 
             break;
         case LoadingState.IDLE:
         case LoadingState.COMPLETE:
         case LoadingState.ERROR:
-            // Verzögertes Ausblenden für sanften Übergang
             if (loadingTimeout) clearTimeout(loadingTimeout);
             loadingTimeout = setTimeout(() => {
                 progressBar.style.display = 'none';
@@ -89,7 +79,6 @@ function updateLoadingState(newState, mode) {
     }
 }
 
-// Modifizierte search Funktion mit Debouncing
 function handleSearch() {
     if (observer) {
         observer.disconnect();
@@ -115,7 +104,6 @@ function handleSearch() {
     }
 }
 
-// Überschreibe die globale search Funktion
 function search() {
     clearTimeout(debounceTimeout);
     debounceTimeout = setTimeout(handleSearch, 300);
@@ -162,7 +150,6 @@ function checkVisibility() {
     }
 }
 
-// Konstanten für Status und Formatierung
 const STATUS = {
     RUNNING: {
         icon: 'play_circle',
@@ -222,7 +209,7 @@ function processTimelineItems(items, mode) {
             if (mode === "next") {
                 const li = createTimelineItem(item);
                 container.appendChild(li);
-                console.log("append", item.fid, existingItem == null, container, li);
+                // console.log("append", item.fid, existingItem == null, container, li);
             }
         },
         delete: (fid) => {
@@ -233,23 +220,15 @@ function processTimelineItems(items, mode) {
             }
         }
     };
-    
-    // Zuerst Updates verarbeiten
     if (items.update && items.update.length > 0) {
         items.update.forEach(item => processMap.update(item));
     }
-    
-    // Dann Inserts verarbeiten
     if (items.insert && items.insert.length > 0) {
         items.insert.forEach(item => processMap.insert(item));
     }
-    
-    // Dann Deletes verarbeiten
     if (items.delete && items.delete.length > 0) {
         items.delete.forEach(fid => processMap.delete(fid));
     }
-    
-    // Zuletzt Appends verarbeiten
     if (items.append && items.append.length > 0) {
         items.append.forEach(item => processMap.append(item));
     }
@@ -284,7 +263,7 @@ function createTimelineItem(item) {
     </div>
     <div class="follow">
     <h5 class="small bold">${item.summary}</h5>
-    <span class="small">${item.fid}</span>
+    <!-- <span class="small">${item.fid}</span> -->
     <div style="text-wrap: balance; word-break: break-word; overflow-wrap: break-word; max-width: 100%;" class="italic">${inputs}</div>
     </div>
     <div class="max"></div>
@@ -354,19 +333,16 @@ async function loadAll() {
     if (isLoading) return;
     
     isLoadAll = true;
-    console.log("set loadAll", isLoadAll);
     const progressBar = document.getElementById('load-progress');
     if (progressBar) {
         progressBar.style.display = 'block';
         progressBar.removeAttribute('value');
     }
-    
     try {
         while (!hasReachedEnd) {
             await loadMoreTimelineItems("next");
         }
     } finally {
-        console.log("reset it");
         isLoadAll = false;
         checkAll();
         if (progressBar) {
@@ -400,28 +376,24 @@ async function loadMoreTimelineItems(mode, pp = PER_PAGE) {
         if (!response.ok) throw new Error('/timeline error');
         data = await response.json();
         
-        console.log('Server response:', {
-            mode,
-            end: hasReachedEnd,
-            timestamp: data.timestamp,
-            updates: data.items?.update?.length || 0,
-            inserts: data.items?.insert?.length || 0,
-            deletes: data.items?.delete?.length || 0,
-            appends: data.items?.append?.length || 0
-        });
+        // console.log('Server response:', {
+        //     mode,
+        //     end: hasReachedEnd,
+        //     timestamp: data.timestamp,
+        //     updates: data.items?.update?.length || 0,
+        //     inserts: data.items?.insert?.length || 0,
+        //     deletes: data.items?.delete?.length || 0,
+        //     appends: data.items?.append?.length || 0
+        // });
         
-        // Update pagination parameters from response
         if (data.origin) {
             if (mode === "update" || !origin) {
                 origin = data.origin;
             }
         }
-        // Process all items
         processTimelineItems(data.items, mode);
         
-        // Check if we've reached the end
         if (!data.offset) {
-            // console.log('Setting hasReachedEnd to true');
             hasReachedEnd = true;
             const count = container.querySelectorAll('li').length;
             endOfFile.textContent = `(${count} item${count > 1 ? 's' : ''})`;
@@ -430,7 +402,6 @@ async function loadMoreTimelineItems(mode, pp = PER_PAGE) {
                 observer.unobserve(endOfList);
             }
         } else {
-            // console.log('Setting hasReachedEnd to false');
             hasReachedEnd = false;
         }
         offset = data.offset;
@@ -458,17 +429,13 @@ async function loadMoreTimelineItems(mode, pp = PER_PAGE) {
     }
 }
 
-// Event-Handler für die Initialisierung
 document.addEventListener('DOMContentLoaded', (event) => {
-    // Initialisierung der DOM-Elemente
     container = document.getElementById('timeline');
     endOfFile = document.getElementById('end-of-file');
     endOfList = document.getElementById('end-of-list');
     closeIcon = document.getElementById('close-icon');
     searchInput = document.getElementById('search-input');
     selectAll = document.getElementById('select-all');
-    
-    // Initialisierung des Intersection Observer
     observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting && !hasReachedEnd) {
@@ -480,8 +447,6 @@ document.addEventListener('DOMContentLoaded', (event) => {
         rootMargin: '100px',
         threshold: 0.1
     });
-
-    // Event-Listener für die Suche
     const searchForm = document.querySelector('form[role="search"]');
     if (searchForm) {
         searchForm.addEventListener('submit', (e) => {
@@ -489,19 +454,14 @@ document.addEventListener('DOMContentLoaded', (event) => {
             search();
         });
     }
-
-    // Event-Listener für pageshow
     window.addEventListener('pageshow', function(event) {
         if (isInitialized) return;
         isInitialized = true;
-        
         stopUpdateTimer();
         container.innerHTML = '';
         endOfFile.style.display = 'none';
         currentQuery = searchInput.value;
         observer.observe(endOfList);
-        
-        // Initialer Ladevorgang
         loadMoreTimelineItems("next");
     });
 });

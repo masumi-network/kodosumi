@@ -6,17 +6,13 @@ function formatDateTime(timestamp) {
 
 function formatRuntime(seconds) {
     if (!seconds) return '';
-    
-    // Runde die Sekunden auf ganze Zahlen
     seconds = Math.floor(seconds);
-    
     const days = Math.floor(seconds / (24 * 3600));
     seconds = seconds % (24 * 3600);
     const hours = Math.floor(seconds / 3600);
     seconds = seconds % 3600;
     const minutes = Math.floor(seconds / 60);
     seconds = seconds % 60;
-    
     if (days > 0) {
         return `${days}:${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     } else if (hours > 0 || minutes >= 60) {
