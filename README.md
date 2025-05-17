@@ -117,7 +117,7 @@ Stop the kodosumi services and spooler by hitting `CNTRL+C` in the corresponding
 
 ## Where to get from here?
 
-* [admin panel introduction](./panel.md)
-* panel API notebook
+* [admin panel introduction](./docs/panel.md)
+* [panel API example](./docs/api.md)
 * development workflow
 * deployment workflow

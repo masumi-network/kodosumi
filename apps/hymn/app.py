@@ -102,4 +102,4 @@ if __name__ == "__main__":
     import uvicorn
     sys.path.append(str(Path(__file__).parent.parent))
     # with reload == True we pass the application as a factory string
-    uvicorn.run("apps.hymn:app", host="0.0.0.0", port=8002, reload=True)
+    uvicorn.run("apps.hymn.app:app", host="0.0.0.0", port=8002, reload=True)

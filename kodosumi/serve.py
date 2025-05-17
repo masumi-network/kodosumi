@@ -14,6 +14,7 @@ from kodosumi.service.endpoint import KODOSUMI_API
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.service.inputs.forms import Checkbox, Model
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
+from kodosumi.runner.const import KODOSUMI_LAUNCH
 
 
 ANNONYMOUS_USER = "_annon_"
@@ -119,7 +120,7 @@ class ServeAPI(FastAPI):
                     else:
                         result = func(*bound_args.args, **bound_args.kwargs)
                     return {
-                        "result": result,
+                        "result": result.headers.get(KODOSUMI_LAUNCH, None),
                         "elements": elements
                     }
                 except InputsError as user_func_error:

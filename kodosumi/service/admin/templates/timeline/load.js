@@ -242,7 +242,6 @@ function createTimelineItem(item) {
     li.setAttribute('name', item.fid);
     
     const { statusIcon, format, progressClass, progressValue } = createProgressElement(item);
-    
     if (item.inputs) {
         let validInputs = Object.fromEntries(
             Object.entries(Object.values(item.inputs)[0])
@@ -264,13 +263,13 @@ function createTimelineItem(item) {
     </p>
     </div>
     <div class="follow">
-    <h5 class="small bold">${item.summary}</h5>
+    <h5 class="summary small bold">${item.summary || '...'}</h5>
     <!-- <span class="small">${item.fid}</span> -->
-    <div style="text-wrap: balance; word-break: break-word; overflow-wrap: break-word; max-width: 100%;" class="italic">${inputs}</div>
+    <div style="text-wrap: balance; word-break: break-word; overflow-wrap: break-word; max-width: 100%;" class="inputs italic">${inputs}</div>
     </div>
     <div class="max"></div>
     <div class="follow">
-    <label>${formatRuntime(item.runtime)}</label>
+    <label class="runtime">${formatRuntime(item.runtime)}</label>
     <svg class="${progressClass}" ${progressValue}></svg>
     <label>${formatDateTime(item.startup)}</label>
     <span class="max">&nbsp;</span>
@@ -305,8 +304,13 @@ function updateTimelineItem(element, item) {
     } else if (progressClass === "empty-circle") {
         create_empty_circle(svg);
     }
-    const runtimeLabel = element.querySelector('.follow:last-child label:first-child');
+    console.log("update", item);
+    // update: inputs and summary
+    const runtimeLabel = element.querySelector('.runtime');
     runtimeLabel.textContent = formatRuntime(item.runtime);
+    // update: inputs and summary
+    const summaryLabel = element.querySelector('.summary');
+    summaryLabel.textContent = item.summary;
 }
 
 function addClickHandlers(element, fid) {

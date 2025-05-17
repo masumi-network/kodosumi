@@ -222,22 +222,18 @@ class OutputsController(litestar.Controller):
                          state: State,
                          request: Request,
                          extended: bool=False) -> Union[Template, Dict]:
-        conn, _ = await _connect(fid, request, state, extended)
-        if not conn:
-            raise NotFoundException(f"Execution {fid} not found.")
-        return await _status(conn)
+        while True:
+            conn, _ = await _connect(fid, request, state, extended)
+            if not conn:
+                raise NotFoundException(f"Execution {fid} not found.")
+            ret =  await _status(conn)
+            if ret["status"]:
+                return ret
+            await asyncio.sleep(SLEEP)
 
     @get("/status/view/{fid:str}")
     async def view_status(self, fid: str) -> Template:
         return Template(STATUS_TEMPLATE, context={"fid": fid})
-
-    @get("/html/{fid:str}")
-    async def final_view(self, fid: str) -> Template:
-        pass
-
-    @get("/raw/{fid:str}")
-    async def final_raw(self, fid: str) -> Template:
-        pass
 
     @delete("/{fid:str}", summary="Delete or Kill Execution",
          description="Kills an active deletes a completed execution.")
