@@ -1,4 +1,5 @@
 let ioSource = null;
+let ioDone = false;
 let sse_loaded = false;
 
 let elmArticleHead = null;
@@ -65,6 +66,7 @@ let flow_active = true;
 let trashButton = null;
 let elmStatusIcon = null;
 
+let mainStreamReady = false;
 
 function parseData(event, updateTotal = true) {
     const [id, ts, js] = splitData(event);
@@ -131,47 +133,75 @@ function stopAutoSpark() {
     }
 }
 
+function checkMainStreamReady() {
+    return new Promise((resolve) => {
+        if (mainStreamReady) {
+            resolve(true);
+            return;
+        }
+        
+        const checkInterval = setInterval(() => {
+            if (mainStreamReady) {
+                clearInterval(checkInterval);
+                resolve(true);
+            }
+        }, 100);
+    });
+}
+
 function startSTDIO() {
-    ioSource = new EventSource(`/outputs/stdio/${fid}`);
-    ioSource.onopen = function() {
-        console.log("stdio SSE stream opened.");
-    };
-    ioSource.addEventListener('stdout', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="primary-text">' +  js + "<br/>";
-            scrollDown();
+    checkMainStreamReady().then(() => {
+        if (ioSource != null || ioDone) {
+            return;
         }
-    });
-    ioSource.addEventListener('stderr', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
-            scrollDown();
-        }
-    });
-    ioSource.addEventListener('error', function(event) {
-        const [id, ts, js] = splitData(event);
-        if (js != null) {
-            elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
-            scrollDown();
-        }
-    });
-    ioSource.addEventListener('eof', function(event) {
-        ioSource.close();
-        console.log("stdio SSE stream closed.");
+        ioSource = new EventSource(`/outputs/stdio/${fid}`);
+        ioSource.onopen = function() {
+            console.log("stdio SSE stream opened.");
+        };
+        ioSource.addEventListener('stdout', function(event) {
+            const [id, ts, js] = splitData(event);
+            if (js != null) {
+                elmStdio.innerHTML += '<span class="primary-text">' +  js + "<br/>";
+                scrollDown();
+            }
+        });
+        ioSource.addEventListener('stderr', function(event) {
+            const [id, ts, js] = splitData(event);
+            if (js != null) {
+                elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
+                scrollDown();
+            }
+        });
+        ioSource.addEventListener('error', function(event) {
+            const [id, ts, js] = splitData(event);
+            if (js != null) {
+                elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
+                scrollDown();
+            }
+        });
+        ioSource.addEventListener('eof', function(event) {
+            ioSource.close();
+            ioSource = null;
+            ioDone = true;
+            console.log("stdio SSE stream closed.");
+        });
     });
 }
 
 async function startEventSSE() {
+    if (sse_loaded) {
+        return;
+    }
+    
+    await checkMainStreamReady();
+    
     const url = `/outputs/stream/${fid}`;
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`Failed to fetch stream: ${response.statusText}`);
     }
-    if (sse_loaded) {
-        return;
-    }
+    
+    console.log("Event SSE stream opened.");
     sse_loaded = true;
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
@@ -181,20 +211,15 @@ async function startEventSSE() {
         const chunk = decoder.decode(value, { stream: true });
         elmEvent.innerHTML += chunk; 
     }
-}
-
-function startStdioSSE() {
-    if (ioSource == null) {
-        startSTDIO();
-    }
+    console.log("Event SSE stream closed.");
 }
 
 const stdio_observer = new MutationObserver((mutationsList, stdio_observer) => {
     for(const mutation of mutationsList) {
         if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
             const targetElement = mutation.target;
-            if (targetElement.classList.contains('active')) {
-                startStdioSSE();
+            if (targetElement.classList.contains('active') && ioSource == null) {
+                startSTDIO();
             }
         }
     }
@@ -247,6 +272,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     });
     eventSource.onopen = function() {
         console.log("main SSE stream opened.");
+        mainStreamReady = true;
     };
     eventSource.onerror = function() {
         console.log("main SSE stream error.");
@@ -324,7 +350,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     
     stdio_observer.observe(elmStdioPage, { attributes: true, attributeFilter: ['class'] });
     if (elmStdioPage.classList.contains('active')) {
-        startStdioSSE();
+        startSTDIO();
     }
 
     const event_observer = new MutationObserver((mutationsList, event_observer) => {
