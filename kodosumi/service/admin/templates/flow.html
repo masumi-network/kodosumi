@@ -48,6 +48,8 @@
     let isLoading = false;
     let observer = null;
     
+    let debounceTimeout = null;
+
     function search() {
         searchFlows();
     }
