@@ -349,7 +349,7 @@ class Select(FormElement):
                 opt.value = True
             else:
                 opt.value = False
-
+        return value
 
 class ActionElement(FormElement):
 
@@ -482,9 +482,22 @@ class Model:
         return Model(*children, **kwargs)
     
     def set_data(self, data: Dict[str, Any]) -> None:
+        """Setzt die Werte der Formularelemente"""
+        # Wenn keine Daten vorhanden sind, setze alle Checkboxen auf False
+        if not data:
+            for child in self.children:
+                if isinstance(child, Checkbox):
+                    child.value = False
+            return
+
+        # Verarbeite vorhandene Daten
         for child in self.children:
-            if hasattr(child, "name") and child.name in data:
-                child.value = child.parse_value(data[child.name])
+            if hasattr(child, "name"):
+                if isinstance(child, Checkbox):
+                    # Für Checkboxen: Setze auf False wenn nicht in Daten vorhanden
+                    child.value = child.parse_value(data.get(child.name, "off"))
+                elif child.name in data:
+                    child.value = child.parse_value(data[child.name])
 
 
 __all__ = [

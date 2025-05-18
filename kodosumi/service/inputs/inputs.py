@@ -2,7 +2,7 @@ import asyncio
 import json
 import sqlite3
 from pathlib import Path
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, Optional, List, Union
 
 import litestar
 import ray
@@ -66,7 +66,7 @@ class InputsController(litestar.Controller):
     async def post(self, 
                     path: str, 
                     state: State,
-                    request: Request) -> Template:
+                    request: Request) -> Union[Template, Redirect]:
         schema_url = str(request.base_url).rstrip("/") + f"/-/{path}"
         timeout = state["settings"].PROXY_TIMEOUT
         async with AsyncClient(timeout=timeout) as client:
@@ -89,8 +89,7 @@ class InputsController(litestar.Controller):
                 result = response.json().get("result", None)
                 elements = response.json().get("elements", [])
                 if result:
-                    fid = json.loads(result.get("body")).get("fid", None)
-                    return Redirect(STATUS_REDIRECT.format(fid=fid))
+                    return Redirect(STATUS_REDIRECT.format(fid=str(result)))
                 model = Model.model_validate(elements, errors=errors)
                 model.set_data(dict(data))
                 html = model.render()
