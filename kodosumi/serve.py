@@ -124,6 +124,9 @@ class ServeAPI(FastAPI):
                         "elements": elements
                     }
                 except InputsError as user_func_error:
+                    user_func_error.errors.setdefault("_global_", [])
+                    user_func_error.errors["_global_"].extend(
+                        user_func_error.args)
                     return {
                         "errors": user_func_error.errors,
                         "elements": elements
