@@ -77,6 +77,23 @@ def update_files(new_version: str):
     with open(core_path, "w") as f:
         f.write(new_content)
 
+def update_requirements():
+    """Updates requirements.txt with current dependencies using pip freeze."""
+    try:
+        print("\nUpdating requirements.txt...")
+        result = subprocess.run(
+            ["pip", "freeze"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        with open("requirements.txt", "w") as f:
+            f.write(result.stdout)
+        print("requirements.txt has been updated successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error updating requirements.txt: {e}")
+        sys.exit(1)
+
 def git_commit_and_push(version: str):
     """Commits the version changes and pushes them to remote."""
     try:
@@ -163,6 +180,7 @@ def main():
         sys.exit(0)
     
     update_files(new_version)
+    update_requirements()
     git_commit_and_push(new_version)
     create_git_tag(new_version)
     
