@@ -28,13 +28,24 @@ class LoginControl(litestar.Controller):
                              transaction: AsyncSession) -> Response:
         return await self._get_role(transaction, name, password)
 
-    @post("/login", summary="Login",
-         description="Login with name and password.", status_code=200, 
+    @post("/login", summary="Login with form",
+         description="Login with name and password using form data.", status_code=200, 
          opt={"no_auth": True})
     async def login_role_post(
             self, 
             data: Annotated[
                 RoleLogin, Body(media_type=RequestEncodingType.URL_ENCODED)],
+            transaction: AsyncSession) -> Response:
+        return await self._get_role(
+            transaction, data.name, data.password, data.redirect)
+
+    @post("/api/login", summary="Login with JSON",
+         description="Login with name and password using JSON body.", status_code=200, 
+         opt={"no_auth": True})
+    async def login_role_json(
+            self, 
+            data: Annotated[
+                RoleLogin, Body(media_type=RequestEncodingType.JSON)],
             transaction: AsyncSession) -> Response:
         return await self._get_role(
             transaction, data.name, data.password, data.redirect)
