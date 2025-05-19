@@ -10,7 +10,7 @@ class Element:
 
     type: Optional[str] = None
 
-    def __init__(self, text: str):
+    def __init__(self, text: str | None = None):
         self.text = text
 
     def to_dict(self) -> Dict[str, Any]:
@@ -25,7 +25,7 @@ class Element:
 class HTML(Element):
     type = "html"
 
-    def __init__(self, text: str):
+    def __init__(self, text: str | None = None):
         super().__init__(text=text)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -35,16 +35,18 @@ class HTML(Element):
         }
 
     def render(self) -> str:
-        return self.text
+        return self.text or ""
 
 class Break(HTML):
     def __init__(self):
         super().__init__('<div class="space"></div>')
 
 class Markdown(Element):
+
     type = "markdown"
+
     def __init__(self, text: str):
-        super().__init__(text=text)
+        super().__init__(text=text or "")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -53,7 +55,7 @@ class Markdown(Element):
         }
 
     def render(self) -> str:
-        text = dedent(self.text)# Konvertiere Markdown zu HTML mit Erweiterungen
+        text = dedent(self.text or "")
         return markdown.markdown(
             text, 
             extensions=[
@@ -424,7 +426,7 @@ class JsonModel(BaseModel):
 
 
 class Model:
-    def __init__(self, *children: FormElement):
+    def __init__(self, *children: Any):
         self.children = children
 
     def get_model_json(self) -> List[Dict[str, Any]]:

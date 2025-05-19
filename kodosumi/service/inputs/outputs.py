@@ -3,6 +3,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import AsyncGenerator, Optional, List, Union, Dict, Tuple
+from datetime import datetime, timedelta
 
 import litestar
 import ray
@@ -109,7 +110,7 @@ async def _event(
             cursor.execute(current_query, tuple(current_params))
             for _id, stamp, kind, msg in cursor.fetchall():
                 t0 = now()
-                last = t0
+                last = stamp
                 if kind == EVENT_STATUS:
                     status = msg
                 out = f"{stamp}:"
@@ -121,8 +122,10 @@ async def _event(
                         "data": out
                     }
                 offset = _id
-            if status in STATUS_FINAL and last and last + AFTER < now():
-                break
+            if status in STATUS_FINAL:
+                if last:
+                    if now() - last > AFTER:
+                        break
             await asyncio.sleep(SLEEP)
             if now() > t0 + PING:
                 t0 = now()

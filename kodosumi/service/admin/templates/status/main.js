@@ -68,6 +68,93 @@ let elmStatusIcon = null;
 
 let mainStreamReady = false;
 
+let stdioBuffer = [];
+const STDIO_BUFFER_SIZE = 10;
+let lastStdioFlush = Date.now();
+const MIN_FLUSH_INTERVAL = 100; // Minimum Zeit zwischen Flushes in ms
+let stdioFlushTimer = null;
+const MAX_FLUSH_DELAY = 1000; // Maximale Verzögerung für Flush in ms
+
+let outputBuffer = [];
+const OUTPUT_BUFFER_SIZE = 10;
+let lastOutputFlush = Date.now();
+let outputFlushTimer = null;
+
+function shouldFlushBuffer(lastFlush) {
+    return Date.now() - lastFlush >= MIN_FLUSH_INTERVAL;
+}
+
+function scheduleGuaranteedFlush(bufferType) {
+    if (bufferType === 'stdio') {
+        if (stdioFlushTimer) {
+            clearTimeout(stdioFlushTimer);
+        }
+        stdioFlushTimer = setTimeout(() => {
+            if (stdioBuffer.length > 0) {
+                flushStdioBuffer();
+            }
+        }, MAX_FLUSH_DELAY);
+    } else if (bufferType === 'output') {
+        if (outputFlushTimer) {
+            clearTimeout(outputFlushTimer);
+        }
+        outputFlushTimer = setTimeout(() => {
+            if (outputBuffer.length > 0) {
+                flushOutputBuffer();
+            }
+        }, MAX_FLUSH_DELAY);
+    }
+}
+
+function addToStdioBuffer(text, isError = false) {
+    stdioBuffer.push({ text, isError });
+    if (stdioBuffer.length >= STDIO_BUFFER_SIZE || shouldFlushBuffer(lastStdioFlush)) {
+        flushStdioBuffer();
+    } else {
+        scheduleGuaranteedFlush('stdio');
+    }
+}
+
+function flushStdioBuffer() {
+    if (stdioBuffer.length === 0) return;
+    
+    const fragment = document.createDocumentFragment();
+    stdioBuffer.forEach(({ text, isError }) => {
+        const span = document.createElement('span');
+        span.className = isError ? 'error-text' : 'primary-text';
+        span.textContent = text;
+        fragment.appendChild(span);
+    });
+    elmStdio.appendChild(fragment);
+    stdioBuffer = [];
+    lastStdioFlush = Date.now();
+    scrollDown();
+}
+
+function addToOutputBuffer(text) {
+    outputBuffer.push(text);
+    if (outputBuffer.length >= OUTPUT_BUFFER_SIZE || shouldFlushBuffer(lastOutputFlush)) {
+        flushOutputBuffer();
+    } else {
+        scheduleGuaranteedFlush('output');
+    }
+}
+
+function flushOutputBuffer() {
+    if (outputBuffer.length === 0) return;
+    
+    const fragment = document.createDocumentFragment();
+    outputBuffer.forEach(text => {
+        const div = document.createElement('div');
+        div.innerHTML = text;
+        fragment.appendChild(div);
+    });
+    elmOutput.appendChild(fragment);
+    outputBuffer = [];
+    lastOutputFlush = Date.now();
+    scrollDown();
+}
+
 function parseData(event, updateTotal = true) {
     const [id, ts, js] = splitData(event);
     const currentSecond = Math.floor(ts);
@@ -161,29 +248,36 @@ function startSTDIO() {
         ioSource.addEventListener('stdout', function(event) {
             const [id, ts, js] = splitData(event);
             if (js != null) {
-                elmStdio.innerHTML += '<span class="primary-text">' +  js + "<br/>";
-                scrollDown();
+                addToStdioBuffer(js);
+            }
+        });
+        ioSource.addEventListener('debug', function(event) {
+            const [id, ts, js] = splitData(event);
+            if (js != null) {
+                addToStdioBuffer(js);
             }
         });
         ioSource.addEventListener('stderr', function(event) {
             const [id, ts, js] = splitData(event);
             if (js != null) {
-                elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
-                scrollDown();
+                addToStdioBuffer(js, true);
             }
         });
         ioSource.addEventListener('error', function(event) {
             const [id, ts, js] = splitData(event);
             if (js != null) {
-                elmStdio.innerHTML += '<span class="error-text">' +  js + "<br/>";
-                scrollDown();
+                addToStdioBuffer(js, true);
             }
         });
         ioSource.addEventListener('eof', function(event) {
+            flushStdioBuffer();
             ioSource.close();
             ioSource = null;
             ioDone = true;
-            console.log("stdio SSE stream closed.");
+            console.log("stdio SSE stream closed (eof).");
+        });
+        ioSource.addEventListener('alive', function(event) {
+            flushStdioBuffer();
         });
     });
 }
@@ -317,8 +411,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     eventSource.addEventListener('result', function(event) {
         const [ts, js] = parseData(event);
         if (js != null) {
-            elmOutput.innerHTML += js; 
-            scrollDown();
+            addToOutputBuffer(js);
         }
     });
     eventSource.addEventListener('final', function(event) {
@@ -343,7 +436,8 @@ document.addEventListener('DOMContentLoaded', (event) => {
         startAutoSpark();
     });
     eventSource.addEventListener('eof', function(event) {
-        console.log('main SSE stream closed.');
+        flushOutputBuffer();
+        console.log('main SSE stream closed (eof).');
         eventSource.close();
         stopAutoSpark();
     });
