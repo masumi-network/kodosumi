@@ -4,12 +4,7 @@ kodosumi is the runtime environment to manage and execute agentic services at sc
 
 kodosumi is one component of a larger eco system with [masumi and sokosumi](https://www.masumi.network/).
 
-
-<div align="center">
-  <img src="docs/images/ecosystem.png" alt="Kodosumi Ecosystem Overview" >
-  <br>
-  <em>Kodosumi Ecosystem Overview</em>
-</div>
+![Eco System](./docs/assets/ecosystem.png)
 
 # Introduction
 
