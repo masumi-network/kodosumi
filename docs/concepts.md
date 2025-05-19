@@ -1,4 +1,4 @@
-# Concepts
+# kodosumi concepts
 
 This document provides an overview of the key concepts that constitute the Kodosumi framework. 
 

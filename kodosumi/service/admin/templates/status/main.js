@@ -122,8 +122,9 @@ function flushStdioBuffer() {
     stdioBuffer.forEach(({ text, isError }) => {
         const span = document.createElement('span');
         span.className = isError ? 'error-text' : 'primary-text';
-        span.textContent = text;
+        span.innerHTML = text;
         fragment.appendChild(span);
+        fragment.appendChild(document.createElement('br'));
     });
     elmStdio.appendChild(fragment);
     stdioBuffer = [];

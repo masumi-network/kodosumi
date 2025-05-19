@@ -60,15 +60,19 @@ def now():
 
 
 def serialize(data):
-    if isinstance(data, BaseModel):
-        dump = {data.__class__.__name__: data.model_dump()}
-    elif isinstance(data, (dict, str, int, float, bool)):
-        dump = {data.__class__.__name__: data}
-    elif hasattr(data, "__dict__"):
-        dump = {data.__class__.__name__: data.__dict__}
-    elif hasattr(data, "__slots__"):
-        dump = {data.__class__.__name__: {
-            k: getattr(data, k) for k in data.__slots__}}
-    else:
-        dump = {"TypeError": str(data)}
-    return DynamicModel(dump).model_dump_json()
+    def _resolve(d):
+        if isinstance(d, BaseModel):
+            return {d.__class__.__name__: d.model_dump()}
+        elif isinstance(d, (dict, str, int, float, bool)):
+            return {d.__class__.__name__: d}
+        elif hasattr(d, "__dict__"):
+            return {d.__class__.__name__: d.__dict__}
+        elif hasattr(d, "__slots__"):
+            return {d.__class__.__name__: {
+                k: getattr(d, k) for k in d.__slots__}}
+        elif isinstance(d, (list, tuple)):
+            return {"__list__": [_resolve(item) for item in d]}
+        else:
+            return {"TypeError": str(d)}
+        
+    return DynamicModel(_resolve(data)).model_dump_json()

@@ -109,7 +109,7 @@ This command starts kodosumi spooler in the background and kodosumi panel and AP
 > Command `koco start` starts the kodosumi spooler and the kodosumi panel API and is equivalent to:
 > ```bash
 > koco spool
-> koco serve --register http://localhost:8001/-/routes
+> koco serve
 
 ### STEP 6 - Look around
 
@@ -121,5 +121,6 @@ Stop the kodosumi services and spooler by hitting `CNTRL+C` in the corresponding
 
 * [admin panel introduction](./docs/panel.md)
 * [panel API example](./docs/api.md)
-* development workflow
-* deployment workflow
+* [development workflow](./docs/develop.md)
+* [deployment workflow](./docs/deploy.md)
+
