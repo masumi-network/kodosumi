@@ -107,6 +107,8 @@ The response contains the _openapi.json_ fields for _summary_ (title), _descript
 
 kodosumi rendering engine translates all inputs `elements` into a form to post and trigger flow execution at http://localhost:3370/inputs/-/127.0.0.1/8002/-/
 
+[![Hymn](./panel/thumb/form.png)](./panel/form.png)
+
 To directly `POST` follow the _inputs_ scheme as in the following example:
 
 ```python
