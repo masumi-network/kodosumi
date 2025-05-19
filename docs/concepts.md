@@ -10,7 +10,7 @@ A _Flow_ represents an automated process, workflow, or system of interconnected 
 
 ### Agentic Service
 
-An Agentic Service is a self-contained, deployable unit within the Kodosumi framework. It integrates one or more [Flows](#flows) with required resources and configurations to deliver complete functionality. An agentic service comprises [endpoints](#endpoints) and [entrypoints](#entrypoints) into [flows](#flows). Service [endpoints](#endpoints) implement request/response patterns, while [flows](#flows) implement business logic and return intermediate and final results among other events. The [entrypoint](#entrypoints) is a Python object or callable to enter flow execution.
+An Agentic Service is a self-contained, deployable unit within the Kodosumi framework. It integrates one or more [Flows](#flows) with required resources and configurations to deliver complete functionality. An agentic service comprises [endpoints](#endpoint) and [entrypoints](#entrypoint) into [flows](#flows). Service [endpoints](#endpoint) implement request/response patterns, while [flows](#flows) implement business logic and return intermediate and final results among other events. The [entrypoint](#entrypoint) is a Python object or callable to enter flow execution.
 
 ### Agent
 
@@ -53,7 +53,7 @@ The Ray Driver is the process that runs the main program in a Ray cluster. It is
 
 ### Flow Register
 
-Flow Registers are the source locations where Flow [endpoints](#endpoints) are registered in the system. They maintain a catalog of available Flow sources, their endpoints, and their [entrypoints](#entrypoints), enabling the discovery and routing of Flow operations.
+Flow Registers are the source locations where Flow [endpoints](#endpoint) are registered in the system. They maintain a catalog of available Flow sources, their endpoints, and their [entrypoints](#entrypoint), enabling the discovery and routing of Flow operations.
 
 ### Endpoint
 
@@ -61,11 +61,11 @@ Endpoints are the defined interfaces of an Agentic Service that expose its funct
 
 ### Entrypoint
 
-Entrypoints are the internal entry locations within an Agentic Service where Flows can be initiated or connected. They serve as the bridge between [Endpoints](#endpoints) and [Flow implementations](#flows), defining how external requests are transformed into Flow executions.
+Entrypoints are the internal entry locations within an Agentic Service where Flows can be initiated or connected. They serve as the bridge between [Endpoints](#endpoint) and [Flow implementations](#flows), defining how external requests are transformed into Flow executions.
 
 ### Serve API
 
-Serve API is Kodosumi's specialized wrapper around FastAPI, providing enhanced functionality for building HTTP [endpoints](#endpoints) for [agentic services](#agentic-service). It integrates seamlessly with Ray Serve and offers standardized patterns for API development.
+Serve API is Kodosumi's specialized wrapper around FastAPI, providing enhanced functionality for building HTTP [endpoints](#endpoint) for [agentic services](#agentic-service). It integrates seamlessly with Ray Serve and offers standardized patterns for API development.
 
 ### Runner
 
