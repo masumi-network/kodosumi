@@ -1,0 +1,24 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="google" content="notranslate">
+    <title>kodosumi</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="/static/beer.min.css" rel="stylesheet">
+    <link href="/static/kodosumi.css" rel="stylesheet">
+    <script type="module" src="/static//beer.min.js"></script>
+    <script type="module" src="/static/material-dynamic-colors.min.js"></script>
+    <script type="module" src="/static/d3.v7.min.js"></script>
+    {% block head %}{% endblock %}
+</head>
+
+<body class="light">
+    <header class="max fixed">
+        {% block header %}{% endblock %}
+    </header>
+    {% block nav %}{% endblock %}
+    {% block main %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,153 @@
+{% extends "_frame.html" %}
+
+{% block menu %}
+<h3><a href="#"><i id="details-toggle">arrow_drop_down</i></a> <span class="summary"><progress class="circle small"></progress></span></h3>
+<div class="max"></div>
+<div class="tabs right-align" style="height: 50px;">
+    <a class="tab-mode active" data-ui="#page-output"><span>Result</span> <i id="page-output-follow" class="tiny fill">expand_circle_down</i></a>
+    <a class="tab-mode" data-ui="#page-stdio">I-O <i id="page-stdio-follow" class="tiny fill">expand_circle_down</i></a>
+    <a class="tab-mode" data-ui="#page-event">Events <i id="page-event-follow" class="tiny fill">expand_circle_down</i></a>
+    <a href="/exec/html/{{fid}}" target="_blank"><i>download</i></a>
+</div>
+{% endblock %}
+
+{% block details %}
+<div id="status-grid" class="invalid grid margin status-grid">
+    <div class="s12 m6 l2">
+        <legend>Status</legend>
+        <article id="status-valid" class="middle-align border small-padding small-round card status-card">
+            <a id="trash-button" href="#"><i id="status-icon">pause</i></a> &nbsp;
+            <span class="status">loading ...</span>
+        </article>
+    </div>
+    <div class="s12 m6 l2">
+    <legend>Progress</legend>
+    <article class="border small-padding small-round card center-align middle-align status-card">
+        <progress id="progress" class="fill small-round progress-bar" max="100">
+        </progress>
+    </article>
+</div>
+<div class="s12 m6 l2">
+    <legend>Startup</legend>
+    <article class="border small-padding small-round card status-card">
+        <span class="startup">-</span>
+    </article>
+</div>
+<div class="s12 m6 l2">
+    <legend>Finish</legend>
+    <article class="border small-padding small-round card status-card">
+        <span class="finish">-</span>
+    </article>
+</div>
+<div class="s12 m6 l1">
+    <legend>Runtime</legend>
+    <article class="border small-padding left-align small-round card status-card">
+        <span class="runtime">-</span>
+    </article>
+</div>
+<div class="s12 m6 l1">
+    <legend>Size</legend>
+    <article class="border small-padding small-round card left-align middle-align status-card">
+        <span class="size">-</span>kB
+    </article>
+</div>
+<div class="s12 m6 l2">
+    <legend>Events</legend>
+    <article class="border small-padding small-round card center-align bottom-align status-card">
+        <div id="sparkline" class="no-round sparkline-container"></div>
+    </article>
+</div>
+<!-- <div class="s12 m6 l1">
+    <legend>&nbsp;</legend>
+    <article class="border small-padding small-round card status-card">
+        <a href="#"><i>menu</i> &nbsp;&nbsp;
+        <span>Action</span></a>
+    </article>
+</div> -->
+{% endblock %}
+
+{% block page %}
+{% include "_kill.html" %}
+<div class="active page" id="page-output">
+    <article id="article-output" class="max margin small-elevate large-padding article-container">
+        <p style="display: none;" class="final-result info-l1"><span class="info-text">RESULT</span></p>
+        <div><span id="output" class="output"></span><a id="output-end"></a></div>
+        <a name="final-result"></a>
+        <div class="medium-space"></div>
+        <div class="final-result" style="display: none;">
+            <p class="info-l1"><span class="info-text">FINAL</span></p>
+            <span id="final" class=""></span>
+        </div>
+        <div class="medium-space"></div>
+        <div id="about" style="display: none;">
+            <p class="info-l1"><span class="info-text">ABOUT THIS DOCUMENT</span></p>
+            <table class="border small-space min about-table">
+                <tbody>
+                    <tr><td><b>DATE/ TIME:</b></td>
+                        <td><span class="startup"></span></td>
+                    </tr>
+                    <tr><td><b>STATUS:</b></td>
+                        <td><span class="status"></span></td>
+                    </tr>
+                    <tr><td><b>RUNTIME:</b></td>
+                        <td><span class="runtime"></span></td>
+                    </tr>
+                    <tr><td><b>FINISH:</b></td>    
+                        <td><span class="finish"></span></td>
+                    </tr>
+                    <tr><td><b>SIZE:</b></td>    
+                        <td><span><span class="size"></span>kB</span></td>
+                    </tr>
+                    <tr><td><b>FLOW ID:</b></td>
+                        <td><span class="fid"></span></td>
+                    </tr>
+                    <tr><td><b>NAME:</b></td>
+                        <td><span class="summary"></span></td>
+                    </tr>
+                    <tr><td><b>VERSION:</td>
+                        <td><span class="version"></span></td>
+                    </tr>
+                    <tr><td><b>DESCRIPTION:</b></td>
+                        <td><span class="description"></span></td>
+                    </tr>
+                    <tr><td><b>AUTHOR:</td>
+                        <td><span class="author"></span></td>
+                    </tr>
+                    <tr><td><b>ORGANIZATION:</td>
+                        <td><span class="organization"></span></td>
+                    </tr>
+                    <tr><td><b>KODOSUMI:</td>
+                        <td><span class="kodosumi"></span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </article>
+</div>
+<div class="page" id="page-event">
+    <article id="article-event" class="max margin small-elevate large-padding article-container">
+        <p class="info-l1"><span class="info-text">EVENT STREAM</span></p>
+        <div><span class="stdio" id="event"></span><a id="event-end"></a></div>
+    </article>
+</div>
+<div class="page" id="page-stdio">
+    <article id="article-stdio" class="max margin small-elevate large-padding article-container">
+        <p class="info-l1"><span class="info-text">INPUT</span></p>
+        <pre><code class="inputs monospace"></code></pre>
+        <p class="info-l1"><span class="info-text">OUTPUT</span></p>
+        <div><span class="stdio" id="stdio"></span><a id="stdio-end"></a></div>
+    </article>
+</div>
+{% endblock %}
+
+{% block script %}
+
+const fid = "{{ fid }}"; 
+
+{% include "_kill.js" %}
+{% include "status/main.js" %}
+{% include "status/follow.js" %}
+{% include "status/_act.js" %}
+{% include "status/func.js" %}
+
+{% endblock %}

@@ -39,6 +39,9 @@ from kodosumi.service.flow import FlowControl
 from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
+from kodosumi.service.inputs.inputs import InputsController
+from kodosumi.service.inputs.outputs import OutputsController
+from kodosumi.service.inputs.timeline.controller import TimelineController
 
 
 def app_exception_handler(request: Request, 
@@ -162,7 +165,8 @@ def create_app(**kwargs) -> Litestar:
     admin_console = Path(kodosumi.service.admin.__file__).parent.joinpath
 
     app = Litestar(
-        cors_config=CORSConfig(allow_origins=settings.CORS_ORIGINS),
+        cors_config=CORSConfig(allow_origins=settings.CORS_ORIGINS,
+                               allow_credentials=True),
         route_handlers=[
             Router(path="/", route_handlers=[LoginControl]),
             Router(path="/role", route_handlers=[RoleControl]),
@@ -170,6 +174,9 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/admin", route_handlers=[AdminControl]),
             Router(path="/flow", route_handlers=[FlowControl]),
             Router(path="/exec", route_handlers=[ExecutionControl]),
+            Router(path="/inputs", route_handlers=[InputsController]),
+            Router(path="/outputs", route_handlers=[OutputsController]),
+            Router(path="/timeline", route_handlers=[TimelineController]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],
@@ -206,6 +213,7 @@ def create_app(**kwargs) -> Litestar:
     )
     app_logger(settings)
     logger.info(f"app server started at {settings.APP_SERVER}")
+    logger.info(f"exec source path {settings.EXEC_DIR}")
     logger.debug(f"admin database at {settings.ADMIN_DATABASE}")
     logger.debug(f"screen log level: {settings.APP_STD_LEVEL}, "
                  f"file log level: {settings.APP_LOG_FILE_LEVEL}, "

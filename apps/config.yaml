@@ -1,48 +1,78 @@
 proxy_location: EveryNode
 http_options:
-  host: 127.0.0.1
+  host: 0.0.0.0
   port: 8001
-  
 grpc_options:
-  port: 9001
+  port: 9000
   grpc_servicer_functions: []
 
 logging_config:
   encoding: TEXT
-  log_level: DEBUG
+  log_level: INFO
   logs_dir: null
   enable_access_log: true
+  additional_log_standard_attrs: []
 
 applications:
-
-- name: example2
-  route_prefix: /example2
-  import_path: apps.example2:fast_app
-
-- name: example3
-  route_prefix: /example3
-  import_path: apps.example3:fast_app
-  runtime_env:
+- name: throughput
+  route_prefix: /throughput
+  import_path: apps.throughput.app:fast_app
+  runtime_env: 
+    pip:
+    - lorem-text
+- name: hymn
+  route_prefix: /hymn
+  import_path: apps.hymn.app:fast_app
+  runtime_env: 
     pip:
     - crewai
     - crewai_tools
 
-# - name: example4
-#   route_prefix: /example4
-#   import_path: apps.example4.service:fast_app
+# proxy_location: EveryNode
+# http_options:
+#   host: 127.0.0.1
+#   port: 8001
+  
+# grpc_options:
+#   port: 9001
+#   grpc_servicer_functions: []
+
+# logging_config:
+#   encoding: TEXT
+#   log_level: DEBUG
+#   logs_dir: null
+#   enable_access_log: true
+
+# applications:
+
+# - name: example2
+#   route_prefix: /example2
+#   import_path: apps.example2:fast_app
+
+# - name: example3
+#   route_prefix: /example3
+#   import_path: apps.example3:fast_app
 #   runtime_env:
 #     pip:
-#     - crewai==0.86.*
-#     - crewai_tools==0.17.*
+#     - crewai
+#     - crewai_tools
 
-# - name: example5
-#   route_prefix: /example5
-#   import_path: apps.example5.service:fast_app
-#   runtime_env:
-#     pip:
-#     - crewai==0.86.*
-#     - crewai_tools==0.17.*
+# # - name: example4
+# #   route_prefix: /example4
+# #   import_path: apps.example4.service:fast_app
+# #   runtime_env:
+# #     pip:
+# #     - crewai==0.86.*
+# #     - crewai_tools==0.17.*
 
-- name: example7
-  route_prefix: /example7
-  import_path: apps.example7.service:fast_app
+# # - name: example5
+# #   route_prefix: /example5
+# #   import_path: apps.example5.service:fast_app
+# #   runtime_env:
+# #     pip:
+# #     - crewai==0.86.*
+# #     - crewai_tools==0.17.*
+
+# - name: example7
+#   route_prefix: /example7
+#   import_path: apps.example7.service:fast_app

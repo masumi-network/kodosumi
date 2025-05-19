@@ -1,47 +1,23 @@
 import inspect
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Dict
+import copy
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import ValidationException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 import kodosumi.service.admin
-from kodosumi.runner.const import KODOSUMI_LAUNCH
-from kodosumi.runner.main import create_runner
 from kodosumi.service.endpoint import KODOSUMI_API
+from kodosumi.service.inputs.errors import InputsError
+from kodosumi.service.inputs.forms import Checkbox, Model
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
+from kodosumi.runner.const import KODOSUMI_LAUNCH
+
 
 ANNONYMOUS_USER = "_annon_"
-
-
-def Launch(request: Request,
-           entry_point: Union[Callable, str], 
-           inputs: Any=None,
-           reference: Optional[Callable] = None,
-           summary: Optional[str] = None,
-           description: Optional[str] = None) -> JSONResponse:
-    if reference is None:
-        for sf in inspect.stack():
-            if getattr(sf.frame.f_globals.get(sf.function), "_kodosumi_", None):
-                reference = sf.frame.f_globals.get(sf.function)
-                break
-    if reference is None:
-        extra = {}
-    else:
-        extra = request.app._method_lookup.get(reference)
-    if summary is not None:
-        extra["summary"] = summary
-    if description is not None:
-        extra["description"] = description
-    fid, runner = create_runner(
-        username=request.state.user, base_url=request.state.prefix, 
-        entry_point=entry_point, inputs=inputs, extra=extra)
-    runner.run.remote()  # type: ignore
-    return JSONResponse(content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})
-
 
 class ServeAPI(FastAPI):
 
@@ -90,6 +66,99 @@ class ServeAPI(FastAPI):
     
     def head(self, *args, **kwargs):
         return self._process_route("head", *args, **kwargs)
+
+    def enter(self, path: str, model: Model, *args, **kwargs):
+        openapi_extra = kwargs.get('openapi_extra', None) or {}
+        openapi_extra[KODOSUMI_API] = True
+        for field in ("author", "organization", "version"):
+            value = kwargs.pop(field, None)
+            if value:
+                openapi_extra[f"x-{field}"] = value
+        kwargs['openapi_extra'] = openapi_extra
+
+        def _create_get_handler() -> Callable:
+            async def get_form_schema() -> Dict[str, Any]:
+                # from kodosumi.helper import debug
+                # debug()
+                # breakpoint()
+                return {**kwargs, **{"elements": model.get_model()}}
+            return get_form_schema
+
+        def _create_post_handler(func: Callable) -> Callable:
+            async def post_form_handler_internal(request: Request):
+                js_data = await request.json()
+                elements = model.get_model()
+                processed_data: Dict[str, Any] = await request.json()
+                for element in model.children:
+                    if not hasattr(element, 'name') or element.name is None:
+                        continue
+                    element_name = element.name
+                    submitted_value: Any = None
+                    if element_name in js_data:
+                        submitted_value = js_data[element_name]
+                    elif isinstance(element, Checkbox):
+                        submitted_value = False
+                    else:
+                        submitted_value = None
+                    processed_data[element_name] = element.parse_value(
+                        submitted_value)
+
+                sig = inspect.signature(func)
+                bound_args = sig.bind_partial()
+                if 'inputs' in sig.parameters:
+                    bound_args.arguments['inputs'] = processed_data
+                if 'request' in sig.parameters:
+                    bound_args.arguments['request'] = request
+                bound_args.apply_defaults()
+
+                try:
+                    if inspect.iscoroutinefunction(func):
+                        # result = await func(request, processed_data)
+                        result = await func(*bound_args.args, 
+                                            **bound_args.kwargs)
+
+                    else:
+                        result = func(*bound_args.args, **bound_args.kwargs)
+                    return {
+                        "result": result.headers.get(KODOSUMI_LAUNCH, None),
+                        "elements": elements
+                    }
+                except InputsError as user_func_error:
+                    user_func_error.errors.setdefault("_global_", [])
+                    user_func_error.errors["_global_"].extend(
+                        user_func_error.args)
+                    return {
+                        "errors": user_func_error.errors,
+                        "elements": elements
+                    }
+                except Exception as user_func_exc:
+                    raise HTTPException(
+                        status_code=500, detail=traceback.format_exc())
+
+            return post_form_handler_internal
+
+        def decorator(user_func: Callable):
+            get_handler = _create_get_handler()
+            kwargs_copy = copy.deepcopy(kwargs)
+            kwargs_copy['openapi_extra'][KODOSUMI_API] = True
+            self.add_api_route(
+                path, get_handler, methods=["GET"], **kwargs_copy)
+            self._method_lookup[user_func] = {
+                 'path': path, 
+                 'model': model, 
+                 'method': 'GET', 
+                 **kwargs_copy 
+            }
+            self._route_lookup[("get", path)] = user_func 
+            post_handler = _create_post_handler(user_func)
+            kwargs_copy = copy.deepcopy(kwargs)
+            kwargs_copy['openapi_extra'][KODOSUMI_API] = False
+            self.add_api_route(
+                path, post_handler, methods=["POST"], **kwargs_copy)
+            self._route_lookup[("post", path)] = user_func 
+            user_func._kodosumi_ = True 
+            return user_func 
+        return decorator
 
     def add_features(self):
 

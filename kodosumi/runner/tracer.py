@@ -118,3 +118,39 @@ class Tracer:
     def text_sync(self, message: str):
         self._put(EVENT_RESULT, serialize(
             dtypes.Text(body=message)))
+
+
+class Mock:
+
+    async def debug(self, message: str):
+        print(f"{EVENT_DEBUG} {message}")
+
+    def debug_sync(self, message: str):
+        print(f"{EVENT_DEBUG} {message}")
+
+    async def result(self, message: Any):
+        print(f"{EVENT_RESULT} {serialize(message)}")
+
+    def result_sync(self, message: Any):
+        print(f"{EVENT_RESULT} {serialize(message)}")
+
+    async def action(self, message: Any):
+        print(f"{EVENT_ACTION} {serialize(message)}")
+
+    def action_sync(self, message: Any):
+        print(f"{EVENT_ACTION} {serialize(message)}")
+
+    async def markdown(self, message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.Markdown(body=message))}")
+
+    def markdown_sync(self, message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.Markdown(body=message))}")
+
+    async def html(self, message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.HTML(body=message))}")
+
+    async def text(self, message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.Text(body=message))}")
+
+    def text_sync(self, message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.Text(body=message))}")

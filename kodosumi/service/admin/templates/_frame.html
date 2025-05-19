@@ -1,0 +1,55 @@
+{% extends "_master.html" %}
+
+{% block nav %}
+    {% include "_nav.html" %}
+{% endblock %}
+
+{% block head %}
+<style>
+    {% include "_frame.css" %}
+    {% block styles %}
+    {% endblock %}
+</style>
+
+<script>
+    {% include "_frame.js" %}
+    {% block script %}
+    {% endblock %}
+</script>
+{% endblock %}
+
+{% block header %}
+<div id="header-container">
+    <nav>
+        <img src="/static/word.png" class="logo-img">
+    </nav>
+    <nav class="responsive">
+        <div id="header" class="max large-padding">
+            <article id="article-head" class="max small-elevate article-container">
+                <div style="position: absolute; right: 8px; top: 8px;">
+                    <svg width="8" height="8" viewBox="0 0 8 8" class="pulse-circle" style="display: none;">
+                        <circle cx="4" cy="4" r="4" fill="var(--primary)"/>
+                    </svg>
+                </div>
+                <nav class="bottom-align max left-align">
+                    {% block menu %}
+                    {% endblock %}
+                </nav>
+                <div class="small-divider"></div>
+                <details open id="header-details" class="max">
+                    <summary style="display: none;"></summary>
+                    {% block details %}
+                    {% endblock %}
+                </details>
+            </article>
+        </div>
+    </nav>    
+</div>  
+{% endblock %}
+
+{% block main %}
+<main class="responsive max large-padding main-container">
+    {% block page %}
+    {% endblock %}
+</main>
+{% endblock %}

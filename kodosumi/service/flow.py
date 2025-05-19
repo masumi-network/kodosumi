@@ -6,7 +6,7 @@ from litestar import get, post, put
 from litestar.datastructures import State
 
 import kodosumi.service.endpoint
-from kodosumi.dtypes import EndpointResponse, Pagination, RegisterFlow
+from kodosumi.dtypes import EndpointResponse, RegisterFlow
 from kodosumi.service.jwt import operator_guard
 
 
@@ -26,16 +26,26 @@ class FlowControl(litestar.Controller):
     @get("/", summary="Retrieve registered Flows",
          description="Paginated list of Flows which did register.", 
          tags=["Flow Control"])
-    async def list_flows(self,
-                         state: State, 
-                         q: Optional[str] = None,
-                         pp: int = 10, 
-                         p: int = 0) -> Pagination[EndpointResponse]:
+    async def list_flows(
+            self,
+            state: State, 
+            q: Optional[str] = None,
+            pp: int = 10, 
+            offset: Optional[str] = None) -> dict:
         data = kodosumi.service.endpoint.get_endpoints(state, q)
-        start = p * pp
-        end = start + pp
         total = len(data)
-        return Pagination(items=data[start:end], total=total, p=p, pp=pp)
+        start_idx = 0
+        if offset:
+            for i, item in enumerate(data):
+                if item.uid == offset:
+                    start_idx = i + 1
+                    break
+        end_idx = min(start_idx + pp, total)
+        results = data[start_idx:end_idx]
+        return {
+            "items": results,
+            "offset": results[-1].uid if results and end_idx < total else None
+        }
     
     @get("/tags", summary="Retrieve Tag List",
          description="Retrieve Tag List of registered Flows.", 

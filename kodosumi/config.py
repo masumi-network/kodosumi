@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     UVICORN_LEVEL: str = "WARNING"
     SECRET_KEY: str = "top secret -- change this in production"
 
-    WAIT_FOR_JOB: int = 30
+    WAIT_FOR_JOB: int = 600
     SPOOLER_INTERVAL: float = 0.25
     SPOOLER_BATCH_SIZE: int = 10
     SPOOLER_BATCH_TIMEOUT: float = 0.1

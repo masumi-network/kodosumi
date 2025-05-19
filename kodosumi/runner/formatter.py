@@ -34,10 +34,10 @@ class DefaultFormatter(Formatter):
 
     def AgentFinish(self, values, title=None) -> str:
         title = title or "Agent Finish"
-        ret = [f'<div class="info-l1">{title}</div>']
+        ret = [f'<div class="info-l1"><span class="info-text">{title}</span></div>']
         if values.get("thought", None):
             ret.append(
-                f'<div class="info-l2">Thought</div>"' + self.md(
+                f'<div class="info-l2"><span class="info-text">Thought</span></div>"' + self.md(
                     values['thought']))
         if values.get("text", None):
             ret.append(self.md(values['text']))
@@ -49,29 +49,29 @@ class DefaultFormatter(Formatter):
         return self.AgentFinish(value, "Agent Action")
 
     def ToolResult(self, values) -> str:
-        ret = ['<div class="info-l1">Tool Result</div>']
+        ret = ['<div class="info-l1"><span class="info-text">Tool Result</span></div>']
         if values.get("result", None):
             ret.append(self.md(values['result']))
         return "\n".join(ret)
 
     def TaskOutput(self, values) -> str:
-        ret = ['<div class="info-l1">Task Output</div>']
+        ret = ['<div class="info-l1"><span class="info-text">Task Output</span></div>']
         agent = values.get("agent", "unnamed agent")
         if values.get("name", None):
             ret.append(
-                f'<div class="info-l2">{values["name"]} ({agent})</div>')
+                f'<div class="info-l2"><span class="info-text">{values["name"]} ({agent})</span></div>')
         else:
-            ret.append(f'<div class="info-l2">{agent}</div>')
+            ret.append(f'<div class="info-l2"><span class="info-text">{agent}</span></div>')
         if values.get("description", None):
             ret.append(
-                f'<div class="info-l3">Task Description: </div>'
+                f'<div class="info-l3"><span class="info-text">Task Description:</span> </div>'
                 f'<em>{values["description"]}</em>')
         if values.get("raw", None):
             ret.append(self.md(values['raw']))
         return "\n".join(ret)
 
     def CrewOutput(self, values) -> str:
-        ret = ['<div class="info-l1">Crew Output</div>']
+        ret = ['<div class="info-l1"><span class="info-text">Crew Output</span></div>']
         if values.get("raw", None):
             ret.append(self.md(values['raw']))
         else:
@@ -91,7 +91,6 @@ class DefaultFormatter(Formatter):
         body = values.get("body", "")
         return self.md(textwrap.dedent(body))
 
-
     def obj2html(self, message: str) -> str:
         model = DynamicModel.model_validate_json(message)
         ret = []
@@ -100,7 +99,7 @@ class DefaultFormatter(Formatter):
             if meth:
                 ret.append(meth(values))
             else:
-                ret.append(f'<div class="info-l1">{elem}</div>')
+                ret.append(f'<div class="info-l1"><span class="info-text">{elem}</span></div>')
                 ret.append(f"<pre>{values}</pre>")
         return "\n".join(ret)
 

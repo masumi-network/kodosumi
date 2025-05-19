@@ -1,0 +1,11 @@
+<div class="field prefix no-margin ">
+    <i>search</i>
+    <input type="text" name="search" id="search-input" placeholder="search" oninput="debouncedSearch()"/>
+    <a id="close-icon" style="display: none;" href="javascript: clearIcon()">
+        <i class="tiny">close</i>
+    </a>
+</div>
+<div style="height: 3px;">
+    <progress id="load-progress" class="fill no-round" max="100" style="height: 3px; display: none;"></progress>
+</div>
+  

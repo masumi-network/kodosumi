@@ -1,0 +1,135 @@
+#status-grid legend {
+    margin-bottom: -16px;
+}
+
+#header-container {
+    margin-bottom: -0px !important;
+    padding-bottom: 0 !important;
+}
+#header {
+    padding-bottom: 0 !important;
+    padding-top: 0 !important;
+    margin-top: -12px !important;
+}
+
+main {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-top: 0 !important;
+}
+
+.stdio {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: monospace;
+}
+
+.ansi1 { font-weight: bold; }
+.ansi92 { color: var(--primary); }
+.ansi95 { color: var(--secondary); }
+.ansi94 { color: var(--tertiary); }
+
+.info-text {
+    background-color: var(--tertiary);
+    padding: 0.25rem;
+}
+
+.info-l1, .info-l2, .info-l3 {
+    color: var(--on-tertiary);
+    padding: 0;
+    font-weight: normal;
+    font-size: 0.875rem;
+    margin-top: 24px;
+    margin-bottom: 24px;
+    text-transform: uppercase;
+    text-align: left;
+    border-bottom: 2px solid var(--tertiary);
+    border-radius: 0;
+    line-height: 1.5rem;
+}
+
+pre {
+    font-size: 0.875rem;
+}
+
+.article-container {
+    height: 100%;
+    overflow-y: auto;
+}
+
+.status-card {
+    height: 42px; 
+    overflow: hidden; 
+    white-space: nowrap;
+}
+
+.sparkline-container {
+    width: 100%;
+    height: 80%;
+}
+
+.progress-bar {
+    border-radius: 4px !important;
+    height: 14px;
+}
+
+.logo-img {
+    padding-top: 8px;
+    padding-left: 8px;
+}
+
+.status-grid {
+    margin: 0 !important;
+    margin-left: 6px !important;
+}
+
+.about-table {
+    width: 70%;
+    min-width: 300px;
+}
+
+.monospace {
+    font-family: monospace;
+}
+
+.primary-text {
+    color: var(--primary);
+}
+
+.error-text {
+    color: var(--error);
+}
+
+.main-container {
+    padding-top: 0 !important;
+    overflow-y: hidden;
+    margin-bottom: 10px !important;
+    margin-top: -24px !important;
+}
+
+.rotating {
+    animation: rotation 2s infinite linear;
+}
+
+@keyframes rotation {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+#page-output a {
+    text-decoration: underline;
+    color: #4169E1;
+    transition: color 0.2s ease-in-out;
+}
+
+#page-output a:hover {
+    color: #00008B;
+    text-decoration: none;
+}
+
+
+
