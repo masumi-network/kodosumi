@@ -95,7 +95,7 @@ app = ServeAPI()
 
 The `ServeAPI()` initialization creates a FastAPI application with kodosumi-specific extensions. It provides automatic OpenAPI documentation, error handling, authentication and access control, input validation, and some configuration management.
 
-The `app` instance will be used to define the service _endpoint_ with `@app.enter` and to define service meta data following OpenAPI standards.
+The `app` instance will be used to define the service _endpoint_ with `@app.enter` and to define service meta data following OpenAPI standards. We will do this in step **5** of this guide, because before we implement the endpoint we specify the inputs model with next step **4**.
 
 ### 4. define user interface
 
@@ -161,7 +161,7 @@ class MyService: pass
 fast_app = MyService.bind()
 ```
 
-See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/configure-serve-deployment.html) for additional options on your deployment. Be advised to gather some experience with Ray core components before you rollout your services. Understand [remote resource requirements](https://docs.ray.io/en/latest/ray-core/scheduling/resources.html#resource-requirements) and how to [limit concurrency to avoid OOM](https://docs.ray.io/en/latest/ray-core/patterns/limit-running-tasks.html#pattern-using-resources-to-limit-the-number-of-concurrently-running-tasks)
+See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/configure-serve-deployment.html) for additional options on your deployment. Be advised to gather some experience with Ray core components before you rollout your services. Understand [remote resource requirements](https://docs.ray.io/en/latest/ray-core/scheduling/resources.html#resource-requirements) and how to [limit concurrency to avoid OOM issues](https://docs.ray.io/en/latest/ray-core/patterns/limit-running-tasks.html#pattern-using-resources-to-limit-the-number-of-concurrently-running-tasks)
 
 ### 7. run and deploy
 
@@ -171,7 +171,7 @@ You can now run and deploy your service with `serve run apps.my_service.app:fast
 
     koco serve --register http://localhost:8000/-/routes
 
-Test the service form at [/inputs/-/localhost/8000/-/](http://localhost:3370/inputs/-/localhost/8000/-/). Retrieve the inputs scheme from [/-/localhost/8000/-/](http://localhost:3370/-/localhost/8000/-/), and test the service at [/inputs/-/localhost/8000/-/](http://localhost:3370/inputs/-/localhost/8000/-/).
+Retrieve the inputs scheme from [/-/localhost/8000/-/](http://localhost:3370/-/localhost/8000/-/), and test the service at [/inputs/-/localhost/8000/-/](http://localhost:3370/inputs/-/localhost/8000/-/).
 
 Use for example `curl` to POST a service requests after successful authentication:
 
@@ -180,11 +180,9 @@ Use for example `curl` to POST a service requests after successful authenticatio
 
 #### with uvicorn
 
-Debugging Ray jobs and serve deployments requires remote debugger setup (see [Distributed debugging with](https://docs.ray.io/en/latest/ray-observability/ray-distributed-debugger.html)).
+Debugging Ray jobs and serve deployments requires remote debugger setup (see [Distributed debugging with](https://docs.ray.io/en/latest/ray-observability/ray-distributed-debugger.html)). To debug your `ServeAPI` application you can run and deploy your service with **uvicorn instead of Ray serve**. 
 
-To debug your `ServeAPI` application you can run and deploy your service with **uvicorn instead of Ray serve**. 
-
-Either launch uvicorn directly with `uvicorn apps.my_service.app:app --port 8005` or extend file `./apps/my_service/app.py` with the following `__main__` section. Then invoke the module with `python -m apps.my_service.app.
+Either launch uvicorn directly with `uvicorn apps.my_service.app:app --port 8005` or extend file `./apps/my_service/app.py` with the following `__main__` section. Then invoke the module with `python -m apps.my_service.app`.
 
 ```python
 if __name__ == "__main__":
