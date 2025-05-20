@@ -16,7 +16,7 @@ logging_config:
 applications:
 - name: hymn
   route_prefix: /hymn
-  import_path: apps.hymn.app:fast_app
+  import_path: hymn.app:fast_app
   runtime_env: 
     pip:
     - crewai

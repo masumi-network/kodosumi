@@ -22,7 +22,6 @@ async def _runner(seconds: float, results: float, stdios: float,
     async def stdio_callback():
         print(f'{lorem.words(randint(3, 10))}')
 
-    total_callbacks = results + stdios
     result_interval = seconds / results
     stdio_interval = seconds / stdios
 
@@ -96,28 +95,28 @@ def validate_positive_float(
 
 
 @app.enter(
-        path="/", 
-        model=core.forms.Model(
-            F.Markdown("""
-            # Test Runner
-                    
-            This application flow runs for the specified number of seconds 
-            and creates the specified number of results and `stdout` stream
-            messages.
-            """),
-            F.Break(),
-            F.InputText(label="Seconds to run", name="seconds", placeholder="10"),
-            F.InputText(label="Results", name="results", placeholder="3"),
-            F.InputText(label="Stdout", name="stdios", placeholder="30"),
-            F.Submit("Submit"),
-            F.Cancel("Cancel")
-        ),
-        summary="Throughput Test",
-        description="This application flow runs for the specified number of seconds and creates the specified number of results and `stdout` stream messages.",
-        version="1.0.0",
-        author="m.rau@house-of-communication.com",
-        tags=["Test"]
-    )
+    path="/", 
+    model=core.forms.Model(
+        F.Markdown("""
+        # Test Runner
+                
+        This application flow runs for the specified number of seconds 
+        and creates the specified number of results and `stdout` stream
+        messages.
+        """),
+        F.Break(),
+        F.InputText(label="Seconds to run", name="seconds", placeholder="10"),
+        F.InputText(label="Results", name="results", placeholder="3"),
+        F.InputText(label="Stdout", name="stdios", placeholder="30"),
+        F.Submit("Submit"),
+        F.Cancel("Cancel")
+    ),
+    summary="Throughput Test",
+    description="This application flow runs for the specified number of seconds and creates the specified number of results and `stdout` stream messages.",
+    version="1.0.0",
+    author="m.rau@house-of-communication.com",
+    tags=["Test"]
+)
 async def enter(request: fastapi.Request, inputs: dict):
     error = core.InputsError()
     seconds = validate_positive_float(inputs, "seconds", 10, error)
@@ -151,12 +150,11 @@ fast_app = ThroughputRunner.bind()  # type: ignore
 if __name__ == "__main__":
     import sys
     from pathlib import Path
-
+    sys.path.append(str(Path(__file__).parent.parent))
     import uvicorn
-    sys.path.append(str(Path(__file__).parent.parent.parent))
     uvicorn.run(
         # with reload == True we pass the application as a factory string
-        "apps.throughput.app:app", 
+        "throughput.app:app", 
         reload=True,
         host="0.0.0.0", 
         port=8001

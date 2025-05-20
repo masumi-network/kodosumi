@@ -17,4 +17,4 @@ applications:
 
 - name: my_service
   route_prefix: /my_service
-  import_path: apps.my_service.app:fast_app
+  import_path: my_service.app:fast_app

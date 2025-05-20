@@ -42,7 +42,7 @@ async def enter(request: fastapi.Request, inputs: dict):
         raise error
     return Launch(
         request, 
-        "apps.my_service.calc:execute", 
+        "my_service.calc:execute", 
         inputs={"tasks": tasks}
     )
 
@@ -62,4 +62,4 @@ if __name__ == "__main__":
     import uvicorn
     # with reload == True we pass the application as a factory string
     uvicorn.run(
-        "apps.my_service.app:app", host="0.0.0.0", port=8005, reload=True)
+        "my_service.app:app", host="0.0.0.0", port=8005, reload=True)

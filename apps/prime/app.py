@@ -15,8 +15,7 @@ app = ServeAPI()
 
 
 def run(inputs: dict, tracer: core.Tracer):
-    import apps.prime.calculator as calculator
-
+    import prime.calculator as calculator
     start = inputs.get("start", "").strip()
     end = inputs.get("end", "").strip()
     tasks = inputs.get("tasks", "").strip()
@@ -25,14 +24,14 @@ def run(inputs: dict, tracer: core.Tracer):
     return distribution
 
 async def run_async(inputs: dict, tracer: core.Tracer):
-    import apps.prime.calculator as calculator
-
+    import prime.calculator as calculator
     start = inputs.get("start", "").strip()
     end = inputs.get("end", "").strip()
     tasks = inputs.get("tasks", "").strip()
     distribution = calculator.get_prime_gaps_distribution_parallel(
         int(start), int(end), int(tasks), tracer)
     return distribution
+
 
 prime_model = core.forms.Model(
     F.Markdown("""
@@ -48,6 +47,7 @@ prime_model = core.forms.Model(
     F.Cancel("Cancel")
 )
 
+
 @app.enter(
         path="/", 
         model=prime_model,
@@ -59,10 +59,7 @@ prime_model = core.forms.Model(
         tags=["Test"]
     )
 async def enter(request: fastapi.Request, inputs: dict):
-    start = inputs.get("start", "").strip()
-    end = inputs.get("end", "").strip()
-    tasks = inputs.get("tasks", "").strip()
-    return core.Launch(request, "apps.prime.app:run", inputs=inputs)
+    return core.Launch(request, "prime.app:run", inputs=inputs)
 
 
 @app.enter(
@@ -76,10 +73,7 @@ async def enter(request: fastapi.Request, inputs: dict):
         tags=["Test"]
     )
 async def enter_a(request: fastapi.Request, inputs: dict):
-    start = inputs.get("start", "").strip()
-    end = inputs.get("end", "").strip()
-    tasks = inputs.get("tasks", "").strip()
-    return core.Launch(request, "apps.prime.app:run_async", inputs=inputs)
+    return core.Launch(request, "prime.app:run_async", inputs=inputs)
 
 
 @serve.deployment
@@ -92,7 +86,6 @@ fast_app = PrimeDistribution.bind()  # type: ignore
 if __name__ == "__main__":
     import sys
     from pathlib import Path
-    sys.path.append(str(Path(__file__).parent.parent.parent))
+    sys.path.append(str(Path(__file__).parent.parent))
     import uvicorn
-    # with reload == True we pass the application as a factory string
-    uvicorn.run("apps.prime.app:app", host="0.0.0.0", port=8004, reload=True)
+    uvicorn.run("prime.app:app", host="0.0.0.0", port=8004, reload=True)

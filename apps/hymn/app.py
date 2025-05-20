@@ -98,8 +98,6 @@ fast_app = HymnCreator.bind()  # type: ignore
 if __name__ == "__main__":
     import sys
     from pathlib import Path
-
-    import uvicorn
     sys.path.append(str(Path(__file__).parent.parent))
-    # with reload == True we pass the application as a factory string
-    uvicorn.run("apps.hymn.app:app", host="0.0.0.0", port=8002, reload=True)
+    import uvicorn
+    uvicorn.run("hymn.app:app", host="0.0.0.0", port=8002, reload=True)

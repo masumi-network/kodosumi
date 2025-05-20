@@ -16,7 +16,7 @@ logging_config:
 applications:
 - name: throughput
   route_prefix: /throughput
-  import_path: apps.throughput.app:fast_app
+  import_path: throughput.app:fast_app
   runtime_env: 
     pip:
     - lorem-text

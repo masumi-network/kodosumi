@@ -17,4 +17,4 @@ applications:
 
 - name: prime
   route_prefix: /prime
-  import_path: apps.prime.app:fast_app
+  import_path: prime.app:fast_app
