@@ -85,7 +85,7 @@ async def enter(request: fastapi.Request, inputs: dict):
     topic = inputs.get("topic", "").strip()
     if not topic:
         raise core.InputsError(topic="Please give me a topic.")
-    return core.Launch(request, "apps.hymn.app:crew", inputs=inputs)
+    return core.Launch(request, "hymn.app:crew", inputs=inputs)
 
 
 @serve.deployment
