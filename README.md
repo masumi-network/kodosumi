@@ -78,7 +78,6 @@ We will deploy kodosumi example apps. Clone kodosumi git source repository.
 
 ```bash
 git clone https://github.com/masumi-network/kodosumi.git
-cd kodosumi
 ```
 Directory `./kodosumi/apps` contains various example services. Copy or link the cloned directory from `./kodosumi/apps` to `./home/apps`.
 
@@ -113,14 +112,13 @@ This command starts kodosumi spooler in the background and kodosumi panel and AP
 
 ### STEP 6 - Look around
 
-Visit kodosumi admin panel at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **Config Screen** at [(http://localhost:3370/admin/routes](http://localhost:3370/admin/routes) in the **Admin Panel** and click **Reconnect**. Run the _Hymn Creator_ a revisit results at 
+Visit kodosumi admin panel at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **Config Screen** at [(http://localhost:3370/admin/routes](http://localhost:3370/admin/routes) in the **Admin Panel** and click **Reconnect**. Run the _Hymn Creator_ a revisit results at [the timeline screen](http://localhost:3370/timeline/view),
 
-Stop the kodosumi services and spooler by hitting `CNTRL+C` in the corresponding terminal. Stop Ray _serve_ with `serve shutdown --yes`. Stop the ray daemon with command `ray stop`.
+Stop the kodosumi services by hitting `CNTRL+C` in your terminal. The _spooler_ continues to run as a background daemon. You can stop the spooler with `koco spool --status`. Stop Ray _serve_ with `serve shutdown --yes` and Ray daemon with command `ray stop`.
 
 ## Where to get from here?
 
 * [admin panel introduction](./docs/panel.md)
 * [panel API example](./docs/api.md)
 * [development workflow](./docs/develop.md)
-* [deployment workflow](./docs/deploy.md)
 
