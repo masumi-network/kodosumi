@@ -66,7 +66,7 @@ async def enter(request: fastapi.Request, inputs: dict):
         path="/async", 
         model=prime_model,
         summary="Prime Gap Distribution (async)",
-        description="This agent creates a prime gap distribution for a given range of numbers.",
+        description="This agent creates a prime gap distribution for a given range of numbers. This version implements the async pattern.",
         version="0.1.0",
         author="m.rau@house-of-communication.com",
         organization="House of Communication",
