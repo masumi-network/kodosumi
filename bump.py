@@ -180,7 +180,7 @@ def main():
         sys.exit(0)
     
     update_files(new_version)
-    update_requirements()
+    # update_requirements()
     git_commit_and_push(new_version)
     create_git_tag(new_version)
     
