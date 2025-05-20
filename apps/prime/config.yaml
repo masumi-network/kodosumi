@@ -14,6 +14,7 @@ logging_config:
   additional_log_standard_attrs: []
 
 applications:
+
 - name: prime
   route_prefix: /prime
   import_path: apps.prime.app:fast_app

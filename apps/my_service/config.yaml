@@ -14,9 +14,7 @@ logging_config:
   additional_log_standard_attrs: []
 
 applications:
-- name: throughput
-  route_prefix: /throughput
-  import_path: apps.throughput.app:fast_app
-  runtime_env: 
-    pip:
-    - lorem-text
+
+- name: my_service
+  route_prefix: /my_service
+  import_path: apps.my_service.app:fast_app
