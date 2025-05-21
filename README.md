@@ -40,6 +40,7 @@ To install the latest `dev` from GitHub clone and install from source.
 ```bash
 git clone https://github.com/masumi-network/kodosumi.git
 cd kodosumi
+git checkout dev
 pip install .
 cd ..
 ```
@@ -63,9 +64,9 @@ Check `ray status` and visit ray dashboard at [http://localhost:8265](http://loc
 
 ### STEP 4 - prepare environment
 
-To use [openai](https://openai.com/) or other API you might need to create a local file `.env` to define API keys. This follows the 12 factors to [store config in the environment](https://12factor.net/config).
+To use [OpenAI](https://openai.com/) or other API you might need to create a local file `.env` to define API keys. This follows the 12 factors to [store config in the environment](https://12factor.net/config).
 
-Since the flow we are going to deploy uses [openai](https://openai.com/) you have to provide your API key in file `.env`.
+Since the flow we are going to deploy uses [OpenAI](https://openai.com/) you have to provide your API key in file `.env`.
 
 ```
 OPENAI_API_KEY=...
@@ -79,19 +80,38 @@ We will deploy kodosumi example apps. Clone kodosumi git source repository.
 ```bash
 git clone https://github.com/masumi-network/kodosumi.git
 ```
-Directory `./kodosumi/apps` contains various example services. Copy or link the cloned directory from `./kodosumi/apps` to `./home/apps`.
+Directory `./kodosumi/apps` contains various example services. Copy or link example services from `./kodosumi/apps/<name>` to `./home/<name>`. For this example use the _Hymn Creator_ which creates a short hymn about a given topic of your choice using [OpenAI](https://openai.com/) and [CrewAI](https://github.com/crewaiinc/crewai).
 
 ```bash
-cp -r ./kodosumi/apps ./home/
+# copy app source files
+cp -r kodosumi/apps/hymn ./home/hymn/
+
+# alternative: create a soft link to app package
+# > ln -s ../kodosumi/apps/hymn ./home/hymn
 ```
 
-Deploy example `apps.hymn.app` in folder `./apps`. Use Ray `serve deploy` to launch the service in your localhost Ray cluster.
+Deploy example `hymn.app` in folder `./home`. Use Ray `serve deploy` to launch the service in your localhost Ray cluster.
 
 ```bash
-serve deploy home/apps/hymn/config.yaml
+serve deploy home/hymn/config.yaml
+```
+
+This will setup a dedicated environment with Python dependencies _crewai_ and _crewai_tools_. Ray sets up this environment based on the relevant sections in `home/hymn/config.yaml`.
+
+```yaml
+applications:
+- name: hymn
+  route_prefix: /hymn
+  import_path: hymn.app:fast_app
+  runtime_env: 
+    pip:
+    - crewai
+    - crewai_tools
 ```
 
 Please be patient if the Ray serve application takes a moment to setup, install and deploy. Follow the deployment process with the Ray dashboard at [http://localhost:8265/#/serve](http://localhost:8265/#/serve). On my laptop initial deployment can easily take a couple of minutes.
+
+[![Ray Dashboard](./docs/assets/thumb/ray-dashboard.png)](./docs/assets/ray-dashboard.png)
 
 ### STEP 6 - start kodosumi
 
@@ -105,14 +125,16 @@ koco start --register http://localhost:8001/-/routes
 This command starts kodosumi spooler in the background and kodosumi panel and API in the foreground.
 
 > [!NOTE]
-> Command `koco start` starts the kodosumi spooler and the kodosumi panel API and is equivalent to:
+> Command `koco start` is equivalent to:
 > ```bash
 > koco spool
 > koco serve
 
 ### STEP 6 - Look around
 
-Visit kodosumi admin panel at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **Config Screen** at [(http://localhost:3370/admin/routes](http://localhost:3370/admin/routes) in the **Admin Panel** and click **Reconnect**. Run the _Hymn Creator_ a revisit results at [the timeline screen](http://localhost:3370/timeline/view),
+Visit kodosumi **[admin panel](http://localhost:3370)** at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **[control screen](http://localhost:3370/admin/routes)** in the **[admin panel](http://localhost:3370/)** and click **RECONNECT**. Launch the **[Hymn Creator](http://localhost:3370/inputs/-/localhost/8001/hymn/-/)** from the **[service screen](http://localhost:3370/admin/flow)** and revisit results at the **[timeline screen](http://localhost:3370/timeline/view)**.
+
+Visit [kodosumi panel overview](./docs/panel.md) to view some screenshots if you do not have the time and inclination. 
 
 Stop the kodosumi services by hitting `CNTRL+C` in your terminal. The _spooler_ continues to run as a background daemon. You can stop the spooler with `koco spool --status`. Stop Ray _serve_ with `serve shutdown --yes` and Ray daemon with command `ray stop`.
 
