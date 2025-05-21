@@ -113,14 +113,14 @@ This will setup a dedicated environment with Python dependencies _crewai_ and _c
 
 Please be patient if the Ray serve application takes a moment to setup, install and deploy. Follow the deployment process with the Ray dashboard at [http://localhost:8265/#/serve](http://localhost:8265/#/serve). On my laptop initial deployment can easily take a couple of minutes.
 
-[![Ray Dashboard](./docs/assets/thumb/ray-dashboard.png)](./docs/assets/ray-dashboard.png)
+![Ray Dashboard](./docs/assets/ray-dashboard.png)
 
 ### STEP 6 - start kodosumi
 
 Finally start the kodosumi components and register the deployed ray endpoints available at 
 [http://localhost:8001/-/routes](http://localhost:8001/-/routes). The port is defined in `config.yaml`. The path `/-/routes` reports available endpoints of active Ray deployments. 
 
- Ensure you start and serve from the same directory as Ray (`./home`).
+Ensure you start and serve from the same directory as Ray (`./home`).
 
 ```bash
 cd ./home

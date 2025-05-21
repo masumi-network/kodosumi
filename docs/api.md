@@ -45,24 +45,19 @@ The response is the first page of an offset paginated list of flows.
 
 ```python
 
-{
-    'items': [
-        {
-            'uid': '48ff6c11855aceed7f16ab190328c53c',
+{'items': [{'author': 'm.rau@house-of-communication.com',
+            'deprecated': None,
+            'description': 'This agent creates a short hymn about a given '
+                           'topic of your choice using openai and crewai.',
             'method': 'GET',
-            'url': '/-/localhost/8001/hymn/-/',
+            'organization': None,
             'source': 'http://localhost:8001/hymn/openapi.json',
             'summary': 'Hymn Creator',
-            'description': 'This agent creates a short hymn about a given topic...',
-            'deprecated': None,
-            'author': 'm.rau@house-of-communication.com',
-            'organization': None,
-            'tags': ['CrewAi', 'Test']
-        }
-    ],
-    'offset': None
-}
- ```
+            'tags': ['CrewAi', 'Test'],
+            'uid': '48ff6c11855aceed7f16ab190328c53c',
+            'url': '/-/localhost/8001/hymn/-/'}],
+ 'offset': None}
+```
 
 You can also simply use the `cookies`. This demo uses this approach.
 
@@ -140,7 +135,6 @@ resp = httpx.post(
         "topic": "Ich wollte ich wäre ein Huhn."
     }
 )
-resp
 ```
 
 In case of success the result contains the `fid` (flow identifier). Use this `fid` for further requests.
@@ -188,7 +182,6 @@ resp.json()
 The result after _starting_ but some time before _finish_ looks similar to:
 
 ```python
-
 {
     'status': 'running',
     'timestamp': 1747813976.091786,
@@ -206,34 +199,33 @@ The result after _starting_ but some time before _finish_ looks similar to:
     'entry_point': 'hymn.app:crew',
     'username': '35a04fc4-4442-4b24-b109-614b45d52de1'
 }
- ```
+```
 
- After completion the status request contains the final result:
+After completion the status request contains the final result:
 
- ```python
- {
-    'status': 'finished',
-    'timestamp': 1747813996.8025322,
-    'final': '{"CrewOutput":{"raw":"**Hymn Title: \\"Ich wollte ich wäre ein...',
-    'fid': '682d86536dd659324a5c8901',
-    'summary': 'Hymn Creator',
-    'description': 'This agent creates a short hymn about a given topic...',
-    'tags': ['Test', 'CrewAi'],
-    'deprecated': None,
-    'author': 'm.rau@house-of-communication.com',
-    'organization': None,
-    'version': '1.0.1',
-    'kodosumi_version': None,
-    'base_url': '/-/localhost/8001/hymn/-/',
-    'entry_point': 'hymn.app:crew',
-    'username': '35a04fc4-4442-4b24-b109-614b45d52de1'
-}
- ```
+```python
+{
+   'status': 'finished',
+   'timestamp': 1747813996.8025322,
+   'final': '{"CrewOutput":{"raw":"**Hymn Title: \\"Ich wollte ich wäre ein...',
+   'fid': '682d86536dd659324a5c8901',
+   'summary': 'Hymn Creator',
+   'description': 'This agent creates a short hymn about a given topic...',
+   'tags': ['Test', 'CrewAi'],
+   'deprecated': None,
+   'author': 'm.rau@house-of-communication.com',
+   'organization': None,
+   'version': '1.0.1',
+   'kodosumi_version': None,
+   'base_url': '/-/localhost/8001/hymn/-/',
+   'entry_point': 'hymn.app:crew',
+   'username': '35a04fc4-4442-4b24-b109-614b45d52de1'
 
- Since the plain `/status` request might fail due to Ray latencies you should harden the intial request past flow launch with `?extended=true` as in the following example:
+```
+Since the plain `/status` request might fail due to Ray latencies you should harden the intial request past flow launch with `?extended=true` as in the following example:
 
- ```python
- resp = httpx.get(
+```python
+resp = httpx.get(
     f"http://localhost:3370/outputs/status/{fid}?extended=true", 
     cookies=cookies)
 resp.json()
