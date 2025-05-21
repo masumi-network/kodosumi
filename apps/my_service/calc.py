@@ -1,15 +1,14 @@
-from random import randint
 import time
-import asyncio
+from random import randint
 import datetime
 
+import asyncio
 import ray
-
 from kodosumi.core import Tracer
 
 
 @ray.remote
-def calculate(i: int, tracer: Tracer):
+def calculate(i: int):
     # do your heavy-lifting work here
     t0 = datetime.datetime.now()
     s = randint(1, 3)
@@ -26,7 +25,7 @@ def calculate(i: int, tracer: Tracer):
 
 async def execute(inputs: dict, tracer: Tracer):
     tasks = inputs["tasks"]
-    futures = [calculate.remote(i, tracer) for i in range(tasks)]
+    futures = [calculate.remote(i) for i in range(tasks)]
     pending = futures.copy()
     total = []
     while True:

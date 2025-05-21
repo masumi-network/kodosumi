@@ -62,19 +62,22 @@ crew = Crew(
 app = ServeAPI()
 
 
+hymn_model = core.forms.Model(
+    F.Markdown("""
+    # Hymn Creator
+                
+    This agent creates a short hymn about a given topic of your choice using openai and crewai.
+    """),
+    F.Break(),
+    F.InputText(
+        label="Topic", name="topic", value="A Du Du Du and A Da Da Da."),
+    F.Submit("Submit"),
+    F.Cancel("Cancel")
+)
+
 @app.enter(
         path="/", 
-        model=core.forms.Model(
-            F.Markdown("""
-            # Hymn Creator
-                       
-            This agent creates a short hymn about a given topic of your choice using openai and crewai.
-            """),
-            F.Break(),
-            F.InputText(label="Topic", name="topic", value="A Du Du Du and A Da Da Da."),
-            F.Submit("Submit"),
-            F.Cancel("Cancel")
-        ),
+        model=hymn_model,
         summary="Hymn Creator",
         description="This agent creates a short hymn about a given topic of your choice using openai and crewai.",
         version="1.0.1",

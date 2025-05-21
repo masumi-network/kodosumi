@@ -1,7 +1,10 @@
-from kodosumi.core import ServeAPI, InputsError, Launch
-from kodosumi.core import forms as F
 import fastapi
 from ray import serve
+from kodosumi.core import ServeAPI
+from kodosumi.core import InputsError
+from kodosumi.core import Launch
+from kodosumi.core import forms as F
+
 
 app = ServeAPI()
 
