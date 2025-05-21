@@ -18,6 +18,7 @@ You build and deploy your [Flow](./docs/concepts.md#flow) by providing an [endpo
 
 Deep-dive into [endpoints](./docs/concepts.md#endpoint) and how these translate into [entrypoints](./docs/concepts.md#entrypoint) of [flows](#flows) which operationalize the business logic of [agentic services](#agentic-service) or [agents](#agents) in the broader sense.
 
+If you still need further background information read [why kodosumi](./docs/why.md)
 
 # installation
 
@@ -148,4 +149,4 @@ Stop the kodosumi services by hitting `CNTRL+C` in your terminal. The _spooler_ 
 * [admin panel introduction](./docs/panel.md)
 * [API example](./docs/api.md)
 * [development workflow](./docs/develop.md)
-
+* [configuration and settings](./docs/config.md)

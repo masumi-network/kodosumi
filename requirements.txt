@@ -17,7 +17,7 @@ bson==0.5.10
 cachetools==5.5.2
 certifi==2025.4.26
 charset-normalizer==3.4.2
-click==8.2.0
+click==8.2.1
 colorful==0.5.6
 distlib==0.3.9
 dnspython==2.7.0
@@ -41,7 +41,6 @@ idna==3.10
 Jinja2==3.1.6
 jsonschema==4.23.0
 jsonschema-specifications==2025.4.1
-kodosumi @ file:///Users/raum/temp/kodo/kodosumi
 litestar==2.16.0
 litestar-htmx==0.4.1
 Mako==1.3.10
