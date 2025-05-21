@@ -21,3 +21,6 @@ applications:
     pip:
     - crewai
     - crewai_tools
+    env_vars:
+      OTEL_SDK_DISABLED: "true"
+      OPENAI_API_KEY: ...

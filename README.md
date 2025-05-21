@@ -39,7 +39,7 @@ To install the latest `dev` from GitHub clone and install from source.
 
 ```bash
 git clone https://github.com/masumi-network/kodosumi.git
-cd kodosumi
+cd ./kodosumi
 git checkout dev
 pip install .
 cd ..
@@ -54,49 +54,37 @@ mkdir ./home
 ```
 ### STEP 3 - start ray as a daemon.
 
-Start Ray with the `./home` directory as a package root so Ray can import from this directory which has been created in the previous step.
+Change to `./home` and start Ray inside this directory so Ray can import from this directory.
 
 ```bash
-PYTHONPATH=./home ray start --head
+cd ./home
+ray start --head
 ```
 
 Check `ray status` and visit ray dashboard at [http://localhost:8265](http://localhost:8265). For more information about ray visit [ray's documentation](https://docs.ray.io/en/latest).
 
-### STEP 4 - prepare environment
+### STEP 4 - source example app
 
-To use [OpenAI](https://openai.com/) or other API you might need to create a local file `.env` to define API keys. This follows the 12 factors to [store config in the environment](https://12factor.net/config).
-
-Since the flow we are going to deploy uses [OpenAI](https://openai.com/) you have to provide your API key in file `.env`.
-
-```
-OPENAI_API_KEY=...
-```
-
-### STEP 5 - deploy example app with `ray serve`
-
-We will deploy kodosumi example apps. Clone kodosumi git source repository.
-
+We will deploy one kodosumi example app. Clone kodosumi git source repository.
 
 ```bash
 git clone https://github.com/masumi-network/kodosumi.git
+git -C ./kodosumi checkout dev
 ```
-Directory `./kodosumi/apps` contains various example services. Copy or link example services from `./kodosumi/apps/<name>` to `./home/<name>`. For this example use the _Hymn Creator_ which creates a short hymn about a given topic of your choice using [OpenAI](https://openai.com/) and [CrewAI](https://github.com/crewaiinc/crewai).
+Directory `./kodosumi/apps` contains various example services. Copy example services from `./kodosumi/apps/<name>` to `./home/<name>`. For this example use the _Hymn Creator_ which creates a short hymn about a given topic of your choice using [OpenAI](https://openai.com/) and [CrewAI](https://github.com/crewaiinc/crewai).
 
 ```bash
-# copy app source files
-cp -r kodosumi/apps/hymn ./home/hymn/
-
-# alternative: create a soft link to app package
-# > ln -s ../kodosumi/apps/hymn ./home/hymn
+cd ./home
+cp -r ./kodosumi/apps/hymn ./
 ```
 
-Deploy example `hymn.app` in folder `./home`. Use Ray `serve deploy` to launch the service in your localhost Ray cluster.
+You can remove source directory `./kodosumi` or keep it to run other examples later.
 
-```bash
-serve deploy home/hymn/config.yaml
-```
+### STEP 5 - prepare environment
 
-This will setup a dedicated environment with Python dependencies _crewai_ and _crewai_tools_. Ray sets up this environment based on the relevant sections in `home/hymn/config.yaml`.
+Based on deployment configuration in `./home/hymn/config.yaml` Ray will create a dedicated Python environment for the service. In `config.yaml` you define the Python package requirements and environment variables.
+
+For this example, edit `./home/hmyn/config.yaml` and add your [OpenAI](https://openai.com/) `OPEN_API_KEY` at the bottom of the file.
 
 ```yaml
 applications:
@@ -107,7 +95,21 @@ applications:
     pip:
     - crewai
     - crewai_tools
+    env_vars:
+      OTEL_SDK_DISABLED: "true"
+      OPENAI_API_KEY: ...          # <-- add your key here
 ```
+
+### STEP 6 - deploy service
+
+Deploy example `hymn.app` in folder `./home`. Use Ray `serve deploy` to launch the service in your localhost Ray cluster. Ensure you start serve in the same directory as Ray (`./home`).
+
+```bash
+cd ./home
+serve deploy ./hymn/config.yaml
+```
+
+This will setup a dedicated environment with Python dependencies _crewai_ and _crewai_tools_. Ray sets up this environment based on the relevant sections in `./home/hymn/config.yaml`.
 
 Please be patient if the Ray serve application takes a moment to setup, install and deploy. Follow the deployment process with the Ray dashboard at [http://localhost:8265/#/serve](http://localhost:8265/#/serve). On my laptop initial deployment can easily take a couple of minutes.
 
@@ -116,9 +118,12 @@ Please be patient if the Ray serve application takes a moment to setup, install 
 ### STEP 6 - start kodosumi
 
 Finally start the kodosumi components and register the deployed ray endpoints available at 
-[http://localhost:8001/-/routes](http://localhost:8001/-/routes). The port is defined in the `config.yaml` file. The path `/-/routes` reports available endpoints of active Ray deployments. 
+[http://localhost:8001/-/routes](http://localhost:8001/-/routes). The port is defined in `config.yaml`. The path `/-/routes` reports available endpoints of active Ray deployments. 
+
+ Ensure you start and serve from the same directory as Ray (`./home`).
 
 ```bash
+cd ./home
 koco start --register http://localhost:8001/-/routes
 ```
 
@@ -130,7 +135,7 @@ This command starts kodosumi spooler in the background and kodosumi panel and AP
 > koco spool
 > koco serve
 
-### STEP 6 - Look around
+### STEP 7 - Look around
 
 Visit kodosumi **[admin panel](http://localhost:3370)** at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **[control screen](http://localhost:3370/admin/routes)** in the **[admin panel](http://localhost:3370/)** and click **RECONNECT**. Launch the **[Hymn Creator](http://localhost:3370/inputs/-/localhost/8001/hymn/-/)** from the **[service screen](http://localhost:3370/admin/flow)** and revisit results at the **[timeline screen](http://localhost:3370/timeline/view)**.
 
@@ -141,6 +146,6 @@ Stop the kodosumi services by hitting `CNTRL+C` in your terminal. The _spooler_ 
 ## Where to get from here?
 
 * [admin panel introduction](./docs/panel.md)
-* [panel API example](./docs/api.md)
+* [API example](./docs/api.md)
 * [development workflow](./docs/develop.md)
 
