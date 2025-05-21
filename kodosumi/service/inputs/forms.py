@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import re
 from kodosumi import dtypes
 from kodosumi.log import logger
-import markdown  # Hinzufügen des Imports
+import markdown
 
 class Element:
 
@@ -220,6 +220,289 @@ class InputNumber(InputText):
         if self.step:
             attrs.append(f'step="{self.step}"')
         ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>') 
+        ret.append(f'</div>')
+        return "\n".join(ret)
+
+
+class InputPassword(InputText):
+    type = "password"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            size: Optional[int] = None,
+            pattern: Optional[str] = None,
+            min_length: Optional[int] = None,
+            max_length: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.placeholder = placeholder
+        self.size = size
+        self.pattern = pattern
+        self.min_length = min_length
+        self.max_length = max_length
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "size": self.size,
+            "pattern": self.pattern,
+            "min_length": self.min_length,
+            "max_length": self.max_length,
+        }
+    
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append(f'required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.size:
+            attrs.append(f'size="{self.size}"')
+        if self.pattern:
+            attrs.append(f'pattern="{self.pattern}"')
+        if self.min_length:
+            attrs.append(f'minlength="{self.min_length}"')
+        if self.max_length:
+            attrs.append(f'maxlength="{self.max_length}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>') 
+        ret.append(f'</div>')
+        return "\n".join(ret)
+
+
+class InputDate(InputText):
+    type = "date"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            min_date: Optional[str] = None,
+            max_date: Optional[str] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.placeholder = placeholder
+        self.min_date = min_date
+        self.max_date = max_date
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "min_date": self.min_date,
+            "max_date": self.max_date,
+        }
+    
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append(f'required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.min_date:
+            attrs.append(f'min="{self.min_date}"')
+        if self.max_date:
+            attrs.append(f'max="{self.max_date}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>') 
+        ret.append(f'</div>')
+        return "\n".join(ret)
+
+
+class InputTime(InputText):
+    type = "time"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            min_time: Optional[str] = None,
+            max_time: Optional[str] = None,
+            step: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.placeholder = placeholder
+        self.min_time = min_time
+        self.max_time = max_time
+        self.step = step
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "min_time": self.min_time,
+            "max_time": self.max_time,
+            "step": self.step,
+        }
+    
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append(f'required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.min_time:
+            attrs.append(f'min="{self.min_time}"')
+        if self.max_time:
+            attrs.append(f'max="{self.max_time}"')
+        if self.step:
+            attrs.append(f'step="{self.step}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>') 
+        ret.append(f'</div>')
+        return "\n".join(ret)
+
+
+class InputDateTime(InputText):
+    type = "datetime-local"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            min_datetime: Optional[str] = None,
+            max_datetime: Optional[str] = None,
+            step: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.placeholder = placeholder
+        self.min_datetime = min_datetime
+        self.max_datetime = max_datetime
+        self.step = step
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "min_datetime": self.min_datetime,
+            "max_datetime": self.max_datetime,
+            "step": self.step,
+        }
+    
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append(f'required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.min_datetime:
+            attrs.append(f'min="{self.min_datetime}"')
+        if self.max_datetime:
+            attrs.append(f'max="{self.max_datetime}"')
+        if self.step:
+            attrs.append(f'step="{self.step}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>') 
+        ret.append(f'</div>')
+        return "\n".join(ret)
+
+
+class InputArea(FormElement):
+    type = "textarea"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            rows: Optional[int] = None,
+            cols: Optional[int] = None,
+            max_length: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.placeholder = placeholder
+        self.rows = rows
+        self.cols = cols
+        self.max_length = max_length
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "rows": self.rows,
+            "cols": self.cols,
+            "max_length": self.max_length,
+        }
+    
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field extra textarea border fill">')
+        attrs = [f'name="{self.name}"']
+        if self.required:
+            attrs.append(f'required')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.rows:
+            attrs.append(f'rows="{self.rows}"')
+        if self.cols:
+            attrs.append(f'cols="{self.cols}"')
+        if self.max_length:
+            attrs.append(f'maxlength="{self.max_length}"')
+        ret.append(f'<textarea {" ".join(attrs)}>{self.value or ""}</textarea>')
         if self.error:
             ret.append(f'<span class="error">{" ".join(self.error)}</span>') 
         ret.append(f'</div>')
@@ -454,6 +737,10 @@ class Model:
             Markdown, 
             InputText, 
             InputNumber,
+            InputArea,
+            InputDate,
+            InputTime,
+            InputDateTime,
             Checkbox, 
             InputOption,
             Select,
@@ -504,5 +791,5 @@ class Model:
 
 __all__ = [
     "Model", "Break", "InputText", "InputNumber", "Checkbox", "InputOption", 
-    "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", "Errors"
+    "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime"
 ]
