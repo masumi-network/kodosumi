@@ -24,13 +24,13 @@ You can visit final implementation of this example service at [./apps/my_service
 
 ### 1. setup project structure
 
-Create a new directory `apps` to host the source code of your agentic service. Create a sub folder with the name of your service.
+Create a new directory `./home` to host the source code of your agentic service. Create a sub folder with the name of your service.
 
 ```bash
-mkdir apps/my_service
-touch apps/my_service/__init__.py
-touch apps/my_service/calc.py
-touch apps/my_service/app.py
+mkdir home/my_service
+touch home/my_service/__init__.py
+touch home/my_service/calc.py
+touch home/my_service/app.py
 ```
 
 > [!NOTE]
@@ -41,13 +41,14 @@ touch apps/my_service/app.py
 We start development with the entrypoint. To keep this example as simple as possible we implement an entrypoint `execute` and a remote execution method `calculate` to simulate some heavy lifting. Implement both methods in `calc.py`.
 
 ```python
-# ./apps/my_service/calc.py
+# ./home/my_service/calc.py
+import asyncio
 import ray
 from kodosumi.core import Tracer
 
-async def execute(inputs: dict):
+async def execute(inputs: dict, tracer: Tracer):
     tasks = inputs["tasks"]
-    futures = [calculate.remote(i, tracer) for i in range(tasks)]
+    futures = [calculate.remote(i) for i in range(tasks)]
     pending = futures.copy()
     total = []
     while True:
@@ -55,10 +56,11 @@ async def execute(inputs: dict):
         if done:
             ret = await asyncio.gather(*done)
             total.extend(ret)
+            await tracer.markdown(f"have results `{ret}`")
             print(f"have result `{len(total)/tasks*100:.2f}%`")
         if not pending:
             break
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.1)
     return total
 ```
 
@@ -69,13 +71,25 @@ We will extend this method later with some tracing and results trackimg. For now
 The implementation of this method `calculate` is a mock. Nevertheless we let Ray distribute the jobs to it's workers:
 
 ```python
+# ./home/my_service/calc.py
 import time
 from random import randint
+import datetime
 
 @ray.remote
 def calculate(i: int):
     # do your heavy-lifting work here
-    time.sleep(randint(1, 3))
+    t0 = datetime.datetime.now()
+    s = randint(1, 3)
+    time.sleep(s)
+    t1 = datetime.datetime.now()
+    return {
+        "i": i, 
+        "t0": t0, 
+        "t1": t1, 
+        "delta": (t1 - t0).total_seconds(), 
+        "result": s
+    }
 ```
 
 Watch the Ray decorator `@remote` which instructs Ray to remote execute this method in the Ray cluster. 
@@ -95,14 +109,14 @@ app = ServeAPI()
 
 The `ServeAPI()` initialization creates a FastAPI application with kodosumi-specific extensions. It provides automatic OpenAPI documentation, error handling, authentication and access control, input validation, and some configuration management.
 
-The `app` instance will be used to define the service _endpoint_ with `@app.enter` and to define service meta data following OpenAPI standards. We will do this in step **5** of this guide, because before we implement the endpoint we specify the inputs model with next step **4**.
+The `app` instance will be used to define the service _endpoint_ with `@app.enter` and to define service meta data following OpenAPI standards. We will do this in step **5** of this guide. Before we specify the inputs model with next step **4**.
 
 ### 4. define user interface
 
 Before we implement the endpoint we will define the user interface of your service. We import _forms_ elements from `kodosumi.core`. See [forms overview](./forms.md) on the supported form and input elements.
 
 ```python
-from kodosumi.core import forms
+from kodosumi.core import forms as F
 
 my_model = F.Model(
     F.Markdown("""
@@ -125,6 +139,10 @@ A simple form is rendered that displays a headline **My Service** with some intr
 Implement the HTTP endpoint using the `@enter` decorator of the `ServeAPI` instance `app`. We will attach the input model defined in the previous step and declare key OpenAPI and extra properties (_summary_, _description_, and _tags_, _version_, _author_ for example).
 
 ```python
+import fastapi
+from kodosumi.core import InputsError
+from kodosumi.core import Launch
+
 @app.enter(
     path="/",
     model=my_model,
@@ -132,10 +150,10 @@ Implement the HTTP endpoint using the `@enter` decorator of the `ServeAPI` insta
     description="Not so agentic example service.",
     tags=["Test"],
     version="1.0.0",
-    author="your.email@domain.com",
-)
+    author="your.email@domain.com")
 async def enter(request: fastapi.Request, inputs: dict):
-    inputs.get("tasks", None)
+    tasks = inputs.get("tasks", 0)
+    error = InputsError()
     if not tasks:
         error.add(tasks="Please specify the number of concurrent tasks.")
     if isinstance(tasks, str):
@@ -145,15 +163,20 @@ async def enter(request: fastapi.Request, inputs: dict):
         error.add(tasks=f"Maximum number of concurrent tasks is {MAX}")
     if error.has_errors():
         raise error
-    return core.Launch(request, "apps.my_service.app:execute", inputs=inputs)
+    return Launch(
+        request, 
+        "my_service.calc:execute", 
+        inputs={"tasks": tasks}
+    )
 ```
 
 ### 6. configure Ray deployment
 
 Add the deployment configuration at the end of your `app.py`. 
 
-
 ```python
+from ray import serve
+
 @serve.deployment
 @serve.ingress(app)
 class MyService: pass
@@ -167,9 +190,10 @@ See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/config
 
 #### with Ray
 
-You can now run and deploy your service with `serve run apps.my_service.app:fast_app` or `serve deploy apps.my_service.app:fast_app`. Ray reports available routes on port http://localhost:8000/-/routes. Register these Ray serve deployments with
+You can now run and deploy your service with `serve run my_service.app:fast_app` or `serve deploy apps.my_service.app:fast_app`. Ray reports available routes on port http://localhost:8000/-/routes. Register these Ray serve deployments with
 
-    koco serve --register http://localhost:8000/-/routes
+    cd ./home
+    koco start --register http://localhost:8000/-/routes
 
 Retrieve the inputs scheme from [/-/localhost/8000/-/](http://localhost:3370/-/localhost/8000/-/), and test the service at [/inputs/-/localhost/8000/-/](http://localhost:3370/inputs/-/localhost/8000/-/).
 
@@ -182,7 +206,7 @@ Use for example `curl` to POST a service requests after successful authenticatio
 
 Debugging Ray jobs and serve deployments requires remote debugger setup (see [Distributed debugging with](https://docs.ray.io/en/latest/ray-observability/ray-distributed-debugger.html)). To debug your `ServeAPI` application you can run and deploy your service with **uvicorn instead of Ray serve**. 
 
-Either launch uvicorn directly with `uvicorn apps.my_service.app:app --port 8005` or extend file `./apps/my_service/app.py` with the following `__main__` section. Then invoke the module with `python -m apps.my_service.app`.
+Either launch uvicorn directly with `uvicorn my_service.app:app --port 8005` or extend file `./apps/my_service/app.py` with the following `__main__` section. Then invoke the module with `python -m apps.my_service.app`.
 
 ```python
 if __name__ == "__main__":
@@ -197,22 +221,12 @@ Both approaches start a uvicorn application server at the specified port `8005` 
 
     koco serve --register http://localhost:8005/openapi.json
 
-
 > [!NOTE]
 > You can `--register` multiple agentic services by using the parameter multiple times.
 
+Continue with background information on [execution lifecycle and the `Launch object`](./lifecycle.md). Further examples can be found in folder `./apps`:
 
-## Best Practices
-
-   - Use `tracer.debug()` for logging debug information
-   - Use `tracer.result()` for logging results
-
-   - Use `core.InputsError()` for structured error messages
-   - Use `@ray.remote` for parallel calculations
-
-## Example Implementation
-
-For reference implementations, see:
+- `apps/my_serve/app.py` for a simple calculation service
 - `apps/prime/app.py` for a simple calculation service
 - `apps/form/app.py` for form handling examples
 - `apps/throughput/app.py` for performance testing
