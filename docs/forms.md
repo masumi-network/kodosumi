@@ -18,6 +18,21 @@ Input elements are used to collect user data through various input methods.
   - `size`: Input field size
   - `pattern`: Regex pattern for validation
 
+### Password Input (`InputPassword`)
+- Type: `password`
+- Purpose: Secure password input with masked characters
+- Properties:
+  - `name`: Field identifier (required)
+  - `label`: Display label
+  - `value`: Initial value
+  - `required`: Whether the field is mandatory
+  - `placeholder`: Placeholder text
+  - `size`: Input field size
+  - `min_length`: Minimum password length
+  - `max_length`: Maximum password length
+  - `pattern`: Regex pattern for password validation
+  - `show_toggle`: Option to show/hide password (boolean)
+
 ### Number Input (`InputNumber`)
 - Type: `number`
 - Purpose: Numeric input with validation
