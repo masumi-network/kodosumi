@@ -78,10 +78,10 @@ class Tracer:
         self.queue.actor.put.remote(data)  # type: ignore
 
     async def debug(self, message: str):
-        await self._put_async(EVENT_DEBUG, message + "\n")
+        await self._put_async(EVENT_DEBUG, message)
 
     def debug_sync(self, message: str):
-        self._put(EVENT_DEBUG, message + "\n")
+        self._put(EVENT_DEBUG, message)
 
     async def result(self, message: Any):
         await self._put_async(EVENT_RESULT, serialize(message))
