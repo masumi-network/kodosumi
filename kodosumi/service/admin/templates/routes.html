@@ -28,6 +28,11 @@
             </div>
             {% if routes %}
             <h5 class="small">Reconnected Service Routes:</h5>
+            {% if message %}
+            <p class="primary-container no-round bold padding">
+                {{ message["routes"] | join("<br/>") | safe}}
+            </p>
+            {% endif %}
             <div class="space"></div>
             {% for route in routes %}
             <details>
@@ -42,7 +47,37 @@
             {% endfor %}
             <div class="space"></div>
             {% endif %}
-            <button class="secondary" type="submit">Reconnect</button>
+            <button class="secondary" name="refresh" type="submit" {% if not user.operator %}disabled{% endif %}>Reconnect</button>
+        </form>
+        <div class="space"></div>
+        <div class="large-divider"></div>
+        <h5>Settings</h5>
+        {% if message %}
+        {% if message["settings"] %}
+        <p class="primary-container no-round bold padding">
+            {{ message["settings"] | join("<br/>") | safe}}
+        </p>
+        <div class="space"></div>
+        {% endif %}
+        {% endif %}
+        <form method="POST">
+            <div class="field border label large">
+                <input type="text" name="name" value="{{user.name}}" readonly/>
+                <label>Username</label>
+            </div>
+            <div class="field border label large">
+                <input type="password" name="new_password1"/>
+                <label>New Password</label>
+            </div>
+            <div class="field border label large">
+                <input type="password" name="new_password2"/>
+                <label>Repeat New Password</label>
+            </div>
+            <div class="field border label large">
+                <input type="email" name="email" value="{{user.email}}"/>
+                <label>E-Mail</label>
+            </div>
+            <button class="secondary" name="update"type="submit">Update</button>
         </form>
         <div class="space"></div>
         <div class="large-divider"></div>
@@ -50,6 +85,7 @@
         <p>
             <a target="_blank" href="/schema/swagger">Swagger UI</a>
         </p>
+        <div class="large-divider"></div>
     </article>
 </div>
 {% endblock %}

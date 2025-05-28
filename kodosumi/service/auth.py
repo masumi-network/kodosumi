@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, Any, Optional, Union
 
 import litestar
@@ -93,4 +94,9 @@ class LoginControl(litestar.Controller):
         if helper.wants(request):
             return Template("login.html")
         raise NotAuthorizedException(detail="Login requited")
-    
+
+async def get_user_details(user_id: str, transaction: AsyncSession) -> Role:
+    query = select(Role).where(Role.id == uuid.UUID(user_id))
+    result = await transaction.execute(query)
+    role = result.scalar_one_or_none()
+    return role

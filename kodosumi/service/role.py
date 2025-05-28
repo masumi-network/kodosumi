@@ -1,5 +1,5 @@
 import uuid
-
+from typing import Union
 import litestar
 from litestar import delete, get, post, put
 from litestar.exceptions import NotFoundException
@@ -9,6 +9,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from kodosumi.dtypes import Role, RoleCreate, RoleEdit, RoleResponse
 from kodosumi.log import logger
 from kodosumi.service.jwt import operator_guard
+
+
+async def update_role(rid: Union[uuid.UUID, str],
+                      data: RoleEdit, 
+                      transaction: AsyncSession) -> RoleResponse:
+    if isinstance(rid, str):
+        rid = uuid.UUID(rid)
+    query = select(Role).where(Role.id == rid)
+    result = await transaction.execute(query)
+    role = result.scalar_one_or_none()
+    if not role:
+        raise NotFoundException(detail=f"role {rid} not found")
+    update = False
+    for field in ("name", "email", "password", "active", "operator"):
+        new = getattr(data, field)
+        current = getattr(role, field)
+        if new is not None and new != current:
+            setattr(role, field, new)
+            update = True
+    if update:
+        await transaction.flush()
+        logger.info(f"updated role {role.name} ({role.id})")
+    return RoleResponse.model_validate(role)
 
 
 class RoleControl(litestar.Controller):
@@ -72,21 +95,5 @@ class RoleControl(litestar.Controller):
                         rid: uuid.UUID, 
                         data: RoleEdit, 
                         transaction: AsyncSession) -> RoleResponse:
-        query = select(Role).where(Role.id == rid)
-        result = await transaction.execute(query)
-        role = result.scalar_one_or_none()
-        if not role:
-            raise NotFoundException(detail=f"role {rid} not found")
-        if data.name:
-            role.name = data.name
-        if data.email:
-            role.email = data.email
-        if data.password:
-            role.password = data.password
-        if data.active is not None:
-            role.active = data.active
-        if data.operator is not None:
-            role.operator = data.operator
-        await transaction.flush()
-        logger.info(f"updated role {role.name} ({role.id})")
-        return RoleResponse.model_validate(role)
+        return await update_role(rid, data, transaction)
+
