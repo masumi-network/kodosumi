@@ -121,7 +121,7 @@ function flushStdioBuffer() {
     const fragment = document.createDocumentFragment();
     stdioBuffer.forEach(({ text, isError }) => {
         const span = document.createElement('span');
-        span.className = isError ? 'error-text' : 'primary-text';
+        span.className = isError ? 'error-text' : '';
         span.innerHTML = text;
         fragment.appendChild(span);
         fragment.appendChild(document.createElement('br'));

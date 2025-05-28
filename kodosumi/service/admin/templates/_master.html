@@ -8,13 +8,36 @@
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <link href="/static/beer.min.css" rel="stylesheet">
     <link href="/static/kodosumi.css" rel="stylesheet">
-    <script type="module" src="/static//beer.min.js"></script>
+    <script type="module" src="/static/beer.min.js"></script>
     <script type="module" src="/static/material-dynamic-colors.min.js"></script>
     <script type="module" src="/static/d3.v7.min.js"></script>
     {% block head %}{% endblock %}
+    <script>
+        let loadProgress = null;
+        function toggleTheme() {
+            const body = document.body;
+            if (body.classList.contains('dark')) {
+                body.classList.remove('dark');
+                body.classList.add('light');
+                localStorage.setItem('theme', 'light');
+                document.getElementById('mode').innerText = 'light_mode';
+            } else {
+                body.classList.remove('light');
+                body.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+                document.getElementById('mode').innerText = 'dark_mode';
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.body.classList.remove('light', 'dark');
+            document.body.classList.add(savedTheme);
+            loadProgress = document.querySelector('#load-progress');
+        });
+    </script>
 </head>
 
-<body class="light">
+<body class="dark">
     <header class="max fixed">
         {% block header %}{% endblock %}
     </header>

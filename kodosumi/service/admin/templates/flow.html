@@ -76,7 +76,6 @@
             if (searchInput.value) {
                 params.set('q', searchInput.value);
             }
-            showPulse();
             const url = `/flow?${params.toString()}`
             const response = await fetch(url);
             const data = await response.json();
@@ -109,7 +108,6 @@
             console.error('Error loading flows:', error);
         }
         finally {
-            hidePulse();
             isLoading = false;
             if (offset) {
                 const endOfListRect = endOfList.getBoundingClientRect();

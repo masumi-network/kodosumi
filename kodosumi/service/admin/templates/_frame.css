@@ -24,26 +24,26 @@ main {
     font-family: monospace;
 }
 
-.ansi1 { font-weight: bold; }
-.ansi92 { color: var(--primary); }
-.ansi95 { color: var(--secondary); }
+.ansi1 { font-weight: bold; color: var(--primary); }
+.ansi92 { color: var(--secondary); }
+.ansi95 { color: var(--tertiary); }
 .ansi94 { color: var(--tertiary); }
 
 .info-text {
-    background-color: var(--tertiary);
-    padding: 0.25rem;
+    background-color: var(--secondary);
+    padding: 0.375rem;
 }
 
 .info-l1, .info-l2, .info-l3 {
-    color: var(--on-tertiary);
+    color: var(--primary-container);
     padding: 0;
     font-weight: normal;
-    font-size: 0.875rem;
+    font-size: 0.750rem;
     margin-top: 24px;
     margin-bottom: 24px;
     text-transform: uppercase;
     text-align: left;
-    border-bottom: 2px solid var(--tertiary);
+    border-bottom: 2px solid var(--secondary);
     border-radius: 0;
     line-height: 1.5rem;
 }
@@ -107,8 +107,8 @@ pre {
     margin-top: -24px !important;
 }
 
-.rotating {
-    animation: rotation 2s infinite linear;
+.spinner-circle {
+    animation: rotation 5s infinite linear;
 }
 
 @keyframes rotation {
@@ -129,6 +129,22 @@ pre {
 #page-output a:hover {
     color: #00008B;
     text-decoration: none;
+}
+
+body.light .light-logo {
+    display: inline-block !important;
+}
+
+body.light .dark-logo {
+    display: none !important;
+}
+
+body.dark .light-logo {
+    display: none !important;
+}
+
+body.dark .dark-logo {
+    display: inline-block !important;
 }
 
 

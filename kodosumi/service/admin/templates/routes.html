@@ -15,7 +15,7 @@
 
 {% block page %}
 <div class="active page">
-    <div class="max large-margin large-padding article-container" style="">
+    <article id="article-output" class="max margin small-elevate large-padding article-container">
         <h5>Routes</h5>
         <p>
             The following agentic nodes have been registered. <br/>
@@ -42,7 +42,7 @@
             {% endfor %}
             <div class="space"></div>
             {% endif %}
-            <button class="tertiary" type="submit">Reconnect</button>
+            <button class="secondary" type="submit">Reconnect</button>
         </form>
         <div class="space"></div>
         <div class="large-divider"></div>
@@ -50,7 +50,7 @@
         <p>
             <a target="_blank" href="/schema/swagger">Swagger UI</a>
         </p>
-    </div>
+    </article>
 </div>
 {% endblock %}
 

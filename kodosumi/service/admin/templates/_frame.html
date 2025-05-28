@@ -12,7 +12,6 @@
 </style>
 
 <script>
-    {% include "_frame.js" %}
     {% block script %}
     {% endblock %}
 </script>
@@ -21,7 +20,8 @@
 {% block header %}
 <div id="header-container">
     <nav>
-        <img src="/static/word.png" class="logo-img">
+        <img src="/static/black-word.png" alt="Logo" class="logo-img light-logo" style="display: none; margin-left: 12px;"/>
+        <img src="/static/white-word.png" alt="Logo" class="logo-img dark-logo" style="margin-left: 12px;"/>
     </nav>
     <nav class="responsive">
         <div id="header" class="max large-padding">

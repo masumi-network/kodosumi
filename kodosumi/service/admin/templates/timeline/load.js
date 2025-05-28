@@ -155,7 +155,7 @@ function checkVisibility() {
 const STATUS = {
     RUNNING: {
         icon: 'play_circle',
-        format: 'tertiary fill',
+        format: 'primary',
         progressClass: (progress) => progress != null ? 'progress-circle' : 'spinner-circle'
     },
     FINISHED: {
@@ -257,7 +257,7 @@ function createTimelineItem(item) {
     <input type="checkbox"/>
     <span></span>
     </label>
-    <div class="follow small-round"> 
+    <div class="follow small-round "> 
     <p class="left-align chip ${format}" style="width: 110px;">
     <i>${statusIcon}</i>${item.status}
     </p>
