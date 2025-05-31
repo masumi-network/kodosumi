@@ -27,9 +27,6 @@ tests = [ "pytest", "pytest-asyncio", "pytest-httpserver", "isort", "autopep8", 
 [project.scripts]
 koco = "kodosumi.cli:cli"
 
-[tool.setuptools]
-include-package-data = true
-
 [tool.setuptools.package-data]
 kodosumi = [
     "kodosumi/service/admin/static/**/*",
