@@ -32,8 +32,8 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 kodosumi = [
-    "service/admin/static/*/**",
-    "service/admin/templates/*/**"
+    "service/admin/static/**",
+    "service/admin/templates/**"
 ]
 
 [tool.setuptools.packages.find]
