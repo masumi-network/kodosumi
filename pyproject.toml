@@ -28,7 +28,7 @@ tests = [ "pytest", "pytest-asyncio", "pytest-httpserver", "isort", "autopep8", 
 koco = "kodosumi.cli:cli"
 
 [tool.setuptools]
-include-package-data = false
+include-package-data = true
 
 [tool.setuptools.package-data]
 kodosumi = [

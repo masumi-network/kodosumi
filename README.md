@@ -6,7 +6,8 @@ kodosumi is one component of a larger eco system with [masumi and sokosumi](http
 
 ![Eco System](./docs/assets/ecosystem.png)
 
-# Introduction
+
+# introduction
 
 kodosumi consists of three main building blocks. First, a _Ray cluster_ to execute agentic services at scale. kodosumi builds on top of Ray and actively manages the lifecycle and events of service executions from _starting_ to _finished_ or _error_. No matter you name your code an application, flow, service or script: The third building block is _your application_ which runs on top of kodosumi.
 
@@ -20,129 +21,88 @@ Deep-dive into [endpoints](./docs/concepts.md#endpoint) and how these translate 
 
 If you still need further background information read [why kodosumi](./docs/why.md)
 
+
 # installation
 
 The following quick guide
 
-1. installs kodosumi and all prerequisites
+1. installs kodosumi and all prerequisites along the kodosumi example flows
 2. starts Ray and kodosumi on your localhost
-3. deploys an example flow which ships with kodosumi
+3. deploys example flows
 
 This installation has been tested with versions `ray==2.46.0` and `python==3.12.6`.
 
-### STEP 1 - clone and install kodosumi.
+If you want to skip the examples then continue with the [kodosumi development workflow](./docs/develop2.md) and start implementing your custom agentic service with the kodosumi framework.
+
+
+### STEP 1 - clone and install `kodosumi-examples`.
+
+Clone and install the `kodosumi-examples` into your Python Virtual Environment. The kodosumi and Ray packages are installed as a dependency to the examples.
 
 ```bash
-pip install kodosumi
-```
-
-To install the latest `dev` from GitHub clone and install from source.
-
-```bash
-git clone https://github.com/masumi-network/kodosumi.git
-cd ./kodosumi
+git clone https://github.com/masumi-network/kodosumi-examples.git
+cd ./kodosumi-examples
 git checkout dev
 pip install .
-cd ..
 ```
 
-### STEP 2 - create service home.
+Since some of the examples utilize additional frameworks like `CrewAI` and `langchain` the installation of the kodosumi examples takes a while. All dependencies of the examples are installed. Please note that these dependencies are managed by Ray in production. See [deployment](./docs/deploy.md). 
 
-Create a directory `./home`. This directory will host agentic services. Each agentic service runs in a custom environment which matches the specific service requirements.
 
-```bash
-mkdir ./home
-```
+### STEP 2 - prepare runtime environment
+
+You need an OpenAI API key to run some of the examples. Specify the API key in `.env`.
+
+    # ./env
+    OPENAI_API_KEY=<-- enter-your-key -->
+
+
 ### STEP 3 - start ray as a daemon.
 
-Change to `./home` and start Ray inside this directory so Ray can import from this directory.
+Start Ray _head_ node on your localhost:
 
 ```bash
-cd ./home
 ray start --head
 ```
 
 Check `ray status` and visit ray dashboard at [http://localhost:8265](http://localhost:8265). For more information about ray visit [ray's documentation](https://docs.ray.io/en/latest).
 
-### STEP 4 - source example app
 
-We will deploy one kodosumi example app. Clone kodosumi git source repository.
 
-```bash
-git clone https://github.com/masumi-network/kodosumi.git
-git -C ./kodosumi checkout dev
-```
-Directory `./kodosumi/apps` contains various example services. Copy example services from `./kodosumi/apps/<name>` to `./home/<name>`. For this example use the _Hymn Creator_ which creates a short hymn about a given topic of your choice using [OpenAI](https://openai.com/) and [CrewAI](https://github.com/crewaiinc/crewai).
+### STEP 4 - deploy with uvicorn
 
-```bash
-cd ./home
-cp -r ./kodosumi/apps/hymn ./
-```
+You can launch each example service as a python module.
 
-You can remove source directory `./kodosumi` or keep it to run other examples later.
+    python -m kodosumi.examples.hymn.app
 
-### STEP 5 - prepare environment
+This starts a uvicorn server at http://localhost:8011 which reports the OpenAPI specification at http://localhost:8011/openapi.json. Register this OpenAPI endpoint with
 
-Based on deployment configuration in `./home/hymn/config.yaml` Ray will create a dedicated Python environment for the service. In `config.yaml` you define the Python package requirements and environment variables.
+    koco start --register http://localhost:8011/openapi.json
 
-For this example, edit `./home/hmyn/config.yaml` and add your [OpenAI](https://openai.com/) `OPEN_API_KEY` at the bottom of the file.
-
-```yaml
-applications:
-- name: hymn
-  route_prefix: /hymn
-  import_path: hymn.app:fast_app
-  runtime_env: 
-    pip:
-    - crewai
-    - crewai_tools
-    env_vars:
-      OTEL_SDK_DISABLED: "true"
-      OPENAI_API_KEY: ...          # <-- add your key here
-```
-
-### STEP 6 - deploy service
-
-Deploy example `hymn.app` in folder `./home`. Use Ray `serve deploy` to launch the service in your localhost Ray cluster. Ensure you start serve in the same directory as Ray (`./home`).
-
-```bash
-cd ./home
-serve deploy ./hymn/config.yaml
-```
-
-This will setup a dedicated environment with Python dependencies _crewai_ and _crewai_tools_. Ray sets up this environment based on the relevant sections in `./home/hymn/config.yaml`.
-
-Please be patient if the Ray serve application takes a moment to setup, install and deploy. Follow the deployment process with the Ray dashboard at [http://localhost:8265/#/serve](http://localhost:8265/#/serve). On my laptop initial deployment can easily take a couple of minutes.
-
-![Ray Dashboard](./docs/assets/ray-dashboard.png)
-
-### STEP 6 - start kodosumi
-
-Finally start the kodosumi components and register the deployed ray endpoints available at 
-[http://localhost:8001/-/routes](http://localhost:8001/-/routes). The port is defined in `config.yaml`. The path `/-/routes` reports available endpoints of active Ray deployments. 
-
-Ensure you start and serve from the same directory as Ray (`./home`).
-
-```bash
-cd ./home
-koco start --register http://localhost:8001/-/routes
-```
-
-This command starts kodosumi spooler in the background and kodosumi panel and API in the foreground.
-
-> [!NOTE]
-> Command `koco start` is equivalent to:
-> ```bash
-> koco spool
-> koco serve
-
-### STEP 7 - Look around
+### STEP 5 - look around
 
 Visit kodosumi **[admin panel](http://localhost:3370)** at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **[control screen](http://localhost:3370/admin/routes)** in the **[admin panel](http://localhost:3370/)** and click **RECONNECT**. Launch the **[Hymn Creator](http://localhost:3370/inputs/-/localhost/8001/hymn/-/)** from the **[service screen](http://localhost:3370/admin/flow)** and revisit results at the **[timeline screen](http://localhost:3370/timeline/view)**.
 
 Visit [kodosumi panel overview](./docs/panel.md) to view some screenshots if you do not have the time and inclination. 
 
 Stop the kodosumi services by hitting `CNTRL+C` in your terminal. The _spooler_ continues to run as a background daemon. You can stop the spooler with `koco spool --status`. Stop Ray _serve_ with `serve shutdown --yes` and Ray daemon with command `ray stop`.
+
+
+### STEP 6 - run or deploy with Ray
+
+Run the _Hymn Creator_ example with Ray serve:
+
+    serve run kodosumi.examples.hymn.app:fast_app
+
+Deploy the _Hymn Creator_ example with Ray serve:
+
+    serve deploy kodosumi.examples.hymn.app:fast_app
+
+Ray exposes all running deployments at http://localhost:8000/-/routes. You need to register this endpoint with _kodosumi panel_
+
+    koco start --register http://localhost:8000/-/routes
+
+If your panel is still up and running visit the [panel config screen](http://localhost:3370/admin/routes) and update the routes manually.
 
 ## Where to get from here?
 
