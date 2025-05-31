@@ -7,7 +7,7 @@ kodosumi provides a comprehensive solution to these challenges through:
 1. **Real-time Monitoring and Interaction**
    - Live monitoring of running services
    - Direct interaction with active services
-   - Real-time logging of stdout, stderr, and debug messages
+   - Real-time logging of `stdio` (`stdout`, `stderr`), and debug messages
 
 2. **Event-driven Architecture**
    - Coordination of multiple services through a unified event system
@@ -21,4 +21,4 @@ kodosumi provides a comprehensive solution to these challenges through:
 
 These capabilities allow developers to focus on their agentic service logic while kodosumi provides the infrastructure for scaling, monitoring, and interaction.
 
-*Note: kodosumi is built on [ray](https://ray.io) for distributed computing and [fastapi](https://fastapi.tiangolo.com/) for user interfaces. For setup details, see [kodosumi + ray startup](./startup.md).*
+*Note: kodosumi is built on [ray](https://ray.io) for distributed computing and [fastapi](https://fastapi.tiangolo.com/) for user interfaces. For setup details, see [kodosumi + ray startup](../README.md).*

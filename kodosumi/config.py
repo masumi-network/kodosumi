@@ -62,7 +62,7 @@ class Settings(BaseSettings):
             Path(v).mkdir(parents=True, exist_ok=True)
         return v
 
-    @field_validator("SPOOLER_LOG_FILE", mode="before")
+    @field_validator("SPOOLER_LOG_FILE", "YAML_BASE",mode="before")
     def make_parent(cls, v):
         if v:
             Path(v).parent.mkdir(parents=True, exist_ok=True)
