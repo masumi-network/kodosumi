@@ -32,6 +32,8 @@ httpx.post(
 )
 ```
 
+## Flow Control
+
 Use the `api_key` or `cookies` with further requests. The following example retrieves the list of flows using `api_key`.
 
 ```python
@@ -168,7 +170,7 @@ Example error output on _empty_ `topic`:
 }
 ```
 
-## Status Monitoring
+## Execution Control
 
 Request and poll for status updates at `/outputs/status`.
 
