@@ -4,7 +4,7 @@ import sys
 import click
 import psutil
 import ray
-
+from pathlib import Path
 from kodosumi.core import __version__
 import kodosumi.service.server
 import kodosumi.spooler
@@ -12,7 +12,8 @@ from kodosumi import helper
 from kodosumi.config import LOG_LEVELS, Settings
 from kodosumi.log import spooler_logger
 from kodosumi.runner.const import NAMESPACE
-
+import kodosumi.ops
+import json as jsonlib
 
 @click.group()
 @click.version_option(version=__version__, prog_name="kodosumi")
@@ -158,6 +159,43 @@ def server(exec_dir, register):
         print(e)
         sys.exit(1)
         
+
+
+@cli.command("deploy")
+@click.argument('config_file', type=str, required=False, default=None)
+@click.option('-t', '--test', is_flag=True, default=False, help='test deployment configuration')
+@click.option('-s', '--shutdown', '--stop', is_flag=True, default=False, help='shutdown serve')
+@click.option('-j', '--json', is_flag=True, default=False, help='render output as json')
+def deploy(config_file: str, test: bool, shutdown: bool, json: bool):
+    if test and shutdown:
+        print("test and shutdown cannot be used together")
+        sys.exit(-1)
+    if shutdown:
+        kodosumi.ops.shutdown()
+    elif config_file:
+        file = Path(config_file)
+        if file.exists() and file.is_file():
+            if test:
+                kodosumi.ops.build_config(str(file))
+            else:
+                kodosumi.ops.deploy(str(file))
+        else:
+            print("config file required, not found!")
+            sys.exit(-1)
+    # if not json:
+    #     print("serve status:")
+    # status = kodosumi.ops.status()
+    # if status:
+    #     if json:
+    #         print(jsonlib.dumps(status, indent=2))
+    #     else:
+    #         print("\n".join([f"- {k}: {v}" for k, v in sorted(status.items())]))
+    # else:
+    #     if json:
+    #         print("{}")
+    #     else:
+    #         print("- inactive")
+
 
 if __name__ == "__main__":
     cli()

@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     REGISTER_FLOW: list[str] = []
     PROXY_TIMEOUT: int = 30
 
+    YAML_BASE: str = "./data/config/config.yaml"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="KODO_",

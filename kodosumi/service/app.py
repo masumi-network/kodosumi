@@ -42,6 +42,7 @@ from kodosumi.service.role import RoleControl
 from kodosumi.service.inputs.inputs import InputsController
 from kodosumi.service.inputs.outputs import OutputsController
 from kodosumi.service.inputs.timeline.controller import TimelineController
+from kodosumi.service.deploy import DeployControl, ServeControl
 
 
 def app_exception_handler(request: Request, 
@@ -177,6 +178,8 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/inputs", route_handlers=[InputsController]),
             Router(path="/outputs", route_handlers=[OutputsController]),
             Router(path="/timeline", route_handlers=[TimelineController]),
+            Router(path="/deploy", route_handlers=[DeployControl]),
+            Router(path="/serve", route_handlers=[ServeControl]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],

@@ -2,6 +2,7 @@ import sys
 from typing import Any
 import asyncio
 import ray.util.queue
+import traceback
 
 from kodosumi import dtypes
 from kodosumi.helper import now, serialize
@@ -77,80 +78,104 @@ class Tracer:
         }
         self.queue.actor.put.remote(data)  # type: ignore
 
-    async def debug(self, message: str):
-        await self._put_async(EVENT_DEBUG, message)
+    async def debug(self, *message: str):
+        await self._put_async(EVENT_DEBUG, "\n".join(message))
 
-    def debug_sync(self, message: str):
-        self._put(EVENT_DEBUG, message)
+    def debug_sync(self, *message: str):
+        self._put(EVENT_DEBUG, "\n".join(message))
 
-    async def result(self, message: Any):
-        await self._put_async(EVENT_RESULT, serialize(message))
+    async def result(self, *message: Any):
+        for m in message:
+            await self._put_async(EVENT_RESULT, serialize(m))
 
-    def result_sync(self, message: Any):
-        self._put(EVENT_RESULT, serialize(message))
+    def result_sync(self, *message: Any):
+        for m in message:
+            self._put(EVENT_RESULT, serialize(m))
 
-    async def action(self, message: Any):
-        await self._put_async(EVENT_ACTION, serialize(message))
+    async def action(self, *message: Any):
+        for m in message:
+            await self._put_async(EVENT_ACTION, serialize(m))
 
-    def action_sync(self, message: Any):
-        self._put(EVENT_ACTION, serialize(message))
+    def action_sync(self, *message: Any):
+        for m in message:
+            self._put(EVENT_ACTION, serialize(m))
 
-    async def markdown(self, message: str):
+    async def markdown(self, *message: str):
         await self._put_async(EVENT_RESULT, serialize(
-            dtypes.Markdown(body=message)))
+            dtypes.Markdown(body="\n\n".join(message))))
 
-    def markdown_sync(self, message: str):
+    def markdown_sync(self, *message: str):
         self._put(EVENT_RESULT, serialize(
-            dtypes.Markdown(body=message)))
+            dtypes.Markdown(body="\n\n".join(message))))
 
-    async def html(self, message: str):
+    async def html(self, *message: str):
         await self._put_async(EVENT_RESULT, serialize(
-            dtypes.HTML(body=message)))
+            dtypes.HTML(body="\n".join(message))))
 
-    def html_sync(self, message: str):
+    def html_sync(self, *message: str):
         self._put(EVENT_RESULT, serialize(
-            dtypes.HTML(body=message)))
+            dtypes.HTML(body="\n".join(message))))
 
-    async def text(self, message: str):
+    async def text(self, *message: str):
         await self._put_async(EVENT_RESULT, serialize(
-            dtypes.Text(body=message)))
+            dtypes.Text(body="\n".join(message))))
 
-    def text_sync(self, message: str):
+    def text_sync(self, *message: str):
         self._put(EVENT_RESULT, serialize(
-            dtypes.Text(body=message)))
+            dtypes.Text(body="\n".join(message))))
+
+    async def warning(self, *message: str, exc_info: bool = False):
+        output = list(message)
+        if exc_info:
+            output.append(traceback.format_exc())
+        await self._put_async(EVENT_STDERR, "\n".join(output))
+
+    def warning_sync(self, *message: str, exc_info: bool = False):
+        output = list(message)
+        if exc_info:
+            output.append(traceback.format_exc())
+        self._put(EVENT_STDERR, "\n".join(output))
 
 
 class Mock:
 
-    async def debug(self, message: str):
-        print(f"{EVENT_DEBUG} {message}")
+    async def debug(self, *message: str):
+        print(f"{EVENT_DEBUG} {' '.join(message)}")
 
-    def debug_sync(self, message: str):
-        print(f"{EVENT_DEBUG} {message}")
+    def debug_sync(self, *message: str):
+        print(f"{EVENT_DEBUG} {' '.join(message)}")
 
-    async def result(self, message: Any):
-        print(f"{EVENT_RESULT} {serialize(message)}")
+    async def result(self, *message: Any):
+        for m in message:
+            print(f"{EVENT_RESULT} {serialize(m)}")
 
-    def result_sync(self, message: Any):
-        print(f"{EVENT_RESULT} {serialize(message)}")
+    def result_sync(self, *message: Any):
+        for m in message:
+            print(f"{EVENT_RESULT} {serialize(m)}")
 
-    async def action(self, message: Any):
-        print(f"{EVENT_ACTION} {serialize(message)}")
+    async def action(self, *message: Any):
+        for m in message:
+            print(f"{EVENT_ACTION} {serialize(m)}")
 
-    def action_sync(self, message: Any):
-        print(f"{EVENT_ACTION} {serialize(message)}")
+    def action_sync(self, *message: Any):
+        for m in message:
+            print(f"{EVENT_ACTION} {serialize(m)}")
 
-    async def markdown(self, message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.Markdown(body=message))}")
+    async def markdown(self, *message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.Markdown(body=' '.join(message)))}")
 
-    def markdown_sync(self, message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.Markdown(body=message))}")
+    def markdown_sync(self, *message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.Markdown(body=' '.join(message)))}")
 
-    async def html(self, message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.HTML(body=message))}")
+    async def html(self, *message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.HTML(body=' '.join(message)))}")
 
-    async def text(self, message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.Text(body=message))}")
+    def html_sync(self, *message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.HTML(body=' '.join(message)))}")
 
-    def text_sync(self, message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.Text(body=message))}")
+    async def text(self, *message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.Text(body=' '.join(message)))}")
+
+    def text_sync(self, *message: str):
+        print(f"{EVENT_RESULT} {serialize(dtypes.Text(body=' '.join(message)))}")
+

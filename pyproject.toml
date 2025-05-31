@@ -1,5 +1,5 @@
 [build-system]
-requires = [ "setuptools>=42", "wheel", "setuptools-scm",]
+requires = [ "setuptools>=42", "wheel",]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,12 +11,13 @@ license = "Apache-2.0"
 classifiers = [ "Programming Language :: Python :: 3.10", "Operating System :: OS Independent", "Development Status :: 3 - Alpha", "Intended Audience :: Developers", "Intended Audience :: Science/Research", "Topic :: Scientific/Engineering :: Artificial Intelligence",]
 requires-python = ">=3.10"
 dependencies = [ "click", "pydantic[email]", "pydantic_settings", "ray[serve]", "litestar", "fastapi", "fastapi_utils", "jinja2", "uvicorn", "python-jose", "python-multipart", "multipart", "aiofiles", "bson", "bcrypt", "sqlalchemy", "advanced-alchemy", "aiosqlite", "bs4", "ansi2html", "pyyaml", "markdown",]
+
 [[project.authors]]
 name = "Michael Rau"
 email = "m.rau@house-of-communication.com"
 
 [project.urls]
-Homepage = "https://www.masumi.network/"
+Homepage = "https://www.kodosumi.io/"
 Repository = "https://github.com/masumi-network/kodosumi"
 Issues = "https://github.com/masumi-network/kodosumi/issues"
 
@@ -26,10 +27,16 @@ tests = [ "pytest", "pytest-asyncio", "pytest-httpserver", "isort", "autopep8", 
 [project.scripts]
 koco = "kodosumi.cli:cli"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.package-data]
-kodosumi = [ "kodosumi/service/admin/static/*", "kodosumi/service/admin/templates/*",]
+kodosumi = [
+    "kodosumi/service/admin/static/**/*",
+    "kodosumi/service/admin/templates/**/*"
+]
 
 [tool.setuptools.packages.find]
-where = [ ".",]
-include = [ "kodosumi",]
+where = [ "." ]
+include = [ "kodosumi*",]
 namespaces = false
