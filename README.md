@@ -122,6 +122,10 @@ In contrast to the previous command a `serve deploy` command is used to deploy y
 
     serve deploy kodosumi.examples.hymn.app:fast_app
 
+Using Ray _serve run_ or _deploy_ the `--register` must connect to Ray's proxy URL `/-/routes`. With `serve run` or `deploy` the port defaults to `8000` and you start `koco start` with the Ray serve endpoint http://localhost:8000/-/routes.
+
+    koco start --register http://localhost:8000/-/routes
+
 
 #### multi-service setup
 
@@ -187,15 +191,18 @@ Test this deployment set with
 
     koco deploy ./data/config/config.yaml --test
 
+
 Stop `ray serve` and perform a Ray serve deployment
 
     serve shutdown --yes
     koco deploy ./data/config/config.yaml
 
+
 Restart `koco start` with the Ray serve endpoint http://localhost:8001/-/routes as configured in `config.yaml`.
 
     koco start --register http://localhost:8001/-/routes
 
+
 If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **[control screen](http://localhost:3370/admin/routes)** in the **[admin panel](http://localhost:3370/)** and click **RECONNECT**. 
 
-Adding and removing deployments is operationalized with config files in `./data/config`. All files alongside `config.yaml` are deployed.
+Adding and removing deployments is operationalized with config files in `./data/config`. All files alongside `config.yaml` are deployed. You can test your deployment setup with `koco deploy ./data/config/[master-config].yaml --test`.
