@@ -155,7 +155,7 @@ Alongside this file `config.yaml` create service configuration files. For each s
 
 ##### `hymn.yaml`
 
-```json
+```yaml
 name: hymn
 route_prefix: /hymn
 import_path: kodosumi.examples.hymn.app:fast_app
@@ -170,7 +170,7 @@ runtime_env:
 
 ##### `prime.yaml`
 
-```json
+```yaml
 name: prime
 route_prefix: /prime
 import_path: kodosumi.examples.prime.app:fast_app
@@ -178,7 +178,7 @@ import_path: kodosumi.examples.prime.app:fast_app
 
 ##### `throughput.yaml`
 
-```json
+```yaml
 name: throughput
 route_prefix: /throughput
 import_path: kodosumi.examples.throughput.app:fast_app
