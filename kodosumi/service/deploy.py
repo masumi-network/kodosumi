@@ -19,6 +19,8 @@ from kodosumi.config import Settings
 import time
 import json as jsonlib
 
+NEXT_ACTION_TO_STOP = "to-stop"
+NEXT_ACTION_TO_DEPLOY = "to-deploy"
 
 @ray.remote
 class Deployer:
@@ -59,8 +61,8 @@ class Deployer:
 
     def deploy(self):    
         koco = Path(sys.executable).parent / "koco"
-        proc = Popen([koco, "deploy", str(self.config_file())], 
-                     stdout=PIPE, stderr=STDOUT)
+        proc = Popen([koco, "deploy", "--run", "--file", 
+                      str(self.config_file())], stdout=PIPE, stderr=STDOUT)
         (stdout, _) = proc.communicate()
         return stdout.decode()
         # url = self.settings.RAY_DASHBOARD + "/api/serve/applications/"
@@ -79,7 +81,8 @@ class Deployer:
 
     def status_dict(self):
         koco = Path(sys.executable).parent / "koco"
-        proc = Popen([koco, "deploy", "--json"], stdout=PIPE, stderr=STDOUT)
+        proc = Popen([koco, "deploy", "--status", "--json"], 
+                     stdout=PIPE, stderr=STDOUT)
         (stdout, _) = proc.communicate()
         js = stdout.decode()
         if js:
@@ -88,7 +91,7 @@ class Deployer:
 
     def status(self):    
         koco = Path(sys.executable).parent / "koco"
-        proc = Popen([koco, "deploy"], stdout=PIPE, stderr=STDOUT)
+        proc = Popen([koco, "deploy", "--status"], stdout=PIPE, stderr=STDOUT)
         (stdout, _) = proc.communicate()
         return stdout.decode()
 
@@ -168,10 +171,10 @@ class DeployControl(litestar.Controller):
             if elm in status:
                 ret[elm] = status[elm].lower()
             else:
-                ret[elm] = "to deploy"
+                ret[elm] = NEXT_ACTION_TO_DEPLOY
         for elm in status:
             if elm not in ret:
-                ret[elm] = "to stop"
+                ret[elm] = NEXT_ACTION_TO_STOP
         return ret
     
     @delete("/{name:str}", summary="Delete a deployment",
