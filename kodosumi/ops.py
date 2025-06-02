@@ -1,6 +1,7 @@
 import tempfile
 from subprocess import Popen, PIPE, STDOUT
 import shutil
+from typing import Dict
 import os
 import yaml
 import httpx
@@ -16,11 +17,19 @@ def build_config(filename: str) -> dict:
     config_path = file.parent
     assert config_path.exists()
     apps = []
+    failed = []
     print("prepare applications:")
     for app in config_path.iterdir():
         if app.is_file() and app.suffix == ".yaml" and app.name != file.name:
             print(f"- {app}")
-            apps.append(yaml.safe_load(app.open()))
+            try:
+                apps.append(yaml.safe_load(app.open()))
+            except:
+                failed.append(app)
+    if failed:
+        print("failed:")
+        for app in failed:
+            print(f"- {app}")
     config["applications"] = apps
     return config
 
@@ -49,11 +58,12 @@ def shutdown():
         print(f"- shutdown succeeded.")
 
 
-def status():
+def status() -> Dict:
     proc = Popen(["serve", "status"], stdout=PIPE, stderr=STDOUT)
     (out, _) = proc.communicate()
-    status = yaml.safe_load(out.decode("utf-8"))
-    return { k: v["status"] for k, v in status["applications"].items() }
+    application = yaml.safe_load(out.decode("utf-8"))
+    status = application.get("applications", {})
+    return { k: v["status"] for k, v in status.items() }
 
 
 def vacuum():

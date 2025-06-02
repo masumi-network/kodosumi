@@ -1,6 +1,6 @@
 import subprocess
 import sys
-
+from pathlib import Path
 import click
 import psutil
 import ray
@@ -162,39 +162,49 @@ def server(exec_dir, register):
 
 
 @cli.command("deploy")
-@click.argument('config_file', type=str, required=False, default=None)
-@click.option('-t', '--test', is_flag=True, default=False, help='test deployment configuration')
-@click.option('-s', '--shutdown', '--stop', is_flag=True, default=False, help='shutdown serve')
+@click.option('-f', '--file', type=str, required=False, default=None, help='config YAML file')
+@click.option('-r', '--run', is_flag=True, default=False, help='run deployment')
+@click.option('-d', '--dry', '--dry-run', is_flag=True, default=False, help='test deployment configuration')
+@click.option('-x', '--shutdown', '--stop', is_flag=True, default=False, help='shutdown serve')
+@click.option('-s', '--status', is_flag=True, default=False, help='serve status')
 @click.option('-j', '--json', is_flag=True, default=False, help='render output as json')
-def deploy(config_file: str, test: bool, shutdown: bool, json: bool):
-    if test and shutdown:
-        print("test and shutdown cannot be used together")
+def deploy(file: str, run: bool, dry: bool, shutdown: bool, status: bool, json: bool):
+
+    settings = Settings()
+
+    def _exit(message: str):
+        print(message)
         sys.exit(-1)
+
     if shutdown:
+        if run or status or dry:
+            _exit("--shutdown cannot be used together with --run, --status or --dry")
         kodosumi.ops.shutdown()
-    elif config_file:
-        file = Path(config_file)
-        if file.exists() and file.is_file():
-            if test:
-                kodosumi.ops.build_config(str(file))
+
+    if run or dry:
+        if status:
+            _exit("--run/--dry-run cannot be used together with --status")
+        if not file:
+            file = settings.YAML_BASE
+        f = Path(file)
+        if f.exists() and f.is_file():
+            if run:
+                kodosumi.ops.deploy(str(f))
             else:
-                kodosumi.ops.deploy(str(file))
+                kodosumi.ops.build_config(str(f))
         else:
-            print("config file required, not found!")
-            sys.exit(-1)
-    # if not json:
-    #     print("serve status:")
-    # status = kodosumi.ops.status()
-    # if status:
-    #     if json:
-    #         print(jsonlib.dumps(status, indent=2))
-    #     else:
-    #         print("\n".join([f"- {k}: {v}" for k, v in sorted(status.items())]))
-    # else:
-    #     if json:
-    #         print("{}")
-    #     else:
-    #         print("- inactive")
+            _exit(f"config file {f} not found")
+
+    if status or not (shutdown or run or dry):
+        s = kodosumi.ops.status()
+        if json:
+            print(jsonlib.dumps(s, indent=2))
+        else:
+            print("serve status:")
+            if s:
+                print("\n".join([f"- {k}: {v}" for k, v in sorted(s.items())]))
+            else:
+                print("- inactive")
 
 
 if __name__ == "__main__":
