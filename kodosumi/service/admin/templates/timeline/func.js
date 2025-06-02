@@ -31,6 +31,9 @@ function formatInputs(inputs) {
     str = str.replace(/\\n+/g, " ");
     str = str.replace(/\\s+/g, " ");
     str = str.replace(/:/g, ": ");
+    if (str.length > 550) {
+        str = str.substring(0, 550) + "...";
+    }
     return str;
 }
 
