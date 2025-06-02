@@ -2,6 +2,7 @@ import tempfile
 from subprocess import Popen, PIPE, STDOUT
 import shutil
 from typing import Dict
+import sys
 import os
 import yaml
 import httpx
@@ -10,6 +11,10 @@ from pathlib import Path
 import yaml
 from kodosumi.config import InternalSettings
 from kodosumi.runner.const import DB_FILE, DB_ARCHIVE
+
+def _find_serve():
+    return str(Path(sys.executable).parent.joinpath("serve"))
+
 
 def build_config(filename: str) -> dict:
     file = Path(filename)
@@ -39,7 +44,8 @@ def deploy(filename: str):
     with Path(tmp).open("w") as f:
         f.write(yaml.dump(config))
     print("start deployment:")
-    proc = Popen(["serve", "deploy", str(tmp)], stdout=PIPE, stderr=STDOUT)
+    proc = Popen([_find_serve(), "deploy", str(tmp)], stdout=PIPE, 
+                 stderr=STDOUT)
     (out, _) = proc.communicate()
     if proc.returncode != 0:
         print(out.decode("utf-8"))
@@ -49,7 +55,7 @@ def deploy(filename: str):
 
 def shutdown():
     print("stop serve:")
-    proc = Popen(["serve", "shutdown", "-y"], stdout=PIPE, stderr=STDOUT)
+    proc = Popen([_find_serve(), "shutdown", "-y"], stdout=PIPE, stderr=STDOUT)
     (out, _) = proc.communicate()
     if proc.returncode != 0:
         print(out.decode("utf-8"))
@@ -59,7 +65,7 @@ def shutdown():
 
 
 def status() -> Dict:
-    proc = Popen(["serve", "status"], stdout=PIPE, stderr=STDOUT)
+    proc = Popen([_find_serve(), "status"], stdout=PIPE, stderr=STDOUT)
     (out, _) = proc.communicate()
     application = yaml.safe_load(out.decode("utf-8"))
     status = application.get("applications", {})

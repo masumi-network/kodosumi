@@ -1,4 +1,5 @@
 from typing import Any, Dict, List
+
 import litestar
 from litestar import Request, get, post
 from litestar.datastructures import State
@@ -6,11 +7,12 @@ from litestar.exceptions import NotAuthorizedException
 from litestar.response import Redirect, Template
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import kodosumi.core
 import kodosumi.service.endpoint
+from kodosumi.dtypes import RoleEdit
 from kodosumi.service.auth import TOKEN_KEY, get_user_details
-from kodosumi.service.role import update_role
-from kodosumi.dtypes import Role, RoleCreate, RoleEdit, RoleResponse
 from kodosumi.service.jwt import operator_guard
+from kodosumi.service.role import update_role
 
 
 class AdminControl(litestar.Controller):
@@ -49,7 +51,8 @@ class AdminControl(litestar.Controller):
                     "endpoints": data.get("endpoints"),
                     "registers": data.get("registers"),
                     "items": data.get("items"),
-                    "user": user
+                    "user": user,
+                    "version": kodosumi.core.__version__
                 }, 
                 **kwargs
             }
