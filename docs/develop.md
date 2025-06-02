@@ -499,3 +499,7 @@ The response returns the _Flow Identifier_ (`fid`).
     ]
 }
 ```
+
+**Where to get from here?**
+
+* continue with [kodosumi deployment workflow](./deploy.md)

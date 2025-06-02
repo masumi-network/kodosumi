@@ -32,7 +32,7 @@ The following quick guide
 
 This installation has been tested with versions `ray==2.46.0` and `python==3.12.6`.
 
-If you want to skip the examples then continue with the [kodosumi development workflow](./docs/develop2.md) and start implementing your custom agentic service with the kodosumi framework.
+If you want to skip the examples then continue with the [kodosumi development workflow](./docs/develop.md) and start implementing your custom agentic service with the kodosumi framework.
 
 ## install and run examples
 
@@ -127,7 +127,7 @@ Using Ray _serve run_ or _deploy_ the `--register` must connect to Ray's proxy U
     koco start --register http://localhost:8000/-/routes
 
 
-#### multi-service setup
+#### multi-service setup with Serve config files
 
 `serve run` and `serve deploy` feature single services. Running multiple uvicorn services is possible but soon gets dity and quirky. For multi-service deployments use Ray serve _config files_.
 
@@ -192,7 +192,7 @@ Test this deployment set with
     koco deploy ./data/config/config.yaml --test
 
 
-Stop `ray serve` and perform a Ray serve deployment
+With success, stop `ray serve` and perform a Ray serve deployment
 
     serve shutdown --yes
     koco deploy ./data/config/config.yaml
@@ -205,4 +205,11 @@ Restart `koco start` with the Ray serve endpoint http://localhost:8001/-/routes 
 
 If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **[control screen](http://localhost:3370/admin/routes)** in the **[admin panel](http://localhost:3370/)** and click **RECONNECT**. 
 
-Adding and removing deployments is operationalized with config files in `./data/config`. All files alongside `config.yaml` are deployed. You can test your deployment setup with `koco deploy ./data/config/[master-config].yaml --test`.
+Adding and removing deployments is operationalized with config files in `./data/config`. All files alongside `config.yaml` are deployed. You can test your deployment setup with `koco deploy ./data/config/config.yaml --test`.
+
+
+**Where to get from here?**
+
+* continue with [kodosumi development workflow](./docs/develop.md) 
+* see the admin panel [screenshots](./panel.md)
+* read about [basic concepts and terminology](./concepts.md)
