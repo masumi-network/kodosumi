@@ -5,6 +5,7 @@ from typing import Dict
 import sys
 import os
 import yaml
+import traceback
 import httpx
 from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
@@ -22,19 +23,20 @@ def build_config(filename: str) -> dict:
     config_path = file.parent
     assert config_path.exists()
     apps = []
-    failed = []
+    failed = {}
     print("prepare applications:")
     for app in config_path.iterdir():
         if app.is_file() and app.suffix == ".yaml" and app.name != file.name:
             print(f"- {app}")
             try:
                 apps.append(yaml.safe_load(app.open()))
-            except:
-                failed.append(app)
+            except Exception as exc:
+                failed[app] = traceback.format_exc()
     if failed:
         print("failed:")
-        for app in failed:
-            print(f"- {app}")
+        for app, exc in failed.items():
+            print(f"- {app}:")
+            print(f"{exc}")
     config["applications"] = apps
     return config
 
