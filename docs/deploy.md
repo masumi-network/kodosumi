@@ -117,11 +117,11 @@ With services `company_news` and all kodosumi-examples up and running the reques
 
 ```json
 {
-    'prime': 'running',
-    'throughput': 'running',
-    'hymn': 'running',
-    'form': 'running',
-    'company_news': 'running'
+    "prime": "running",
+    "throughput": "running",
+    "hymn": "running",
+    "form": "running",
+    "company_news": "running"
 }
  ```
 
@@ -136,11 +136,11 @@ After this `DELETE` request the status yields
 
 ```json
 {
-    'prime': 'to-stop',
-    'throughput': 'running',
-    'hymn': 'running',
-    'form': 'running',
-    'company_news': 'running'
+    "prime": "to-stop",
+    "throughput": "running",
+    "hymn": "running",
+    "form": "running",
+    "company_news": "running"
 }
  ```
 

@@ -463,7 +463,7 @@ Ray reports available routes at http://localhost:8000/-/routes. Verify the route
 
 Again we will skip `koco serve` until we have a proper deployment.
 
-### 16. Deploy with Ray _server_
+### 16. Deploy with Ray _serve_
 
 Deploy with Ray _serve_ and run `koco start` to register your service with kodosumi.
 
@@ -494,9 +494,7 @@ The response returns the _Flow Identifier_ (`fid`).
 ```json
 {
     "result": "...",
-    "elements": [
-        ...
-    ]
+    "elements": ["..."]
 }
 ```
 
