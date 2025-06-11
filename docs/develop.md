@@ -36,13 +36,26 @@ Together, these components form a robust architecture that enables the creation 
 
 We start implementing the service with the folder package structure and the build of the _query_ function. 
 
+
 ### 1. create git remote
 
 Create a public repository to host your agentic service. Ensure you have write access. For this example we use the following repository URL:
 
 * https://github.com/plan-net/agentic-workflow-example.git
 
-### 2. clone the repository
+
+### 2. create Python Virtual Environment
+
+Create and source a Python Virtual Environment with your system Python executable. 
+
+    python3 -m venv .venv
+    source .venv/bin/activate
+
+> [!NOTE]
+> You need to locate the Python system executable. Depending on your operating system and setup this location differs.
+
+
+### 3. clone the repository
 
 Clone the repository to your localhost:
 
@@ -51,9 +64,10 @@ Clone the repository to your localhost:
     cd agentic-workflow-example/
 ```
 
-### 3. setup project structure
 
-Create a new directory `./company_news` to host your package. 
+### 4. setup project structure
+
+Create a new directory `./company_news` inside your local working directory `./agentic-workflow-example` to host your package. 
 
 ```bash
 mkdir ./company_news
@@ -87,22 +101,12 @@ OPENAI_API_KEY=<add your key>
 
 You need to have an [OpenAI API key](https://platform.openai.com/api-keys) to run this example.
 
-
-### 4. create Python Virtual Environment
-
-Create and source a Python Virtual Environment with your system Python executable. The `.gitignore` above will ignore this `.venv` directory.
-
-    python3 -m venv .venv
-    source .venv/bin/activate
-
-> [!NOTE]
-> You need to locate the Python system executable. Depending on your operating system and setup this location differs.
-
 Push our initial commit:
 
     git add .
     git commit -m "initial version"
     git push
+
 
 ### 5. install kodosumi
 
@@ -453,6 +457,7 @@ Access the exposed endpoint at http://localhost:8013/ and you will retrieve the 
 
 This time we will skip registering the OpenAPI endpoint http://localhost:8013/openapi.json with `koco start`. Instead we immediately turn to Ray _serve_ deployments.
 
+
 ### 15. Test with Ray _serve_
 
 Run the deployment, this time with the Ray `fast_app` object. Ensure you Ray cluster is up and running, i.e. with `ray status`.
@@ -462,6 +467,7 @@ Run the deployment, this time with the Ray `fast_app` object. Ensure you Ray clu
 Ray reports available routes at http://localhost:8000/-/routes. Verify the routes are properly published at http://localhost:8000/-/routes and retrieve the schema this time at http://localhost:8000/.
 
 Again we will skip `koco serve` until we have a proper deployment.
+
 
 ### 16. Deploy with Ray _serve_
 
