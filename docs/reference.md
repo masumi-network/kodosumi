@@ -495,7 +495,7 @@ route_prefix: /prime
 import_path: kodosumi_examples.prime.app:fast_app
 runtime_env:
   py_modules:
-    - https://github.com/m-rau/kodosumi-examples/archive/1b0e59246122c7ac70424ea19c121f60b2e165fc.zip
+    - https://github.com/masumi-network/kodosumi-examples.git/archive/2db907d955de65bed5dde6513f6359aeb18ebff1.zip
 """
 
 response = httpx.post(
