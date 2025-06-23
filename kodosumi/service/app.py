@@ -34,15 +34,14 @@ from kodosumi.dtypes import Role, RoleCreate
 from kodosumi.log import app_logger, logger
 from kodosumi.service.admin.controller import AdminControl
 from kodosumi.service.auth import LoginControl
-from kodosumi.service.exec import ExecutionControl
+from kodosumi.service.deploy import DeployControl, ServeControl
 from kodosumi.service.flow import FlowControl
-from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
-from kodosumi.service.proxy import ProxyControl
-from kodosumi.service.role import RoleControl
 from kodosumi.service.inputs.inputs import InputsController
 from kodosumi.service.inputs.outputs import OutputsController
 from kodosumi.service.inputs.timeline.controller import TimelineController
-from kodosumi.service.deploy import DeployControl, ServeControl
+from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
+from kodosumi.service.proxy import ProxyControl
+from kodosumi.service.role import RoleControl
 
 
 def app_exception_handler(request: Request, 
@@ -174,7 +173,6 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/-/", route_handlers=[ProxyControl]),
             Router(path="/admin", route_handlers=[AdminControl]),
             Router(path="/flow", route_handlers=[FlowControl]),
-            Router(path="/exec", route_handlers=[ExecutionControl]),
             Router(path="/inputs", route_handlers=[InputsController]),
             Router(path="/outputs", route_handlers=[OutputsController]),
             Router(path="/timeline", route_handlers=[TimelineController]),

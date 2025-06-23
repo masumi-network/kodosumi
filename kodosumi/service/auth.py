@@ -87,7 +87,8 @@ class LoginControl(litestar.Controller):
         raise NotAuthorizedException(detail="Invalid name or password")
 
     @get("/", summary="Home",
-         description="Admin Console Home.", opt={"no_auth": True})
+         description="Admin Console Home.", opt={"no_auth": True},
+         exclude_from_schema=True)
     async def home(self, request: Request) -> Union[Redirect, Template]:
         if TOKEN_KEY in request.cookies:
             return Redirect("/admin/flow")
@@ -95,8 +96,12 @@ class LoginControl(litestar.Controller):
             return Template("login.html")
         raise NotAuthorizedException(detail="Login requited")
 
-async def get_user_details(user_id: str, transaction: AsyncSession) -> Role:
+
+async def get_user_details(user_id: str, 
+                           transaction: AsyncSession) -> Optional[Role]:
     query = select(Role).where(Role.id == uuid.UUID(user_id))
     result = await transaction.execute(query)
     role = result.scalar_one_or_none()
+    if role is None:
+        raise NotAuthorizedException(detail="User not found")
     return role

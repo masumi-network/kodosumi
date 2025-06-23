@@ -1,28 +1,24 @@
 import asyncio
-import json
 import sqlite3
 from pathlib import Path
-from typing import AsyncGenerator, Optional, List, Union, Dict, Tuple
-from datetime import datetime, timedelta
+from typing import AsyncGenerator, Dict, List, Optional, Tuple, Union
 
 import litestar
 import ray
-from httpx import AsyncClient
-from litestar import Request, get, post, MediaType, delete
+from litestar import Request, delete, get
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
-from litestar.response import Redirect, ServerSentEvent, Template
+from litestar.response import Response, ServerSentEvent, Template
 from litestar.types import SSEData
 
-from kodosumi import helper
-from kodosumi.helper import now, wants
+import kodosumi.core
+from kodosumi import dtypes, helper
+from kodosumi.helper import now, serialize
 from kodosumi.log import logger
 from kodosumi.runner.const import *
 from kodosumi.runner.formatter import DefaultFormatter, Formatter
 from kodosumi.runner.main import kill_runner
-from kodosumi.service.inputs.forms import Model
-from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
-from kodosumi import dtypes
+
 
 STATUS_TEMPLATE = "status/status.html"
 SHORT_WAIT = 1
@@ -342,3 +338,76 @@ class OutputsController(litestar.Controller):
             else:
                 logger.warning(f"archived {fid}")
 
+    async def _get_final(
+            self, 
+            fid: str,
+            request: Request, 
+            state: State) -> dict:
+        db_file = Path(state["settings"].EXEC_DIR).joinpath(
+            request.user, fid, DB_FILE)
+        t0 = now()
+        loop = False
+        waitfor = state["settings"].WAIT_FOR_JOB
+        while not db_file.exists():
+            if not loop:
+                loop = True
+            await asyncio.sleep(SLEEP)
+            if now() > t0 + waitfor:
+                raise NotFoundException(
+                    f"Execution {fid} not found after {waitfor}s.")
+        if loop:
+            logger.debug(f"{fid} - found after {now() - t0:.2f}s")
+        conn = sqlite3.connect(str(db_file), isolation_level=None)
+        conn.execute('pragma journal_mode=wal;')
+        conn.execute('pragma synchronous=normal;')
+        conn.execute('pragma read_uncommitted=true;')
+        cursor = conn.cursor()
+        cursor.execute("SELECT message FROM monitor WHERE kind = 'meta'")
+        row = cursor.fetchone()
+        if row:
+            meta, = row
+        else:
+            meta = {}
+        cursor.execute("SELECT MIN(timestamp), MAX(timestamp) FROM monitor")
+        first, last = cursor.fetchone()
+        cursor.execute("SELECT message FROM monitor WHERE kind = 'final'")
+        row = cursor.fetchone()
+        if row:
+            result, = row
+        else:
+            result = serialize(
+                dtypes.Markdown(body="no result, yet. please be patient."))
+        conn.close()
+        runtime = last - first if last and first else None
+        return {
+            "fid": fid,
+            "kind": "final",
+            "raw": result,
+            "timestamp": first,
+            "runtime": runtime,
+            "meta": dtypes.DynamicModel.model_validate_json(
+                meta).model_dump().get("dict", {}),
+            "version": kodosumi.core.__version__
+        }
+
+    @get("/html/{fid:str}", summary="Render HTML of Final Result",
+         description="Render Final Result in HTML.")
+    async def final_html(
+            self, 
+            fid: str,
+            request: Request, 
+            state: State) -> Template:
+        formatter = DefaultFormatter()
+        ret = await self._get_final(fid, request, state)
+        ret["main"] = formatter.convert(ret["kind"], ret["raw"])
+        return Template("final.html", context=ret)
+
+    @get("/raw/{fid:str}", summary="Render Raw of Final Result",
+         description="Render Final Result in raw format.")
+    async def final_raw(
+            self, 
+            fid: str,
+            request: Request, 
+            state: State) -> Response:
+        ret = await self._get_final(fid, request, state)
+        return Response(content=ret["raw"])

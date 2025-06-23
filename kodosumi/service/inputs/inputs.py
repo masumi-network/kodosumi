@@ -23,7 +23,6 @@ from kodosumi.service.inputs.forms import Model
 from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
 
 FORM_TEMPLATE = "form.html"
-#STATUS_REDIRECT = "/admin/exec/{fid}"
 STATUS_REDIRECT = "/outputs/status/view/{fid}"
 
 
