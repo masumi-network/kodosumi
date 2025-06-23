@@ -41,7 +41,7 @@ If you want to skip the examples then continue with the [kodosumi development wo
 Clone and install the `kodosumi-examples` into your Python Virtual Environment. The kodosumi and Ray packages are automatically installed as a dependency.
 
 ```bash
-git clone https://github.com/m-rau/kodosumi-examples.git
+git clone https://github.com/masumi-network/kodosumi-examples.git
 cd ./kodosumi-examples
 pip install .
 ```
