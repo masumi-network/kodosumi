@@ -8,5 +8,6 @@
 * [deployment workflow](./deploy.md)
 * [form elements and validation](./forms.md)
 * [flow and service lifecycle](./lifecycle.md)
+* [CLI commands](./cli.md)
 * [API usage](./api.md)
 * [configuration](./config.md)

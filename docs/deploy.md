@@ -82,9 +82,10 @@ runtime_env:
     OPENAI_API_KEY: <-- your-api-key -->
 ```
 
-Deploy your configuration set with
+Test and deploy your configuration set with
 
-    koco deploy ./data/config/config.yaml
+    koco deploy --dry-run --file ./data/config/config.yaml
+    koco deploy --run --file ./data/config/config.yaml
 
 This will apply your _base_ configuration from `./data/config/config.yaml` and adds a key `application` with records from `./data/config/company_news.yaml`.
 
@@ -96,6 +97,9 @@ See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/config
 
 
 ## deployment API
+
+> [!NOTE]
+> The deployment API at `/deploy` and `/serve` are experimental.
 
 Use _kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
 
@@ -132,7 +136,7 @@ Now we stop and remove service `prime` from active Ray _serve_ deployments with
 resp = httpx.delete("http://localhost:3370/deploy/prime", cookies=cookies)
 ```
 
-After this `DELETE` request the status yields
+After this `DELETE` request the status at http://localhost:3370/deploy yields
 
 ```json
 {
@@ -146,3 +150,47 @@ After this `DELETE` request the status yields
 
 To request Ray _serve_ to enter this state `POST /serve` with
 
+```python
+resp = httpx.post("http://localhost:3370/serve", cookies=cookies, timeout=30)
+```
+
+Watch the timeout because the response of _Ray serve_ might take a while.
+
+You can add a deployment with `POST /deploy`, for example
+
+```python
+yaml = """
+name: company_news
+route_prefix: /company_news
+import_path: company_news.query:fast_app
+runtime_env: 
+  py_modules:
+  - https://github.com/plan-net/agentic-workflow-example/archive/45aabddf234cf8beb7118b400e7cb567776e458a.zip
+  pip:
+  - openai
+  env_vars:
+    OTEL_SDK_DISABLED: "true"
+    OPENAI_API_KEY: <-- your-api-key -->
+"""
+resp = httpx.post(
+    "http://localhost:3370/deploy/company_news", 
+    cookies=cookies,
+    content=yaml)
+```
+
+Do not forget to apply your changes with `POST /serve`
+
+```python
+resp = httpx.post("http://localhost:3370/serve", cookies=cookies, timeout=30)
+```
+
+You can read and manage the base configuration accordingly with
+
+```python
+resp1 = httpx.get("http://localhost:3370/deploy/config", cookies=cookies)
+base = resp1.content.decode()
+resp2 = httpx.post(
+    "http://localhost:3370/deploy/config", 
+    cookies=cookies,
+    content=base)
+```

@@ -41,9 +41,8 @@ If you want to skip the examples then continue with the [kodosumi development wo
 Clone and install the `kodosumi-examples` into your Python Virtual Environment. The kodosumi and Ray packages are automatically installed as a dependency.
 
 ```bash
-git clone https://github.com/masumi-network/kodosumi-examples.git
+git clone https://github.com/m-rau/kodosumi-examples.git
 cd ./kodosumi-examples
-git checkout dev
 pip install .
 ```
 
@@ -71,31 +70,31 @@ Check `ray status` and visit ray dashboard at [http://localhost:8265](http://loc
 
 ### STEP 4 - deploy
 
-You have various options to deploy and run the example services. _kodosumi-examples_ repository ships with the following examples in `agentic.examples`:
+You have various options to deploy and run the example services. _kodosumi-examples_ repository ships with the following examples in `kodosumi_examples`:
 
 * **hymn** - creates a hymn based on a given topic. The example demonstrates the use of [CrewAI](https://www.crewai.com/) and [OpenAI](https://openai.com/)
 * **prime** - calculates prime number gaps. Distributes the tasks across the Ray cluster and demonstrates performance benefits.
 * **throughput** - real-time experience of different event stream pressures with parameterized BPMs (beats per minute).
 * **form** - demonstrates form elements supported by kodosumi.
 
-You can run any of these examples. The next steps focus on `agentic.examples.hymn`.
+You can run any of these examples. The next steps focus on `kodosumi_examples.hymn`.
 
 
 #### alternative 1: run with uvicorn
 
 You can launch each example service as a python module.
 
-    uvicorn agentic.examples.hymn.app:app --port 8011
+    uvicorn kodosumi_examples.hymn.app:app --port 8011
 
 This starts a uvicorn (Asynchronous Server Gateway Interface) server at http://localhost:8011. All HTTP endpoints of `app` are available at URL http://localhost:8011/openapi.json. Launch another terminal session, source the Python Virtual Environment and register this URL with kodosumi panel:
 
     koco start --register http://localhost:8011/openapi.json
 
-Visit kodosumi **[admin panel](http://localhost:3370)** at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. Launch the **[Hymn Creator](http://localhost:3370/inputs/-/localhost/8001/hymn/-/)** from the **[service screen](http://localhost:3370/admin/flow)** and revisit results at the **[timeline screen](http://localhost:3370/timeline/view)**.
+Visit kodosumi **[admin panel](http://localhost:3370)** at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. Launch the **[Hymn Creator](http://localhost:3370/inputs/-/localhost/8011/-/)** from the **[service screen](http://localhost:3370/admin/flow)** and revisit results at the **[timeline screen](http://localhost:3370/timeline/view)**.
 
 You can start another service `prime` in a new terminal with
 
-    uvicorn agentic.examples.prime.app:app --port 8012
+    uvicorn kodosumi_examples.prime.app:app --port 8012
 
 Register this service with [kodosumi panel config](http://localhost:3370/admin/routes) with both service endpoints
 
@@ -108,6 +107,7 @@ You can specify multiple _registers_ at `koco start`
 
 Running your services as standalone uvicorn applicaitons is best practice to facilitate debugging. 
 
+
 #### alternative 2: deploy and run with Ray serve
 
 Run your services as Ray serve deployments. This is the preferred approach to deploy services in production. The downside of this approach is that you have to use remote debugging tools and attach to session breakpoints for debugging (see [Using the Ray Debugger](https://docs.ray.io/en/latest/ray-observability/user-guides/debug-apps/ray-debugging.html)). 
@@ -116,7 +116,7 @@ Ray Serve is built on top of Ray, so it easily scales to many machines and offer
 
 With Ray _serve_ you either run or deploy your services. Instead of the mechanics with uvicorn which refers the `app` application object, Ray serve demands the bound `fast_app` object. To test and improve your service run it with
 
-    serve run agentic.examples.hymn.app:fast_app
+    serve run kodosumi_examples.hymn.app:fast_app
 
 In contrast to the previous command a `serve deploy` command is used to deploy your Serve application to the Ray cluster. It sends a deploy request to the cluster and the application is deployed asynchronously. This command is typically used for deploying applications in a production environment. 
 
@@ -158,7 +158,7 @@ Alongside this file `config.yaml` create service configuration files. For each s
 ```yaml
 name: hymn
 route_prefix: /hymn
-import_path: agentic.examples.hymn.app:fast_app
+import_path: kodosumi_examples.hymn.app:fast_app
 runtime_env: 
   pip:
   - crewai
@@ -173,7 +173,7 @@ runtime_env:
 ```yaml
 name: prime
 route_prefix: /prime
-import_path: agentic.examples.prime.app:fast_app
+import_path: kodosumi_examples.prime.app:fast_app
 ```
 
 ##### `throughput.yaml`
@@ -181,7 +181,7 @@ import_path: agentic.examples.prime.app:fast_app
 ```yaml
 name: throughput
 route_prefix: /throughput
-import_path: agentic.examples.throughput.app:fast_app
+import_path: kodosumi_examples.throughput.app:fast_app
 runtime_env: 
   pip:
   - lorem-text
@@ -189,13 +189,13 @@ runtime_env:
 
 Test this deployment set with
 
-    koco deploy ./data/config/config.yaml --test
+    koco deploy --dry-run --file ./data/config/config.yaml
 
 
 With success, stop `ray serve` and perform a Ray serve deployment
 
-    serve shutdown --yes
-    koco deploy ./data/config/config.yaml
+    serve shutdown --yes  # this is equivalent to koco deploy --stop
+    koco deploy --run --file ./data/config/config.yaml
 
 
 Restart `koco start` with the Ray serve endpoint http://localhost:8001/-/routes as configured in `config.yaml`.
@@ -205,7 +205,7 @@ Restart `koco start` with the Ray serve endpoint http://localhost:8001/-/routes 
 
 If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **[control screen](http://localhost:3370/admin/routes)** in the **[admin panel](http://localhost:3370/)** and click **RECONNECT**. 
 
-Adding and removing deployments is operationalized with config files in `./data/config`. All files alongside `config.yaml` are deployed. You can test your deployment setup with `koco deploy ./data/config/config.yaml --test`.
+Adding and removing deployments is operationalized with config files in `./data/config`. All files alongside `config.yaml` are deployed. You can test your deployment setup with `koco deploy --dry-run --file ./data/config/config.yaml`.
 
 
 **Where to get from here?**
