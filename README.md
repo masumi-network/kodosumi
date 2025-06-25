@@ -30,7 +30,7 @@ The following quick guide
 2. starts Ray and kodosumi on your localhost
 3. deploys example flows
 
-This installation has been tested with versions `ray==2.46.0` and `python==3.12.6`.
+This installation has been tested with versions `ray==2.47.1` and `python==3.12.6`.
 
 If you want to skip the examples then continue with the [kodosumi development workflow](./docs/develop.md) and start implementing your custom agentic service with the kodosumi framework.
 
@@ -127,7 +127,7 @@ Using Ray _serve run_ or _deploy_ the `--register` must connect to Ray's proxy U
     koco start --register http://localhost:8000/-/routes
 
 
-#### multi-service setup with Serve config files
+#### alternative 3: multi-service setup with Serve config files
 
 `serve run` and `serve deploy` feature single services. Running multiple uvicorn services is possible but soon gets dity and quirky. For multi-service deployments use Ray serve _config files_.
 
@@ -211,5 +211,5 @@ Adding and removing deployments is operationalized with config files in `./data/
 **Where to get from here?**
 
 * continue with [kodosumi development workflow](./docs/develop.md) 
-* see the admin panel [screenshots](./panel.md)
+* see the admin panel [screenshots](./docs/panel.md)
 * read about [basic concepts and terminology](./concepts.md)

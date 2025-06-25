@@ -99,14 +99,15 @@ See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/config
 ## deployment API
 
 > [!NOTE]
-> The deployment API at `/deploy` and `/serve` are experimental.
+> The deployment API at `/deploy` and `/serve` is experimental.
 
 Use _kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
 
-The following Python snippets demonstrates API usage.
+The following Python snippets demonstrates API usage with example service `kodosumi_examples.prime`.
 
 ```python
 import httpx
+from pprint import pprint
 
 # login
 resp = httpx.get("http://localhost:3370/login?name=admin&password=admin")
@@ -114,83 +115,116 @@ cookies = resp.cookies
 
 # retrieve Ray serve deployments status
 resp = httpx.get("http://localhost:3370/deploy", cookies=cookies)
-resp.json()
+pprint(resp.json())
 ```
 
-With services `company_news` and all kodosumi-examples up and running the request for example yields:
-
-```json
-{
-    "prime": "running",
-    "throughput": "running",
-    "hymn": "running",
-    "form": "running",
-    "company_news": "running"
-}
- ```
-
-Now we stop and remove service `prime` from active Ray _serve_ deployments with
+Let us first stop _Ray serve_ and remove all existing deployments except the base configuration `config.yaml` before we deploy the `prime` service.
 
 ```python
-# remove deployment "prime"
-resp = httpx.delete("http://localhost:3370/deploy/prime", cookies=cookies)
+# retrieve active deployments
+scope = httpx.get("http://localhost:3370/deploy", cookies=cookies)
+for name in scope.json():
+    # remove deployment
+    print(name)
+    resp = httpx.delete(f"http://localhost:3370/deploy/{name}", cookies=cookies)
+    assert resp.status_code == 204
+# stop Ray serve
+resp = httpx.delete("http://localhost:3370/serve", cookies=cookies)
+assert resp.status_code == 204
 ```
 
-After this `DELETE` request the status at http://localhost:3370/deploy yields
+Verify _no deployments_ with `GET /deploy` and an existing base configuration with `GET /deploy/config`.
 
-```json
-{
-    "prime": "to-stop",
-    "throughput": "running",
-    "hymn": "running",
-    "form": "running",
-    "company_news": "running"
-}
- ```
+```python
+# verify no deployments
+resp = httpx.get("http://localhost:3370/deploy", cookies=cookies)
+assert resp.json() == {}
+# verify base configuration
+resp = httpx.get("http://localhost:3370/deploy/config", cookies=cookies)
+print(resp.content.decode())
+```
+
+This yields the content of the base configuration `./data/config/config.yaml`, for example
+
+```yaml
+proxy_location: EveryNode
+
+http_options:
+  host: 127.0.0.1
+  port: 8001
+
+grpc_options:
+  port: 9001
+  grpc_servicer_functions: []
+
+logging_config:
+  encoding: TEXT
+  log_level: DEBUG
+  logs_dir: null
+  enable_access_log: true
+```
+
+If the base configuration does not exist and `GET /deploy/config` throws a `404 Not found` exception, then create it with for example
+
+```python
+base = """
+proxy_location: EveryNode
+
+http_options:
+  host: 127.0.0.1
+  port: 8001
+
+grpc_options:
+  port: 9001
+  grpc_servicer_functions: []
+
+logging_config:
+  encoding: TEXT
+  log_level: DEBUG
+  logs_dir: null
+  enable_access_log: true
+"""
+resp = httpx.post("http://localhost:3370/deploy/config", 
+                  cookies=cookies,
+                  content=base)
+assert resp.status_code == 201
+```
+
+Deploy the _prime_ service with the corresponding _Ray serve_ configuration.
+
+```python
+prime = """
+name: prime
+route_prefix: /prime
+import_path: kodosumi_examples.prime.app:fast_app
+runtime_env: 
+  py_modules:
+  - https://github.com/masumi-network/kodosumi-examples/archive/2db907d955de65bed5dde6513f6359aeb18ebff1.zip
+deployments:
+  - name: PrimeDistribution
+    num_replicas: auto
+    ray_actor_options:
+      num_cpus: 0.1
+"""
+resp = httpx.post("http://localhost:3370/deploy/prime", 
+                  cookies=cookies,
+                  content=prime)
+assert resp.status_code == 201
+```
+
+Verify the _to-be_ deployment state of the prime service.
+
+```python
+resp = httpx.get("http://localhost:3370/deploy", cookies=cookies)
+assert resp.status_code == 200
+assert resp.json() == {'prime': 'to-deploy'}
+```
 
 To request Ray _serve_ to enter this state `POST /serve` with
 
 ```python
 resp = httpx.post("http://localhost:3370/serve", cookies=cookies, timeout=30)
+assert resp.status_code == 201
 ```
 
 Watch the timeout because the response of _Ray serve_ might take a while.
-
-You can add a deployment with `POST /deploy`, for example
-
-```python
-yaml = """
-name: company_news
-route_prefix: /company_news
-import_path: company_news.query:fast_app
-runtime_env: 
-  py_modules:
-  - https://github.com/plan-net/agentic-workflow-example/archive/45aabddf234cf8beb7118b400e7cb567776e458a.zip
-  pip:
-  - openai
-  env_vars:
-    OTEL_SDK_DISABLED: "true"
-    OPENAI_API_KEY: <-- your-api-key -->
-"""
-resp = httpx.post(
-    "http://localhost:3370/deploy/company_news", 
-    cookies=cookies,
-    content=yaml)
-```
-
-Do not forget to apply your changes with `POST /serve`
-
-```python
-resp = httpx.post("http://localhost:3370/serve", cookies=cookies, timeout=30)
-```
-
-You can read and manage the base configuration accordingly with
-
-```python
-resp1 = httpx.get("http://localhost:3370/deploy/config", cookies=cookies)
-base = resp1.content.decode()
-resp2 = httpx.post(
-    "http://localhost:3370/deploy/config", 
-    cookies=cookies,
-    content=base)
-```
