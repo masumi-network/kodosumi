@@ -1,6 +1,6 @@
-# kodosumi development workflow
+# Kodosumi development workflow
 
-This guide provides a step-by-step guide to implement, publish, deploy and run your custom agentic service using Ray and kodosumi.
+This guide provides a step-by-step guide to implement, publish, deploy and run your custom agentic service using Ray and Kodosumi.
 
 
 ## background information
@@ -19,7 +19,7 @@ We will implement an agent utilising [OpenAI](https://openai.com) to find news f
 
 ## development workflow overview
 
-The development process with kodosumi consists of two main work streams:
+The development process with Kodosumi consists of two main work streams:
 
 1. **Implementing the Entrypoint**
 
@@ -108,13 +108,13 @@ Push our initial commit:
     git push
 
 
-### 5. install kodosumi
+### 5. install Kodosumi
 
-Install kodosumi from [PyPi](https://pypi.org/)
+Install Kodosumi from [PyPi](https://pypi.org/)
 
     pip install kodosumi
 
-Or clone the latest `dev` trunk from [kodosumi at GitHub](https://github.com/masumi-network/kodosumi)
+Or clone the latest `dev` trunk from [Kodosumi at GitHub](https://github.com/masumi-network/kodosumi)
 
     git clone https://github.com/masumi-network/kodosumi
     cd kodosumi
@@ -296,7 +296,7 @@ from kodosumi.core import ServeAPI
 app = ServeAPI()
 ```
 
-The `ServeAPI()` initialization creates a FastAPI application with kodosumi-specific extensions. It provides automatic OpenAPI documentation, error handling, authentication and access control, input validation, and some configuration management.
+The `ServeAPI()` initialization creates a FastAPI application with Kodosumi-specific extensions. It provides automatic OpenAPI documentation, error handling, authentication and access control, input validation, and some configuration management.
 
 The `app` instance will be used to define the service _endpoint_ with `@app.enter` and to define service meta data following [OpenAPI specification](https://swagger.io/specification/#operation-object). We will do this in step **11** of this guide. Before we specify the inputs model.
 
@@ -329,7 +329,7 @@ A simple form is rendered that displays a headline with some introductionary tex
 
 Implement the HTTP endpoint using the `@enter` decorator of the `ServeAPI` instance `app`. We will attach the input model defined in the previous step and declare key OpenAPI and extra properties (_summary_, _description_, and _tags_, _version_, _author_ for example).
 
-On top of `ServeAPI` and `forms` we import `Launch` to start execution within the endpoint and `InputsError` for form validation and error handling. kodosumi `Tracer` will be used to log results and debug message. We import `asyncio` and some `typing` which we will need later.
+On top of `ServeAPI` and `forms` we import `Launch` to start execution within the endpoint and `InputsError` for form validation and error handling. Kodosumi `Tracer` will be used to log results and debug message. We import `asyncio` and some `typing` which we will need later.
 
 ```python
 import fastapi
@@ -444,7 +444,7 @@ async def batch(texts: List[str],
     return results
 ```
 
-If you carefully watch the function signature you recognise `inputs` and `tracer`. Both arguments are injected by the kodosumi `Launch` mechanic and carry the `inputs` arguments from the user and a `kodosumi.core.Tracer` object. Use this object to add markdown, text and other results to flow execution. The `tracer` will be passed to `batch`. A slightly modified `batch` function uses the `tracer` to create result markdown notes and _stdio_ output. 
+If you carefully watch the function signature you recognise `inputs` and `tracer`. Both arguments are injected by the Kodosumi `Launch` mechanic and carry the `inputs` arguments from the user and a `kodosumi.core.Tracer` object. Use this object to add markdown, text and other results to flow execution. The `tracer` will be passed to `batch`. A slightly modified `batch` function uses the `tracer` to create result markdown notes and _stdio_ output. 
 
 
 ### 14. Test with uvicorn
@@ -471,7 +471,7 @@ Again we will skip `koco serve` until we have a proper deployment.
 
 ### 16. Deploy with Ray _serve_
 
-Deploy with Ray _serve_ and run `koco start` to register your service with kodosumi.
+Deploy with Ray _serve_ and run `koco start` to register your service with Kodosumi.
 
     serve deploy company_news.query:fast_app
     koco start --register http://localhost:8000/-/routes
@@ -506,4 +506,4 @@ The response returns the _Flow Identifier_ (`fid`).
 
 **Where to get from here?**
 
-* continue with [kodosumi deployment workflow](./deploy.md)
+* continue with [Kodosumi deployment workflow](./deploy.md)

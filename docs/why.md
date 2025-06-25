@@ -1,8 +1,8 @@
-# why kodosumi
+# why Kodosumi
 
-kodosumi was built to address the challenges in developing and operating agentic services. Agentic services are autonomous systems that solve real-world problems. Agents run in distributed environments and require effective coordination, monitoring, and interaction.
+Kodosumi was built to address the challenges in developing and operating agentic services. Agentic services are autonomous systems that solve real-world problems. Agents run in distributed environments and require effective coordination, monitoring, and interaction.
 
-kodosumi provides a comprehensive solution to these challenges through:
+Kodosumi provides a comprehensive solution to these challenges through:
 
 1. **Real-time Monitoring and Interaction**
    - Live monitoring of running services
@@ -19,6 +19,6 @@ kodosumi provides a comprehensive solution to these challenges through:
    - Standardized service execution
    - Access to execution results and event streams
 
-These capabilities allow developers to focus on their agentic service logic while kodosumi provides the infrastructure for scaling, monitoring, and interaction.
+These capabilities allow developers to focus on their agentic service logic while Kodosumi provides the infrastructure for scaling, monitoring, and interaction.
 
-*Note: kodosumi is built on [ray](https://ray.io) for distributed computing and [fastapi](https://fastapi.tiangolo.com/) for user interfaces. For setup details, see [kodosumi + ray startup](../README.md).*
+*Note: Kodosumi is built on [ray](https://ray.io) for distributed computing and [fastapi](https://fastapi.tiangolo.com/) for user interfaces. For setup details, see [kodosumi + ray startup](../README.md).*

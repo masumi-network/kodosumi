@@ -4,7 +4,7 @@
 
 You can reproduce this deployment guide on localhost. Nevertheless this guide is a blueprint for production. All environment variables, package sources, dependencies and other settings are declared with configuration _YAML_ files. This is the preferred approach to production settings with Ray. See [Ray Production Guide](https://docs.ray.io/en/latest/serve/production-guide/index.html).
 
-As a consequence, this guide is a lot about managing YAML files. kodosumi simplifies the management of these configuration files by splitting the configuration into a _base_ and multiple _app_ configurations. 
+As a consequence, this guide is a lot about managing YAML files. Kodosumi simplifies the management of these configuration files by splitting the configuration into a _base_ and multiple _app_ configurations. 
 
 This deployment is based on the `company_news` service built in [development workflow](./develop.md).
 
@@ -21,7 +21,7 @@ Create a Python Virtual Environment with
 > [!NOTE]
 > The location of your system's Python executable `python` might vary. 
 
-Next, install kodosumi from the [Python package index](https://pypi.org/)
+Next, install Kodosumi from the [Python package index](https://pypi.org/)
 
     pip install kodosumi
 
@@ -33,7 +33,7 @@ Start your Ray cluster with
 
     ray start --head
 
-In the previous examples you did run `koco start` which launches the kodosumi _spooler_ daemon ***PLUS*** the kodosumi admin _panel_ web app and API. In the current example we start the spooler and the panel seperately. We start with the spooler
+In the previous examples you did run `koco start` which launches the Kodosumi _spooler_ daemon ***PLUS*** the Kodosumi admin _panel_ web app and API. In the current example we start the spooler and the panel seperately. We start with the spooler
 
     koco spool
 
@@ -89,7 +89,7 @@ Test and deploy your configuration set with
 
 This will apply your _base_ configuration from `./data/config/config.yaml` and adds a key `application` with records from `./data/config/company_news.yaml`.
 
-With running Ray, spooler and app we now start the kodosumi panel and register Ray deployments
+With running Ray, spooler and app we now start the Kodosumi panel and register Ray deployments
 
     koco serve --register http://localhost:8001/-/routes
 
@@ -101,7 +101,7 @@ See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/config
 > [!NOTE]
 > The deployment API at `/deploy` and `/serve` is experimental.
 
-Use _kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
+Use _Kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
 
 The following Python snippets demonstrates API usage with example service `kodosumi_examples.prime`.
 

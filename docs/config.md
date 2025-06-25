@@ -1,6 +1,6 @@
-# kodosumi configuration and settings
+# Kodosumi configuration and settings
 
-This document describes all available configuration settings for kodosumi. Settings can be configured through environment variables, a `.env` file, or command-line arguments.
+This document describes all available configuration settings for Kodosumi. Settings can be configured through environment variables, a `.env` file, or command-line arguments.
 
 ## Environment Variables
 
