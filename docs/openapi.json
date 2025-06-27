@@ -1,0 +1,1270 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Kodosumi API",
+    "description": "Runtime environment for managing and executing agentic services at scale",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Kodosumi Support",
+      "url": "https://www.kodosumi.io"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3370",
+      "description": "Local development server"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    },
+    {
+      "CookieAuth": []
+    },
+    {}
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "KODOSUMI_API_KEY"
+      },
+      "CookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session"
+      }
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "required": ["name", "password"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Username"
+          },
+          "password": {
+            "type": "string",
+            "description": "Password"
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Username"
+          },
+          "id": {
+            "type": "string",
+            "description": "User UUID"
+          },
+          "KODOSUMI_API_KEY": {
+            "type": "string",
+            "description": "JWT token for API authentication"
+          }
+        }
+      },
+      "Role": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Role UUID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Role name"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email address"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether the role is active"
+          },
+          "operator": {
+            "type": "boolean",
+            "description": "Whether the role has operator privileges"
+          }
+        }
+      },
+      "CreateRoleRequest": {
+        "type": "object",
+        "required": ["name", "email", "password"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Username for the new role"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email address for the new role"
+          },
+          "password": {
+            "type": "string",
+            "description": "Password for the new role"
+          },
+          "active": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether the role is active"
+          },
+          "operator": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the role has operator privileges"
+          }
+        }
+      },
+      "UpdateRoleRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "New username for the role"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "New email address for the role"
+          },
+          "password": {
+            "type": "string",
+            "description": "New password for the role"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "New active status for the role"
+          },
+          "operator": {
+            "type": "boolean",
+            "description": "New operator status for the role"
+          }
+        }
+      },
+      "DeploymentStatus": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string",
+          "description": "Deployment status"
+        }
+      },
+      "FlowRegisterRequest": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "List of OpenAPI or Ray serve routes specification URLs"
+          }
+        }
+      },
+      "FlowRegisterResponse": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "endpoints": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "summary": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "FlowListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "uid": {
+                  "type": "string"
+                },
+                "endpoints": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "offset": {
+            "type": "string",
+            "description": "Next page offset"
+          }
+        }
+      },
+      "FlowTagsResponse": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "integer",
+          "description": "Tag count"
+        }
+      },
+      "FlowUnregisterRequest": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
+      "FlowUnregisterResponse": {
+        "type": "object",
+        "properties": {
+          "deletes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
+      "FlowRegisterStatusResponse": {
+        "type": "object",
+        "properties": {
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "registers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
+      "FlowRefreshResponse": {
+        "type": "object",
+        "properties": {
+          "summaries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "deletes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "connected": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/login": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Authenticate user via URL parameters",
+        "description": "Authenticates a user with username and password via URL parameters",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Username"
+          },
+          {
+            "name": "password",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Password"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials or inactive user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Authenticate user via form data",
+        "description": "Authenticates a user with username and password via form data",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "password"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Username"
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "Password"
+                  },
+                  "redirect": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "URL to redirect after successful authentication"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials or inactive user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Authenticate user via JSON",
+        "description": "Authenticates a user with username and password via JSON body",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or missing required fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials or inactive user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/logout": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Logout user",
+        "description": "Logs out the current user by removing the session cookie",
+        "responses": {
+          "200": {
+            "description": "Successfully logged out",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Logout user",
+        "description": "Logs out the current user by removing the session cookie",
+        "responses": {
+          "200": {
+            "description": "Successfully logged out",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/role": {
+      "post": {
+        "tags": ["Role Management"],
+        "summary": "Create a new role",
+        "description": "Creates a new role. Requires operator privileges.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Role created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Role"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameters or invalid parameter values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Role Management"],
+        "summary": "List all roles",
+        "description": "Lists all roles. Requires operator privileges.",
+        "responses": {
+          "200": {
+            "description": "List of roles sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Role"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/role/{name}": {
+      "get": {
+        "tags": ["Role Management"],
+        "summary": "Get role by name or UUID",
+        "description": "Retrieves a specific role by name or UUID. Requires operator privileges.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Role name or UUID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Role"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Role not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/role/{rid}": {
+      "put": {
+        "tags": ["Role Management"],
+        "summary": "Update role",
+        "description": "Updates an existing role. Requires operator privileges.",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "UUID of the role to update"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Role updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Role"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameter values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Role not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Role Management"],
+        "summary": "Delete role",
+        "description": "Deletes a role. Requires operator privileges.",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "UUID of the role to delete"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Role not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deploy": {
+      "get": {
+        "tags": ["Deployment Management"],
+        "summary": "List deployment configurations",
+        "description": "Lists all deployment configurations and their status. Requires operator privileges.",
+        "responses": {
+          "200": {
+            "description": "Deployment configurations and their status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deploy/{name}": {
+      "post": {
+        "tags": ["Deployment Management"],
+        "summary": "Create or update deployment configuration",
+        "description": "Creates or updates a deployment configuration. Requires operator privileges.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the deployment configuration"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string",
+                "description": "YAML configuration for the deployment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Deployment configuration created/updated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "description": "The stored YAML configuration"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid YAML configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Deployment Management"],
+        "summary": "Get deployment configuration",
+        "description": "Reads a specific deployment configuration. Requires operator privileges.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the deployment configuration"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment configuration",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "description": "The YAML configuration"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment configuration not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Deployment Management"],
+        "summary": "Delete deployment configuration",
+        "description": "Deletes a deployment configuration. Requires operator privileges.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the deployment configuration"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deployment configuration deleted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Deployment configuration not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/serve": {
+      "post": {
+        "tags": ["Deployment Management"],
+        "summary": "Activate all deployments",
+        "description": "Activates all configured deployments. Requires operator privileges.",
+        "responses": {
+          "201": {
+            "description": "Deployments activated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Deployment Management"],
+        "summary": "Deactivate all deployments",
+        "description": "Deactivates all active deployments. Requires operator privileges.",
+        "responses": {
+          "200": {
+            "description": "Deployments deactivated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/flow": {
+      "get": {
+        "tags": ["Flow Management"],
+        "summary": "List registered flows",
+        "description": "Retrieves a paginated list of registered flows",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query to filter flows"
+          },
+          {
+            "name": "pp",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Pagination offset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of flows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/flow/tags": {
+      "get": {
+        "tags": ["Flow Management"],
+        "summary": "Get flow tags",
+        "description": "Retrieves a list of all tags used in registered flows with their counts",
+        "responses": {
+          "200": {
+            "description": "Tag counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowTagsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/flow/register": {
+      "post": {
+        "tags": ["Flow Management"],
+        "summary": "Register flow sources",
+        "description": "Registers one or more flow sources by their OpenAPI or Ray serve routes specification URLs. Requires operator privileges.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlowRegisterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Flow sources registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowRegisterResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Flow Management"],
+        "summary": "Get flow register status",
+        "description": "Retrieves the list of registered flow sources and their configuration",
+        "responses": {
+          "200": {
+            "description": "Flow register status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowRegisterStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "put": {
+        "tags": ["Flow Management"],
+        "summary": "Refresh flow sources",
+        "description": "Refreshes all registered flow sources by retrieving their OpenAPI specifications. Requires operator privileges.",
+        "responses": {
+          "200": {
+            "description": "Flow sources refreshed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowRefreshResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/flow/unregister": {
+      "post": {
+        "tags": ["Flow Management"],
+        "summary": "Unregister flow sources",
+        "description": "Unregisters previously registered flow sources. Requires operator privileges.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlowUnregisterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Flow sources unregistered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowUnregisterResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or insufficient privileges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Authentication",
+      "description": "Authentication and session management"
+    },
+    {
+      "name": "Role Management",
+      "description": "User role management operations"
+    },
+    {
+      "name": "Deployment Management",
+      "description": "Deployment configuration and management"
+    },
+    {
+      "name": "Flow Management",
+      "description": "Flow registration and management"
+    }
+  ]
+}

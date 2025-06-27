@@ -41,8 +41,8 @@
         "tab": "API Reference",
         "groups": [
           {
-            "group": "API Documentation",
-            "pages": ["reference"]
+            "group": "API Reference",
+            "openapi": "openapi.json"
           }
         ]
       }
@@ -98,7 +98,7 @@
     "og:site_name": "Kodosumi Documentation",
     "og:description": "Runtime environment for managing and executing agentic services at scale",
     "og:image": "/assets/ecosystem.png",
-    "twitter:site": "@kodosumi"
+    "twitter:site": "@MasumiNetwork"
   },
   "topbarLinks": [
     {
@@ -106,8 +106,18 @@
       "url": "https://github.com/masumi-network/kodosumi"
     }
   ],
-  "topbarCtaButton": {
-    "name": "Get Started",
-    "url": "https://github.com/masumi-network/kodosumi-examples"
+  "styling": {
+    "codeblocks": "system",
+    "eyebrows": "section"
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "background": {
+    "decoration": "windows"
+  },
+  "banner": {
+    "content": "Kodosumi and it's documentation are in active development. Please report any issues or feedback to the [GitHub repository](https://github.com/masumi-network/kodosumi).",
+    "dismissible": true
   }
 }
