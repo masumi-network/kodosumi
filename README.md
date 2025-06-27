@@ -1,5 +1,8 @@
 <div align="center">
-  <img src="./docs/logo/favicon.png" alt="Kodosumi Logo" width="64" height="64">
+    <img src="./docs/logo/favicon.png" width="128px" alt="Kodosumi logo"/>
+    <br />
+    <h1>Kodosumi</h1>
+    <p align="center">Documentation for Kodosumi is located at <a href="https://docs.kodosumi.io/" target="_blank">docs.kodosumi.io</a>.</p>
 </div>
 
 ## Quick Start
