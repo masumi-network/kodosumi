@@ -1,5 +1,3 @@
-# CLI Commands
-
 The Kodosumi CLI (`koco`) provides various commands for managing and running Kodosumi services.
 
 ## Overview

@@ -1,5 +1,3 @@
-# Kodosumi panel API
-
 The purpose of this document is to demonstrate the interaction with Kodosumi panel API. To run the example requests below ensure you have an agentic service `Hymn Creator` up and running on your _localhost_. See [README](../README.md) on installation, setup and deployment of Ray, Kodosumi and the _Hymn Creator_ agentic service.
 
 ## Authentication

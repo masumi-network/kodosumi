@@ -1,5 +1,3 @@
-# documentation
-
 * [introduction and quick-start](../README.md)
 * [why Kodosumi? background and motivation](./why.md)
 * [basic concepts and terminology](./concepts.md)

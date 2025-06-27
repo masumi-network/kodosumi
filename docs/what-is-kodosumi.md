@@ -1,12 +1,10 @@
-# Kodosumi
-
 Kodosumi is the runtime environment to manage and execute agentic services at scale. The system is based on [Ray](https://ray.io) - a distributed computing framework - and a combination of [litestar](https://litestar.dev/) and [fastapi](https://fastapi.tiangolo.com/) to deliver agentic services to users or other agents. Similar to Ray, Kodosumi follows a _Python first_ agenda.
 
 Kodosumi is one component of a larger eco system with [masumi and sokosumi](https://www.masumi.network/).
 
 ![Eco System](./assets/ecosystem.png)
 
-# introduction
+# Introduction
 
 Kodosumi consists of three main building blocks. First, a _Ray cluster_ to execute agentic services at scale. Kodosumi builds on top of Ray and actively manages the lifecycle and events of service executions from _starting_ to _finished_ or _error_. No matter you name your code an application, flow, service or script: The third building block is _your application_ which runs on top of Kodosumi.
 

@@ -1,5 +1,3 @@
-# Kodosumi admin panel
-
 The Kodosumi admin panel provides a simple and pragmatic web interface for managing and monitoring agentic services. Below is a detailed overview of its key features and components.
 
 ## Login Screen

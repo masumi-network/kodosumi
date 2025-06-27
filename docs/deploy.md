@@ -1,6 +1,4 @@
-# deployment guide
-
-## runtime environment setup
+## Runtime environment setup
 
 You can reproduce this deployment guide on localhost. Nevertheless this guide is a blueprint for production. All environment variables, package sources, dependencies and other settings are declared with configuration _YAML_ files. This is the preferred approach to production settings with Ray. See [Ray Production Guide](https://docs.ray.io/en/latest/serve/production-guide/index.html).
 
@@ -96,12 +94,12 @@ With running Ray, spooler and app we now start the Kodosumi panel and register R
 See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/configure-serve-deployment.html) for additional options on your deployment. Be advised to gather some experience with Ray core components before you rollout your services. Understand [remote resource requirements](https://docs.ray.io/en/latest/ray-core/scheduling/resources.html#resource-requirements) and how to [limit concurrency to avoid OOM issues](https://docs.ray.io/en/latest/ray-core/patterns/limit-running-tasks.html#pattern-using-resources-to-limit-the-number-of-concurrently-running-tasks)
 
 
-## deployment API
+## Deployment API
 
 > [!NOTE]
 > The deployment API at `/deploy` and `/serve` is experimental.
 
-Use _Kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
+Use _kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
 
 The following Python snippets demonstrates API usage with example service `kodosumi_examples.prime`.
 

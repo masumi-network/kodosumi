@@ -1,8 +1,6 @@
-# kodosumi
-
 For an overview of what kodosumi is and how it works, see [What is Kodosumi](./docs/what-is-kodosumi.md).
 
-# installation
+# Installation
 
 The following quick guide
 
@@ -14,9 +12,9 @@ This installation has been tested with versions `ray==2.47.1` and `python==3.12.
 
 If you want to skip the examples then continue with the [kodosumi development workflow](./docs/develop.md) and start implementing your custom agentic service with the kodosumi framework.
 
-## install and run examples
+## Install and run examples
 
-### STEP 1 - clone and install `kodosumi-examples`
+### STEP 1 - Clone and install `kodosumi-examples`
 
 Clone and install the `kodosumi-examples` into your Python Virtual Environment. The kodosumi and Ray packages are automatically installed as a dependency.
 
@@ -28,14 +26,14 @@ pip install .
 
 Since some of the examples utilize additional frameworks like `CrewAI` and `langchain` the installation of the kodosumi examples takes a while. All dependencies of the examples are installed. Please note that these dependencies are managed by Ray in production. See [deployment](./docs/deploy.md).
 
-### STEP 2 - prepare runtime environment
+### STEP 2 - Prepare runtime environment
 
 You need an OpenAI API key to run some of the examples. Specify the API key in `.env`.
 
     # ./env
     OPENAI_API_KEY=<-- enter-your-key -->
 
-### STEP 3 - start ray
+### STEP 3 - Start ray
 
 Start Ray _head_ node on your localhost. Load environment variables with `dotenv` before starting ray:
 
@@ -45,7 +43,7 @@ dotenv run -- ray start --head
 
 Check `ray status` and visit ray dashboard at [http://localhost:8265](http://localhost:8265). For more information about ray visit [ray's documentation](https://docs.ray.io/en/latest).
 
-### STEP 4 - deploy
+### STEP 4 - Deploy
 
 You have various options to deploy and run the example services. _kodosumi-examples_ repository ships with the following examples in `kodosumi_examples`:
 
@@ -56,15 +54,11 @@ You have various options to deploy and run the example services. _kodosumi-examp
 
 You can run any of these examples. The next steps focus on `kodosumi_examples.hymn`.
 
-#### alternative 1: run with uvicorn
+#### Alternative 1: run with uvicorn
 
 You can launch each example service as a python module.
 
-<<<<<<< Updated upstream
     uvicorn kodosumi_examples.hymn.app:app --port 8011
-=======
-    uvicorn kodosumi.examples.hymn.app:app --port 8011
->>>>>>> Stashed changes
 
 This starts a uvicorn (Asynchronous Server Gateway Interface) server at http://localhost:8011. All HTTP endpoints of `app` are available at URL http://localhost:8011/openapi.json. Launch another terminal session, source the Python Virtual Environment and register this URL with kodosumi panel:
 
@@ -74,11 +68,7 @@ Visit kodosumi **[admin panel](http://localhost:3370)** at [http://localhost:337
 
 You can start another service `prime` in a new terminal with
 
-<<<<<<< Updated upstream
     uvicorn kodosumi_examples.prime.app:app --port 8012
-=======
-    uvicorn kodosumi.examples.prime.app:app --port 8012
->>>>>>> Stashed changes
 
 Register this service with [kodosumi panel config](http://localhost:3370/admin/routes) with both service endpoints
 
@@ -89,10 +79,10 @@ You can specify multiple _registers_ at `koco start`
 
     koco start --register http://localhost:8011/openapi.json --register http://localhost:8012/openapi.json
 
-Running your services as standalone uvicorn applicaitons is best practice to facilitate debugging.
+Running your services as standalone uvicorn applications is best practice to facilitate debugging.
 
 
-#### alternative 2: deploy and run with Ray serve
+#### Alternative 2: deploy and run with Ray serve
 
 Run your services as Ray serve deployments. This is the preferred approach to deploy services in production. The downside of this approach is that you have to use remote debugging tools and attach to session breakpoints for debugging (see [Using the Ray Debugger](https://docs.ray.io/en/latest/ray-observability/user-guides/debug-apps/ray-debugging.html)).
 
@@ -100,28 +90,19 @@ Ray Serve is built on top of Ray, so it easily scales to many machines and offer
 
 With Ray _serve_ you either run or deploy your services. Instead of the mechanics with uvicorn which refers the `app` application object, Ray serve demands the bound `fast_app` object. To test and improve your service run it with
 
-<<<<<<< Updated upstream
     serve run kodosumi_examples.hymn.app:fast_app
-=======
-    serve run kodosumi.examples.hymn.app:fast_app
->>>>>>> Stashed changes
 
 In contrast to the previous command a `serve deploy` command is used to deploy your Serve application to the Ray cluster. It sends a deploy request to the cluster and the application is deployed asynchronously. This command is typically used for deploying applications in a production environment.
 
-    serve deploy kodosumi.examples.hymn.app:fast_app
+    serve deploy kodosumi_examples.hymn.app:fast_app
 
 Using Ray _serve run_ or _deploy_ the `--register` must connect to Ray's proxy URL `/-/routes`. With `serve run` or `deploy` the port defaults to `8000` and you start `koco start` with the Ray serve endpoint http://localhost:8000/-/routes.
 
     koco start --register http://localhost:8000/-/routes
 
-<<<<<<< Updated upstream
+#### Multi-service setup with Serve config files
 
-#### alternative 3: multi-service setup with Serve config files
-=======
-#### multi-service setup with Serve config files
->>>>>>> Stashed changes
-
-`serve run` and `serve deploy` feature single services. Running multiple uvicorn services is possible but soon gets dity and quirky. For multi-service deployments use Ray serve _config files_.
+`serve run` and `serve deploy` feature single services. Running multiple uvicorn services is possible but soon gets dirty and quirky. For multi-service deployments use Ray serve _config files_.
 
 In directory `./data/config` create a file `config.yaml` with _serve's_ overarching configuration, for example
 
@@ -150,13 +131,8 @@ Alongside this file `config.yaml` create service configuration files. For each s
 ```yaml
 name: hymn
 route_prefix: /hymn
-<<<<<<< Updated upstream
 import_path: kodosumi_examples.hymn.app:fast_app
-runtime_env: 
-=======
-import_path: kodosumi.examples.hymn.app:fast_app
 runtime_env:
->>>>>>> Stashed changes
   pip:
     - crewai
     - crewai_tools
@@ -178,13 +154,8 @@ import_path: kodosumi_examples.prime.app:fast_app
 ```yaml
 name: throughput
 route_prefix: /throughput
-<<<<<<< Updated upstream
 import_path: kodosumi_examples.throughput.app:fast_app
-runtime_env: 
-=======
-import_path: agentic.examples.throughput.app:fast_app
 runtime_env:
->>>>>>> Stashed changes
   pip:
     - lorem-text
 ```
@@ -208,12 +179,6 @@ Adding and removing deployments is operationalized with config files in `./data/
 
 **Where to get from here?**
 
-<<<<<<< Updated upstream
-* continue with [kodosumi development workflow](./docs/develop.md) 
-* see the admin panel [screenshots](./docs/panel.md)
-* read about [basic concepts and terminology](./concepts.md)
-=======
-- continue with [kodosumi development workflow](./docs/develop.md)
-- see the admin panel [screenshots](./panel.md)
-- read about [basic concepts and terminology](./concepts.md)
->>>>>>> Stashed changes
+- Continue with [kodosumi development workflow](./docs/develop.md)
+- See the admin panel [screenshots](./docs/panel.md)  
+- Read about [basic concepts and terminology](./docs/concepts.md)

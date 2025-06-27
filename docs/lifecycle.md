@@ -1,5 +1,3 @@
-# Execution Lifecycle
-
 A flow launched with `Launch` response runs through the following states:
 
 ```mermaid
