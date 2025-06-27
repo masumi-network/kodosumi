@@ -16,7 +16,7 @@
         "groups": [
           {
             "group": "Overview",
-            "pages": ["what-is-kodosumi", "why", "concepts"]
+            "pages": ["index", "what-is-kodosumi", "why", "concepts"]
           },
           {
             "group": "Getting Started",
