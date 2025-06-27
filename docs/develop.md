@@ -1,5 +1,3 @@
-# Kodosumi development workflow
-
 This guide provides a step-by-step guide to implement, publish, deploy and run your custom agentic service using Ray and Kodosumi.
 
 

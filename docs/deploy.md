@@ -1,5 +1,3 @@
-# deployment guide
-
 ## runtime environment setup
 
 You can reproduce this deployment guide on localhost. Nevertheless this guide is a blueprint for production. All environment variables, package sources, dependencies and other settings are declared with configuration _YAML_ files. This is the preferred approach to production settings with Ray. See [Ray Production Guide](https://docs.ray.io/en/latest/serve/production-guide/index.html).

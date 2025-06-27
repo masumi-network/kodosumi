@@ -1,5 +1,3 @@
-# why Kodosumi
-
 Kodosumi was built to address the challenges in developing and operating agentic services. Agentic services are autonomous systems that solve real-world problems. Agents run in distributed environments and require effective coordination, monitoring, and interaction.
 
 Kodosumi provides a comprehensive solution to these challenges through:

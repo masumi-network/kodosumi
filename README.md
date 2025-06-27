@@ -1,5 +1,3 @@
-# kodosumi
-
 For an overview of what kodosumi is and how it works, see [What is Kodosumi](./docs/what-is-kodosumi.md).
 
 # installation

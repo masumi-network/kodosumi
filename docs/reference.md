@@ -1,5 +1,3 @@
-# API Reference
-
 **Table of Contents**
 
 **Authentication**

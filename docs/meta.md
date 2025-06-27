@@ -1,5 +1,3 @@
-# Service Meta Data
-
 ## Agentic Service Annotations
 
 The following attributes are defined with an extended openapi specification.
