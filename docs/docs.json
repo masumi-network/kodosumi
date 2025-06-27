@@ -1,0 +1,104 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Kodosumi",
+  "description": "Runtime environment for managing and executing agentic services at scale",
+  "colors": {
+    "primary": "#C4FE0A",
+    "light": "#C4FE0A",
+    "dark": "#9FCC08"
+  },
+  "favicon": "/logo/favicon.png",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["what-is-kodosumi", "why", "concepts"]
+          },
+          {
+            "group": "Getting Started",
+            "pages": ["develop", "config", "forms", "lifecycle"]
+          },
+          {
+            "group": "Deploy on Kodosumi",
+            "pages": ["deploy", "panel"]
+          }
+        ]
+      },
+      {
+        "tab": "koco CLI",
+        "groups": [
+          {
+            "group": "CLI Reference",
+            "pages": ["cli"]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub Repository",
+          "href": "https://github.com/masumi-network/kodosumi",
+          "icon": "github"
+        },
+        {
+          "anchor": "Official Website",
+          "href": "https://www.kodosumi.io",
+          "icon": "globe"
+        },
+        {
+          "anchor": "Examples",
+          "href": "https://github.com/masumi-network/kodosumi-examples",
+          "icon": "code"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/logo_black.png",
+    "dark": "/logo/logo_white.png"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Website",
+        "href": "https://www.kodosumi.io"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get Started",
+      "href": "https://github.com/masumi-network/kodosumi-examples"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/masumi-network/kodosumi",
+      "website": "https://www.kodosumi.io"
+    }
+  },
+  "typography": {
+    "headings": "Inter",
+    "body": "Inter"
+  },
+  "metadata": {
+    "og:site_name": "Kodosumi Documentation",
+    "og:description": "Runtime environment for managing and executing agentic services at scale",
+    "og:image": "/assets/ecosystem.png",
+    "twitter:site": "@kodosumi"
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/masumi-network/kodosumi"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "https://github.com/masumi-network/kodosumi-examples"
+  }
+}

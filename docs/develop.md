@@ -490,8 +490,10 @@ See [Lifecycle and Events](./lifecycle.md#events) for further details.
 
 Use for example `curl` to POST a service requests with the panel API after successful authentication:
 
-    curl -b cookie -c cookie -X POST -d '{"name": "admin", "password": "admin"}' http://localhost:3370/api/login
-    curl -b cookie -c cookie -X POST -d '{"texts": "audi\nbmw", "start": "2025-01-01", "end": "2025-01-31"}' http://localhost:3370/-/localhost/8000/-/
+```bash
+curl -b cookie -c cookie -X POST -d '{"name": "admin", "password": "admin"}' http://localhost:3370/api/login
+curl -b cookie -c cookie -X POST -d '{"texts": "audi\nbmw", "start": "2025-01-01", "end": "2025-01-31"}' http://localhost:3370/-/localhost/8000/-/
+```
 
 The response returns the _Flow Identifier_ (`fid`).
 
