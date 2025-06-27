@@ -1,10 +1,8 @@
-This document provides an overview of the key concepts that constitute the Kodosumi framework. 
-
-## Core Concepts
+This document provides an overview of the key concepts that constitute the Kodosumi framework.
 
 ### Flow
 
-A _Flow_ represents an automated process, workflow, or system of interconnected tasks working towards a common objective. While similar concepts exist in different contexts (such as _[agents](#agents)_, _workflows_, _objects_, _methods_, _functions_, _models_, or _[agentic services](#agentic-service)_), we use the term _Flow_ to emphasize its process-oriented nature. 
+A _Flow_ represents an automated process, workflow, or system of interconnected tasks working towards a common objective. While similar concepts exist in different contexts (such as _[agents](#agents)_, _workflows_, _objects_, _methods_, _functions_, _models_, or _[agentic services](#agentic-service)_), we use the term _Flow_ to emphasize its process-oriented nature.
 
 ### Agentic Service
 
@@ -25,6 +23,7 @@ The Panel serves as Kodosumi's administrative interface. It enables [flow execut
 The Ray Head is the central coordinator of the Ray cluster. It manages cluster resources, handles task scheduling, and maintains the cluster's state. The Ray Head is responsible for coordinating communication between Ray workers and managing the overall cluster health.
 
 **See also:**
+
 - [Get Started with Ray](https://docs.ray.io/en/latest/ray-overview/getting-started.html)
 - [Ray Key Concepts](https://docs.ray.io/en/latest/ray-core/key-concepts.html)
 - [Ray Serve](https://docs.ray.io/en/latest/serve/getting_started.html)
@@ -34,6 +33,7 @@ The Ray Head is the central coordinator of the Ray cluster. It manages cluster r
 Ray Workers are the execution nodes in the Ray cluster. They perform the actual computation of tasks assigned by the Ray Head. Workers can be dynamically scaled up or down based on workload demands.
 
 **See also:**
+
 - [Ray Actors, Workers and Resources](https://docs.ray.io/en/latest/ray-core/actors.html#faq-actors-workers-and-resources)
 
 ### Ray Cluster
@@ -45,6 +45,7 @@ The Ray Cluster is the distributed computing backbone of Kodosumi. It provides t
 The Ray Driver is the process that runs the main program in a Ray cluster. It is the entry point for Ray applications and is responsible for submitting tasks to the cluster. The Driver connects to the Ray cluster and coordinates the execution of distributed computations.
 
 **See also:**
+
 - [Ray Driver](https://docs.ray.io/en/latest/ray-core/key-concepts.html#ray-driver)
 
 ## Flow Execution
