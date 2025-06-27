@@ -58,7 +58,7 @@ In the lifetime of a flow execution the following events are tracked.
 | result | task result information                   | result            | Reasoning            |
 | final  | final result information                  | final result      | Ouput                |
 
-kodosumi provides a couple of helper methods to simplify emitting events:
+Kodosumi provides a couple of helper methods to simplify emitting events:
 
 * `tracer.debug(message: str)` - emit debug plain text message
 * `tracer.result(message: Any)` - emit result object

@@ -1,6 +1,6 @@
-# kodosumi form elements
+# Kodosumi form elements
 
-This document provides an overview of all user interface elements supported by kodosumi. The elements are organized into three main categories: Input Elements, Action Elements, and Content Elements.
+This document provides an overview of all user interface elements supported by Kodosumi. The elements are organized into three main categories: Input Elements, Action Elements, and Content Elements.
 
 ## 1. Input Elements
 

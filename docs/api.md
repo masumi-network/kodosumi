@@ -1,6 +1,6 @@
-# kodosumi panel API
+# Kodosumi panel API
 
-The purpose of this document is to demonstrate the interaction with kodosumi panel API. To run the example requests below ensure you have an agentic service `Hymn Creator` up and running on your _localhost_. See [README](../README.md) on installation, setup and deployment of Ray, kodosumi and the _Hymn Creator_ agentic service.
+The purpose of this document is to demonstrate the interaction with Kodosumi panel API. To run the example requests below ensure you have an agentic service `Hymn Creator` up and running on your _localhost_. See [README](../README.md) on installation, setup and deployment of Ray, Kodosumi and the _Hymn Creator_ agentic service.
 
 ## Authentication
 
@@ -123,7 +123,7 @@ The response contains the _openapi.json_ fields for _summary_ (title), _descript
 
 ## Launch
 
-kodosumi rendering engine translates all inputs `elements` into a form to post and trigger flow execution at [http://localhost:3370/inputs/-/localhost/8001/hymn/-/](http://localhost:3370/inputs/-/localhost/8001/hymn/-/).
+Kodosumi rendering engine translates all inputs `elements` into a form to post and trigger flow execution at [http://localhost:3370/inputs/-/localhost/8001/hymn/-/](http://localhost:3370/inputs/-/localhost/8001/hymn/-/).
 
 [![Hymn](./panel/thumb/form.png)](./panel/form.png)
 

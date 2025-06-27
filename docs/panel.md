@@ -1,4 +1,4 @@
-# kodosumi admin panel
+# Kodosumi admin panel
 
 The Kodosumi admin panel provides a simple and pragmatic web interface for managing and monitoring agentic services. Below is a detailed overview of its key features and components.
 
@@ -15,7 +15,7 @@ The services page displays a comprehensive list of all agentic services availabl
 ## Inputs Form
 [![Form](./panel/thumb/form.png)](./panel/form.png)
 
-kodosumi uses standardized inputs schemes to manage user input.
+Kodosumi uses standardized inputs schemes to manage user input.
 
 ## Status Screen
 [![Results](./panel/thumb/status.png)](./panel/status.png)
