@@ -1,7 +1,7 @@
 This guide provides a step-by-step guide to implement, publish, deploy and run your custom agentic service using Ray and Kodosumi.
 
 
-## background information
+## Background information
 
 We will implement an agent utilising [OpenAI](https://openai.com) to find news for a single or multiple companies operationalising the following LLM prompt:
 
@@ -15,7 +15,7 @@ We will implement an agent utilising [OpenAI](https://openai.com) to find news f
 > news for the given date range then output the text _"no news found"_. 
 
 
-## development workflow overview
+## Development workflow overview
 
 The development process with Kodosumi consists of two main work streams:
 
@@ -30,19 +30,19 @@ The development process with Kodosumi consists of two main work streams:
 Together, these components form a robust architecture that enables the creation of scalable and efficient agentic services. The entrypoint handles the computational complexity, while the endpoint ensures reliable user interaction and service management.
 
 
-## step-by-step implementation guide
+## Step-by-step implementation guide
 
 We start implementing the service with the folder package structure and the build of the _query_ function. 
 
 
-### 1. create git remote
+### 1. Create git remote
 
 Create a public repository to host your agentic service. Ensure you have write access. For this example we use the following repository URL:
 
 * https://github.com/plan-net/agentic-workflow-example.git
 
 
-### 2. create Python Virtual Environment
+### 2. Create Python Virtual Environment
 
 Create and source a Python Virtual Environment with your system Python executable. 
 
@@ -53,7 +53,7 @@ Create and source a Python Virtual Environment with your system Python executabl
 > You need to locate the Python system executable. Depending on your operating system and setup this location differs.
 
 
-### 3. clone the repository
+### 3. Clone the repository
 
 Clone the repository to your localhost:
 
@@ -63,7 +63,7 @@ Clone the repository to your localhost:
 ```
 
 
-### 4. setup project structure
+### 4. Setup project structure
 
 Create a new directory `./company_news` inside your local working directory `./agentic-workflow-example` to host your package. 
 
@@ -106,7 +106,7 @@ Push our initial commit:
     git push
 
 
-### 5. install Kodosumi
+### 5. Install Kodosumi
 
 Install Kodosumi from [PyPi](https://pypi.org/)
 
@@ -122,14 +122,14 @@ Or clone the latest `dev` trunk from [Kodosumi at GitHub](https://github.com/mas
     rm -Rf kodosumi
 
 
-### 6. start ray
+### 6. Start ray
 
 Start Ray on your localhost. Load `.env` into the environment variables before
 
     dotenv run -- ray start --head
 
 
-### 7. implement and test `query`
+### 7. Implement and test `query`
 
 Implement the query function in `./company_news/query.py`. 
 
@@ -217,7 +217,7 @@ print(result["output"])
 ```
 
 
-### 8. distribute `query`
+### 8. Distribute `query`
 
 In this next step you decorate `query` as a `@ray.remote` function and implement a driver function `batch` to process multiple concurrent queries with Ray.
 
@@ -283,7 +283,7 @@ print(result)
 ```
 
 
-### 9. setup app
+### 9. Setup app
 
 We now proceed to setup the app with an endpoint to interact with your service. For the simplicity of this example we add the endpoint implementation directly into `query.py`.
 
@@ -299,7 +299,7 @@ The `ServeAPI()` initialization creates a FastAPI application with Kodosumi-spec
 The `app` instance will be used to define the service _endpoint_ with `@app.enter` and to define service meta data following [OpenAPI specification](https://swagger.io/specification/#operation-object). We will do this in step **11** of this guide. Before we specify the inputs model.
 
 
-### 10. define inputs model
+### 10. Define inputs model
 
 Define the user interface of your service with the help of the _forms_ module. Import _forms_ elements from `kodosumi.core`. See [forms overview](./forms.md) on the supported form input elements.
 
@@ -323,7 +323,7 @@ news_model = F.Model(
 A simple form is rendered that displays a headline with some introductionary text, followed by a text area for the queries and a start and end date input field. 
 
 
-### 11. implement endpoint
+### 11. Implement endpoint
 
 Implement the HTTP endpoint using the `@enter` decorator of the `ServeAPI` instance `app`. We will attach the input model defined in the previous step and declare key OpenAPI and extra properties (_summary_, _description_, and _tags_, _version_, _author_ for example).
 
@@ -380,7 +380,7 @@ The method consists of three parts:
 The `Launch` object adresses function `run_batch` in `company_news.query` which we implement later.
 
 
-### 12. create ingress deployment
+### 12. Create ingress deployment
 
 Finish Ray _serve_ setup and apply the Ray `@serve.deployment` and `@serve.ingress` decorators to create an _ingress deployment_. The `@serve.deployment` decorator is used to convert a Python class into a Deployment in Ray Serve. A deployment in Ray Serve is a group of actors that can handle traffic. It is defined as a single class with a number of options, including the number of “replicas” of the deployment, each of which will map to a Ray actor at runtime. Requests to a deployment are load balanced across its replicas.
 

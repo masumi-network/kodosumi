@@ -4,7 +4,7 @@ Kodosumi is one component of a larger eco system with [masumi and sokosumi](http
 
 ![Eco System](./assets/ecosystem.png)
 
-# introduction
+# Introduction
 
 Kodosumi consists of three main building blocks. First, a _Ray cluster_ to execute agentic services at scale. Kodosumi builds on top of Ray and actively manages the lifecycle and events of service executions from _starting_ to _finished_ or _error_. No matter you name your code an application, flow, service or script: The third building block is _your application_ which runs on top of Kodosumi.
 
