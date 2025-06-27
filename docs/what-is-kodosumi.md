@@ -2,7 +2,11 @@ Kodosumi is the runtime environment to manage and execute agentic services at sc
 
 Kodosumi is one component of a larger eco system with [masumi and sokosumi](https://www.masumi.network/).
 
-![Eco System](./assets/ecosystem.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/ecosystem_dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="./assets/ecosystem.png">
+  <img alt="Ecosystem" src="./assets/ecosystem.png">
+</picture>
 
 Kodosumi consists of three main building blocks. First, a _Ray cluster_ to execute agentic services at scale. Kodosumi builds on top of Ray and actively manages the lifecycle and events of service executions from _starting_ to _finished_ or _error_. No matter you name your code an application, flow, service or script: The third building block is _your application_ which runs on top of Kodosumi.
 
