@@ -101,7 +101,7 @@ See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/config
 > [!NOTE]
 > The deployment API at `/deploy` and `/serve` is experimental.
 
-Use _Kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
+Use _kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
 
 The following Python snippets demonstrates API usage with example service `kodosumi_examples.prime`.
 
