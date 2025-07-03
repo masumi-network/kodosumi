@@ -3,9 +3,8 @@
   "version": "1.0.0",
   "description": "Kodosumi Documentation",
   "scripts": {
-    "dev": "mintlify dev",
-    "build": "mintlify build",
-    "start": "mintlify dev"
+    "dev": "mint dev",
+    "start": "mint dev"
   },
   "dependencies": {
     "mintlify": "^4.0.0"
