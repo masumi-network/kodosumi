@@ -1,7 +1,8 @@
 import json
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
+import ssl
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,6 +49,16 @@ class Settings(BaseSettings):
     PROXY_TIMEOUT: int = 30
 
     YAML_BASE: str = "./data/config/config.yaml"
+
+    SSL_KEYFILE: Optional[str] = None
+    SSL_CERTFILE: Optional[str] = None
+    SSL_KEYFILE_PASSWORD: Optional[str] = None
+    SSL_VERSION: int = ssl.PROTOCOL_TLS_SERVER
+    SSL_CERT_REQS: int = ssl.CERT_NONE
+    SSL_CA_CERTS: Optional[str] = None
+    SSL_CIPHERS: str = "TLSv1"
+
+    APP_WORKERS: int = 1
 
     model_config = SettingsConfigDict(
         env_file=".env",
