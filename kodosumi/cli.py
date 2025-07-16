@@ -121,9 +121,27 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
 @click.option('--reload', is_flag=True, 
               help='App server reload on file change.')
 @click.option("--register", multiple=True, help="Register endpoints")
+@click.option("--ssl-keyfile", default=None, 
+              help="SSL key file path.")
+@click.option("--ssl-certfile", default=None, 
+              help="SSL cert file path.")
+@click.option("--ssl-keyfile-password", default=None,   
+              help="SSL key file password.")
+@click.option("--ssl-version", default=None, type=int,
+              help="SSL version.")
+@click.option("--ssl-cert-reqs", default=None, type=int,
+              help="SSL cert reqs.")
+@click.option("--ssl-ca-certs", default=None, type=str,
+              help="SSL ca certs.")
+@click.option("--ssl-ciphers", default=None, 
+              help="SSL ciphers.")
+# @click.option("--app-workers", default=1, type=int, 
+#               help="Number of workers.")
 
 def server(address, log_file, log_file_level, level, exec_dir, reload,
-           uvicorn_level, register):
+           uvicorn_level, register, ssl_keyfile, ssl_certfile,
+           ssl_keyfile_password, ssl_version, ssl_cert_reqs, ssl_ca_certs, 
+           ssl_ciphers):  # , app_workers):
     kw = {}
     if address: kw["APP_SERVER"] = address
     if log_file: kw["APP_LOG_FILE"] = log_file
@@ -133,24 +151,73 @@ def server(address, log_file, log_file_level, level, exec_dir, reload,
     if reload: kw["APP_RELOAD"] = reload
     if uvicorn_level: kw["UVICORN_LEVEL"] = uvicorn_level
     if register: kw["REGISTER_FLOW"] = register
-
+    if ssl_keyfile: kw["SSL_KEYFILE"] = ssl_keyfile
+    if ssl_certfile: kw["SSL_CERTFILE"] = ssl_certfile
+    if ssl_keyfile_password: kw["SSL_KEYFILE_PASSWORD"] = ssl_keyfile_password
+    if ssl_version: kw["SSL_VERSION"] = ssl_version
+    if ssl_cert_reqs: kw["SSL_CERT_REQS"] = ssl_cert_reqs
+    if ssl_ca_certs: kw["SSL_CA_CERTS"] = ssl_ca_certs
+    if ssl_ciphers: kw["SSL_CIPHERS"] = ssl_ciphers
+    # if app_workers: kw["APP_WORKERS"] = app_workers
     settings = Settings(**kw)
     kodosumi.service.server.run(settings)
 
 
 @cli.command("start")
+@click.option("--address", default=None, 
+              help="App server URL")
+@click.option('--log-file', default=None, 
+              help='App server log file path.')
+@click.option('--log-file-level', default=None, 
+              type=click.Choice(LOG_LEVELS, case_sensitive=False),
+              help='App server log file level.')
+@click.option('--level', default=None, 
+              type=click.Choice(LOG_LEVELS, case_sensitive=False),
+              help='App server screen log level.')
+@click.option('--uvicorn-level', default=None, 
+              type=click.Choice(LOG_LEVELS, case_sensitive=False),
+              help='Uvicorn log level.')
 @click.option('--exec-dir', default=None, 
               help='Execution directory.')
 @click.option("--register", multiple=True, help="Register endpoints")
-
-def server(exec_dir, register):
+@click.option("--ssl-keyfile", default=None, 
+              help="SSL key file path.")
+@click.option("--ssl-certfile", default=None, 
+              help="SSL cert file path.")
+@click.option("--ssl-keyfile-password", default=None, 
+              help="SSL key file password.")
+@click.option("--ssl-version", default=None, type=int,
+              help="SSL version.")
+@click.option("--ssl-cert-reqs", default=None, type=int,
+              help="SSL cert reqs.")
+@click.option("--ssl-ca-certs", default=None, 
+              help="SSL ca certs.")
+@click.option("--ssl-ciphers", default=None, 
+              help="SSL ciphers.")
+def start(address, log_file, log_file_level, level, uvicorn_level, 
+          exec_dir, register, ssl_keyfile, ssl_certfile, ssl_keyfile_password, 
+          ssl_version, ssl_cert_reqs, ssl_ca_certs, ssl_ciphers):
     kw = {}
+    if address: kw["APP_SERVER"] = address
+    if log_file: kw["APP_LOG_FILE"] = log_file
+    if log_file_level: kw["APP_LOG_FILE_LEVEL"] = log_file_level
+    if level: kw["APP_STD_LEVEL"] = level
+    if uvicorn_level: kw["UVICORN_LEVEL"] = uvicorn_level
     if exec_dir: kw["EXEC_DIR"] = exec_dir
     if register: kw["REGISTER_FLOW"] = register
-
+    if ssl_keyfile: kw["SSL_KEYFILE"] = ssl_keyfile
+    if ssl_certfile: kw["SSL_CERTFILE"] = ssl_certfile
+    if ssl_keyfile_password: kw["SSL_KEYFILE_PASSWORD"] = ssl_keyfile_password
+    if ssl_version: kw["SSL_VERSION"] = ssl_version
+    if ssl_cert_reqs: kw["SSL_CERT_REQS"] = ssl_cert_reqs
+    if ssl_ca_certs: kw["SSL_CA_CERTS"] = ssl_ca_certs
+    if ssl_ciphers: kw["SSL_CIPHERS"] = ssl_ciphers
     settings = Settings(**kw)
     try:
         cmd = [sys.executable, "-m", "kodosumi.cli", "spool"]
+        if exec_dir:
+            cmd.append("--exec-dir")
+            cmd.append(exec_dir)
         proc = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         proc.wait()

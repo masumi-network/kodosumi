@@ -46,7 +46,15 @@ def run(settings: Settings):
         reload=settings.APP_RELOAD,
         factory=True,
         log_config=log_config,
-        headers=[("server", "kodosumi service")]
+        headers=[("server", "kodosumi service")],
+        ssl_keyfile=settings.SSL_KEYFILE,
+        ssl_certfile=settings.SSL_CERTFILE,
+        ssl_keyfile_password=settings.SSL_KEYFILE_PASSWORD,
+        ssl_version=settings.SSL_VERSION,
+        ssl_cert_reqs=settings.SSL_CERT_REQS,
+        ssl_ca_certs=settings.SSL_CA_CERTS,
+        ssl_ciphers=settings.SSL_CIPHERS,
+        # workers=settings.APP_WORKERS
     )
     
 
