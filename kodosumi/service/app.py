@@ -24,7 +24,8 @@ from litestar.template.config import TemplateConfig
 from litestar.types import ASGIApp, Receive, Scope, Send
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker, 
+                                    create_async_engine)
 
 import kodosumi.core
 import kodosumi.service.endpoint
@@ -154,16 +155,16 @@ class LoggingMiddleware(MiddlewareProtocol):
 def create_app(**kwargs) -> Litestar:
 
     settings = InternalSettings(**kwargs)
-
+    db_url = settings.ADMIN_DATABASE
+    engine = create_async_engine(db_url, future=True, echo=False)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
     db_config = SQLAlchemyAsyncConfig(
         connection_string=settings.ADMIN_DATABASE,
         metadata=kodosumi.dtypes.Base.metadata,
         create_all=True,
         before_send_handler="autocommit",
     )
-
     admin_console = Path(kodosumi.service.admin.__file__).parent.joinpath
-
     app = Litestar(
         cors_config=CORSConfig(allow_origins=settings.CORS_ORIGINS,
                                allow_credentials=True),
@@ -209,7 +210,8 @@ def create_app(**kwargs) -> Litestar:
         state=State({
             "settings": settings,
             "endpoints": {},
-            "routing": {}
+            "routing": {},
+            "session_maker_class": session_maker, 
         })
     )
     app_logger(settings)

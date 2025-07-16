@@ -2,9 +2,11 @@ import uuid
 from typing import Union
 import litestar
 from litestar import delete, get, post, put
-from litestar.exceptions import NotFoundException
+from litestar.exceptions import NotFoundException, HTTPException
+from litestar.status_codes import HTTP_409_CONFLICT
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from kodosumi.dtypes import Role, RoleCreate, RoleEdit, RoleResponse
 from kodosumi.log import logger
@@ -45,7 +47,14 @@ class RoleControl(litestar.Controller):
                        transaction: AsyncSession) -> RoleResponse:
         role = Role(**data.model_dump())
         transaction.add(role)
-        await transaction.flush()
+        try:
+            await transaction.flush()
+        except IntegrityError as exc:
+            logger.error(f"error creating role {role.name} ({role.id}): {exc}")
+            raise HTTPException(
+                status_code=HTTP_409_CONFLICT,
+                detail=f"Role {role.name} ({role.id}) already exists"
+            ) from exc
         logger.info(f"created role {role.name} ({role.id})")
         return RoleResponse.model_validate(role)    
         
