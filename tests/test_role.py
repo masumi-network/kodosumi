@@ -136,14 +136,14 @@ async def test_dup_role(auth_client):
                        "email": "user1@email.com","password": "user1"})
     assert response.status_code == 409
     js = response.json()
-    assert js["error"] == "ClientException"
+    assert js["error"] == "HTTPException"
 
     response = await auth_client.post(
         "/role", json={"name": "user2", 
                        "email": "user1@email.com","password": "user2"})
     assert response.status_code == 409
     js = response.json()
-    assert js["error"] == "ClientException"
+    assert js["error"] == "HTTPException"
 
 async def test_list_roles(auth_client):
     response = await auth_client.post(
