@@ -46,6 +46,7 @@ def _extract(openapi_url, js) -> dict:
                 details["url"] = "/-" + root + ext
                 details["uid"] = md5(details["url"].encode()).hexdigest()
                 details["source"] = openapi_url
+                details["deprecated"] = details.get("deprecated") or False
                 ep = EndpointResponse.model_validate(details)
                 if meth == "get":
                     lookback[path] = ep
@@ -74,11 +75,9 @@ async def register(state: State, source: str) -> List[EndpointResponse]:
                 js2 = await _get_openapi(url2)
                 ret = _extract(url2, js2)
                 state["endpoints"][source] += ret["register"]
-                state["routing"][ret["root"]] = ret["base_url"]
     else:
         ret = _extract(source, js)
         state["endpoints"][source] = ret["register"]
-        state["routing"][ret["root"]] = ret["base_url"]
     logger.info(f'registered {len(state["endpoints"][source])} from {source}')
     return sorted(
         state["endpoints"][source], key=lambda ep: ep.summary or "None")
