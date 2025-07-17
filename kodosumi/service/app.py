@@ -210,7 +210,6 @@ def create_app(**kwargs) -> Litestar:
         state=State({
             "settings": settings,
             "endpoints": {},
-            "routing": {},
             "session_maker_class": session_maker, 
         })
     )

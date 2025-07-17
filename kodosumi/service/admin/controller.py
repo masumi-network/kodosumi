@@ -81,7 +81,6 @@ class AdminControl(litestar.Controller):
             routes = [line.strip() 
                     for line in routes_text.split("\n") 
                     if line.strip()]
-            state["routing"] = {}
             state["endpoints"] = {}
             result: Dict[str, Any] = {}
             for url in routes:

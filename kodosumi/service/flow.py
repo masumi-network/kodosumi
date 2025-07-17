@@ -12,8 +12,11 @@ from kodosumi.service.jwt import operator_guard
 
 class FlowControl(litestar.Controller):
 
-    @post("/register", summary="Register Flows",
-         description="Register a Flow.", tags=["Flow Operations"], guards=[operator_guard])
+    @post("/register", 
+          summary="Register Flows",
+          description="Register one or multiple flow.", 
+          tags=["Flow Operations"], 
+          guards=[operator_guard])
     async def register_flow(
             self,
             state: State,
@@ -23,7 +26,8 @@ class FlowControl(litestar.Controller):
             results.extend(await kodosumi.service.endpoint.register(state, url))
         return results
         
-    @get("/", summary="Retrieve registered Flows",
+    @get("/", 
+         summary="Retrieve registered Flows",
          description="Paginated list of Flows which did register.", 
          tags=["Flow Control"])
     async def list_flows(
@@ -47,7 +51,8 @@ class FlowControl(litestar.Controller):
             "offset": results[-1].uid if results and end_idx < total else None
         }
     
-    @get("/tags", summary="Retrieve Tag List",
+    @get("/tags", 
+         summary="Retrieve Tag List",
          description="Retrieve Tag List of registered Flows.", 
          tags = ["Flow Control"])
     async def list_tags(self, state: State) -> dict[str, int]:
@@ -58,9 +63,12 @@ class FlowControl(litestar.Controller):
         ]
         return dict(Counter(tags))
 
-    @post("/unregister", status_code=200, summary="Unregister Flows",
-         description="Remove a previoiusly registered Flow source.", 
-         tags=["Flow Operations"], guards=[operator_guard])
+    @post("/unregister", 
+          status_code=200, 
+          summary="Unregister Flows",
+          description="Remove a previoiusly registered flow source.", 
+          tags=["Flow Operations"], 
+          guards=[operator_guard])
     async def unregister_flow(self,
                               data: RegisterFlow,
                               state: State) -> dict:
@@ -79,24 +87,23 @@ class FlowControl(litestar.Controller):
          description="Retrieve the OpenAPI specification of all registered Flow sources.", 
          status_code=200, tags=["Flow Operations"], 
          guards=[operator_guard])
-    async def update_flows(self,
-                         state: State) -> dict:
+    async def update_flows(self, state: State) -> dict:
         urls = set()
         sums = set()
         dels = set()
         srcs = set()
-        for register, endpoints in state["endpoints"].items():
+        items = state["endpoints"].items()
+        origin = {ep.url for register, endpoints in items for ep in endpoints}
+        for register, endpoints in items:
             srcs.add(str(register))
             for endpoint in endpoints:
                 urls.add(endpoint.url)
                 sums.add(endpoint.summary)
-        for url in state["routing"]:
+        for url in origin:
             if url not in urls:
                 dels.add(url)
         for src in srcs:
             state["endpoints"][src] = []
-        for url in dels:
-            state["routing"].pop(url)
         await kodosumi.service.endpoint.reload(list(srcs), state)
         return {
             "summaries": sums,

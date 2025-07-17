@@ -80,7 +80,7 @@ class EndpointResponse(BaseModel):
     source: str
     summary: Optional[str]
     description: Optional[str]
-    deprecated: Optional[bool]
+    deprecated: bool = False
     author: Optional[str]
     organization: Optional[str]
     tags: List[str]
