@@ -54,7 +54,7 @@ def run(settings: Settings):
         ssl_cert_reqs=settings.SSL_CERT_REQS,
         ssl_ca_certs=settings.SSL_CA_CERTS,
         ssl_ciphers=settings.SSL_CIPHERS,
-        # workers=settings.APP_WORKERS
+        workers=settings.APP_WORKERS
     )
     
 

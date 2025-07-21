@@ -8,7 +8,7 @@ from litestar.response import Redirect, Template
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import kodosumi.core
-import kodosumi.service.endpoint
+import kodosumi.service.endpoint as endpoint
 from kodosumi.dtypes import RoleEdit
 from kodosumi.service.auth import TOKEN_KEY, get_user_details
 from kodosumi.service.jwt import operator_guard
@@ -26,11 +26,11 @@ class AdminControl(litestar.Controller):
     
     @get("/flow")
     async def flow(self, state: State) -> Template:
-        data = kodosumi.service.endpoint.get_endpoints(state)
+        data = endpoint.find(state)
         return Template("flow.html", context={"items": data})
 
     def _get_endpoints(self, state: State) -> dict:
-        endpoints = sorted(state["endpoints"].keys())
+        endpoints = endpoint.keys(state)
         registers = state["settings"].REGISTER_FLOW
         return {
             "endpoints": endpoints,
@@ -81,11 +81,11 @@ class AdminControl(litestar.Controller):
             routes = [line.strip() 
                     for line in routes_text.split("\n") 
                     if line.strip()]
-            state["endpoints"] = {}
+            endpoint.reset(state)
             result: Dict[str, Any] = {}
             for url in routes:
                 try:
-                    ret = await kodosumi.service.endpoint.register(state, url)
+                    ret = await endpoint.register(state, url)
                     result[url] = [r.model_dump() for r in ret]
                 except Exception as e:
                     result[url] = str(e)  # type: ignore

@@ -135,13 +135,13 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
               help="SSL ca certs.")
 @click.option("--ssl-ciphers", default=None, 
               help="SSL ciphers.")
-# @click.option("--app-workers", default=1, type=int, 
-#               help="Number of workers.")
+@click.option("--app-workers", default=1, type=int, 
+              help="Number of workers.")
 
 def server(address, log_file, log_file_level, level, exec_dir, reload,
            uvicorn_level, register, ssl_keyfile, ssl_certfile,
            ssl_keyfile_password, ssl_version, ssl_cert_reqs, ssl_ca_certs, 
-           ssl_ciphers):  # , app_workers):
+           ssl_ciphers, app_workers):
     kw = {}
     if address: kw["APP_SERVER"] = address
     if log_file: kw["APP_LOG_FILE"] = log_file
@@ -158,7 +158,7 @@ def server(address, log_file, log_file_level, level, exec_dir, reload,
     if ssl_cert_reqs: kw["SSL_CERT_REQS"] = ssl_cert_reqs
     if ssl_ca_certs: kw["SSL_CA_CERTS"] = ssl_ca_certs
     if ssl_ciphers: kw["SSL_CIPHERS"] = ssl_ciphers
-    # if app_workers: kw["APP_WORKERS"] = app_workers
+    if app_workers: kw["APP_WORKERS"] = app_workers
     settings = Settings(**kw)
     kodosumi.service.server.run(settings)
 

@@ -188,6 +188,10 @@ async def test_flow_unregister(fake_openapi, auth_client):
     payload = response.json()
     assert payload["items"] == []
 
+    # Then unregister
+    response = await auth_client.post("/flow/unregister", json={"url": url})
+    assert response.status_code == 404
+
 
 @pytest.mark.asyncio
 async def test_flow_update(fake_openapi, auth_client):
@@ -196,10 +200,11 @@ async def test_flow_update(fake_openapi, auth_client):
     the update process and leave the registered endpoints unchanged."""
     url = "http://dummy/openapi.json"
     await auth_client.post("/flow/register", json={"url": url})
+    response = await auth_client.get("/flow")
+    assert response.status_code == 200
 
     response = await auth_client.put("/flow/register")
     assert response.status_code == 200
-
     payload = response.json()
     for key in ("summaries", "urls", "deletes", "sources", "connected"):
         assert key in payload

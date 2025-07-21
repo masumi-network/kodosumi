@@ -11,6 +11,7 @@ from litestar.response import Redirect, Response
 from kodosumi import helper
 from kodosumi.log import logger
 from kodosumi.runner.const import KODOSUMI_LAUNCH
+import kodosumi.service.endpoint as endpoint
 
 KODOSUMI_USER = "x-kodosumi_user"
 KODOSUMI_BASE = "x-kodosumi_base"
@@ -61,7 +62,7 @@ class ProxyControl(litestar.Controller):
         base, relpath = path_.split("/-/", 1)
         base += "/-/"
         relpath = relpath.rstrip("/")
-        for endpoints in state["endpoints"].values():
+        for endpoints in endpoint.items(state):
             for ep in endpoints:
                 if ep.url == "/-" + base + relpath:
                     source = ep.source

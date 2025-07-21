@@ -5,7 +5,7 @@ import litestar
 from litestar import get, post, put
 from litestar.datastructures import State
 
-import kodosumi.service.endpoint
+import kodosumi.service.endpoint as endpoint
 from kodosumi.dtypes import EndpointResponse, RegisterFlow
 from kodosumi.service.jwt import operator_guard
 
@@ -23,7 +23,7 @@ class FlowControl(litestar.Controller):
             data: RegisterFlow) -> List[EndpointResponse]:
         results = []
         for url in data.url:
-            results.extend(await kodosumi.service.endpoint.register(state, url))
+            results.extend(await endpoint.register(state, url))
         return results
         
     @get("/", 
@@ -36,7 +36,7 @@ class FlowControl(litestar.Controller):
             q: Optional[str] = None,
             pp: int = 10, 
             offset: Optional[str] = None) -> dict:
-        data = kodosumi.service.endpoint.get_endpoints(state, q)
+        data = endpoint.find(state, q)
         total = len(data)
         start_idx = 0
         if offset:
@@ -57,9 +57,8 @@ class FlowControl(litestar.Controller):
          tags = ["Flow Control"])
     async def list_tags(self, state: State) -> dict[str, int]:
         tags = [
-            tag for nest in [
-                ep.tags for ep in kodosumi.service.endpoint.get_endpoints(state)
-            ] for tag in nest
+            tag for nest in [ep.tags for ep in endpoint.find(state)] 
+            for tag in nest
         ]
         return dict(Counter(tags))
 
@@ -73,14 +72,15 @@ class FlowControl(litestar.Controller):
                               data: RegisterFlow,
                               state: State) -> dict:
         for url in data.url:
-            kodosumi.service.endpoint.unregister(state, url)
+            await endpoint.unregister(state, url)
         return {"deletes": data.url}
 
     @get("/register", summary="Retrieve Flow Register",
          description="Retrieve list of Flow sources.", tags=["Flow Control"])
     async def list_register(self,
                          state: State) -> dict:
-        return {"routes": sorted(state["endpoints"].keys()),
+        keys = endpoint.keys(state)
+        return {"routes": sorted(keys),
                 "registers": state["settings"].REGISTER_FLOW}
 
     @put("/register", summary="Refresh registered Flows",
@@ -92,23 +92,23 @@ class FlowControl(litestar.Controller):
         sums = set()
         dels = set()
         srcs = set()
-        items = state["endpoints"].items()
-        origin = {ep.url for register, endpoints in items for ep in endpoints}
+        items = endpoint.raw(state).items()
+        origin = {ep.url for _, endpoints in items for ep in endpoints}
         for register, endpoints in items:
             srcs.add(str(register))
-            for endpoint in endpoints:
-                urls.add(endpoint.url)
-                sums.add(endpoint.summary)
+            for ep in endpoints:
+                urls.add(ep.url)
+                sums.add(ep.summary)
         for url in origin:
             if url not in urls:
                 dels.add(url)
         for src in srcs:
-            state["endpoints"][src] = []
-        await kodosumi.service.endpoint.reload(list(srcs), state)
+            endpoint.reset(state, src)
+        await endpoint.load(list(srcs), state)
         return {
             "summaries": sums,
             "urls": urls,
             "deletes": dels,
             "sources": srcs,
-            "connected": sorted(state["endpoints"].keys())
+            "connected": sorted(endpoint.keys(state))
         }

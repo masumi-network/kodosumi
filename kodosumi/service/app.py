@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
                                     create_async_engine)
 
 import kodosumi.core
-import kodosumi.service.endpoint
+import kodosumi.service.endpoint as endpoint
 from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.dtypes import Role, RoleCreate
@@ -114,8 +114,8 @@ async def provide_transaction(
    
 async def startup(app: Litestar):
     helper.ray_init()
-    await kodosumi.service.endpoint.reload(
-        app.state["settings"].REGISTER_FLOW, app.state)
+    await endpoint.init(app.state)
+
 
 async def shutdown(app):
     helper.ray_shutdown()
@@ -136,9 +136,6 @@ class LoggingMiddleware(MiddlewareProtocol):
                 status = message["status"]
             await send(message)
 
-        if scope["type"] == "http":
-            req = Request(scope)
-
         await self.app(scope, receive, send_wrapper)
        
         if scope["type"] == "http":
@@ -153,7 +150,6 @@ class LoggingMiddleware(MiddlewareProtocol):
 
 
 def create_app(**kwargs) -> Litestar:
-
     settings = InternalSettings(**kwargs)
     db_url = settings.ADMIN_DATABASE
     engine = create_async_engine(db_url, future=True, echo=False)
@@ -209,7 +205,7 @@ def create_app(**kwargs) -> Litestar:
         on_shutdown=[shutdown],
         state=State({
             "settings": settings,
-            "endpoints": {},
+            "register": None,
             "session_maker_class": session_maker, 
         })
     )
