@@ -39,6 +39,7 @@ def run(settings: Settings):
             "uvicorn.access": {"level": settings.UVICORN_LEVEL},
         },
     }
+
     uvicorn.run(
         "kodosumi.service.app:create_app",
         host=server.hostname,

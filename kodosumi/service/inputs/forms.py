@@ -665,7 +665,15 @@ class Cancel(ActionElement):
         super().__init__(text=text, error=error)
 
     def render(self) -> str:
-        return "\n".join(["<a class=\"button\" href=\"/\">", self.text, '</a>'])
+        ret = []
+        attrs = [f'name="__cancel__"']
+        attrs.append(f'value="__cancel__"')
+        ret.append(f'<button {" ".join(attrs)}>')
+        ret.append(self.text or "")
+        ret.append(f'</button>')
+        return "\n".join(ret)
+        # return "\n".join([
+        #     "<a class=\"button\" href=\"/\">", self.text or "", '</a>'])
 
 
 class Action(FormElement):
@@ -690,13 +698,14 @@ class Action(FormElement):
 
     def render(self) -> str:
         ret = []
+        attrs = []
         if self.name:
             attrs = [f'name="{self.name}"']
         if self.value is not None:
             if self.value:
                 attrs.append(f'value="{self.value}"')
         ret.append(f'<button {" ".join(attrs)}>')
-        ret.append(self.text)
+        ret.append(self.text or "")
         ret.append(f'</button>')
         return "\n".join(ret)
 

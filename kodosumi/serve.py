@@ -1,7 +1,7 @@
 import inspect
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Union, Tuple
 import copy
 
 from fastapi import FastAPI, HTTPException, Request
@@ -13,9 +13,9 @@ import kodosumi.service.admin
 from kodosumi.service.endpoint import KODOSUMI_API
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.service.inputs.forms import Checkbox, Model
-from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
-from kodosumi.runner.const import KODOSUMI_LAUNCH
-
+from kodosumi.service.proxy import (find_lock, KODOSUMI_USER, KODOSUMI_BASE, 
+                                    LockNotFound)
+from kodosumi.const import KODOSUMI_LAUNCH
 
 ANNONYMOUS_USER = "_annon_"
 
@@ -26,7 +26,8 @@ class ServeAPI(FastAPI):
         self.add_features()
         self._method_lookup = {}
         self._route_lookup = {}
-    
+        self._lock_lookup = {}
+        self._lease_lookup = {}
     def _process_route(self, method, path, *args, **kwargs):
         entry = kwargs.pop("entry", None)
         openapi_extra = kwargs.get('openapi_extra', {}) or {}
@@ -78,9 +79,6 @@ class ServeAPI(FastAPI):
 
         def _create_get_handler() -> Callable:
             async def get_form_schema() -> Dict[str, Any]:
-                # from kodosumi.helper import debug
-                # debug()
-                # breakpoint()
                 return {**kwargs, **{"elements": model.get_model()}}
             return get_form_schema
 
@@ -110,13 +108,10 @@ class ServeAPI(FastAPI):
                 if 'request' in sig.parameters:
                     bound_args.arguments['request'] = request
                 bound_args.apply_defaults()
-
                 try:
                     if inspect.iscoroutinefunction(func):
-                        # result = await func(request, processed_data)
                         result = await func(*bound_args.args, 
                                             **bound_args.kwargs)
-
                     else:
                         result = func(*bound_args.args, **bound_args.kwargs)
                     return {
@@ -156,12 +151,24 @@ class ServeAPI(FastAPI):
             self.add_api_route(
                 path, post_handler, methods=["POST"], **kwargs_copy)
             self._route_lookup[("post", path)] = user_func 
-            user_func._kodosumi_ = True 
+            user_func._kodosumi_ = True  # type: ignore
             return user_func 
         return decorator
 
-    def add_features(self):
+    def lock(self, name: str, **kwargs):
+        def wrapper_decorator(func):
+            self._lock_lookup[name] = func
+            return func
+        return wrapper_decorator
 
+    def lease(self, name: str, **kwargs):
+        def wrapper_decorator(func):
+            self._lease_lookup[name] = func
+            return func
+        return wrapper_decorator
+
+    def add_features(self):
+        app_instance = self
         @self.middleware("http")
         async def add_custom_method(request: Request, call_next):
             user = request.headers.get(KODOSUMI_USER, ANNONYMOUS_USER)
@@ -176,6 +183,106 @@ class ServeAPI(FastAPI):
         async def generic_exception_handler(request: Request, exc: Exception):
             return HTMLResponse(content=traceback.format_exc(), status_code=500)
 
+        async def _get_model(request: Request, 
+                             fid: str, 
+                             lid: str) -> Tuple[Dict, List]:
+            try:
+                lock, _ = find_lock(fid, lid)
+            except LockNotFound as e:
+                raise HTTPException(404, e.message) from e
+            if lock["result"] is not None:
+                raise HTTPException(
+                    status_code=404, detail=f"Lock {lid} for {fid} released.")
+
+            get_method = self._lock_lookup[lock["name"]]
+            sig = inspect.signature(get_method)
+            bound_args = sig.bind_partial()
+            if 'data' in sig.parameters:
+                bound_args.arguments['data'] = lock.get("data", None)
+            if 'request' in sig.parameters:
+                bound_args.arguments['request'] = request
+            bound_args.apply_defaults()
+            if inspect.iscoroutinefunction(get_method):
+                model = await get_method(*bound_args.args, **bound_args.kwargs)
+            else:
+                model = get_method(*bound_args.args, **bound_args.kwargs)
+            return lock, model
+            
+        async def lock_get_handler(request: Request, 
+                                   fid: str, 
+                                   lid: str) -> Union[List, Dict]:
+            _, model = await _get_model(request, fid, lid)
+            return model.get_model()
+        
+        async def lock_post_handler(request: Request, 
+                           fid: str, 
+                           lid: str) -> Union[List, Dict]:
+            lock, model = await _get_model(request, fid, lid)
+            # try:
+            #     lock, _ = find_lock(fid, lid)
+            # except LockNotFound as e:
+            #     raise HTTPException(404, e.message) from e
+            # if lock["result"] is not None:
+            #     raise HTTPException(
+            #         status_code=404, detail=f"Lock {lid} for {fid} released.")
+            # get_method = self._lock_lookup[lock["name"]]
+            # model = await get_method()
+            post_method = self._lease_lookup[lock["name"]]
+            js_data = await request.json()
+            elements = model.get_model()
+            processed_data: Dict[str, Any] = await request.json()
+            for element in model.children:
+                if not hasattr(element, 'name') or element.name is None:
+                    continue
+                element_name = element.name
+                submitted_value: Any = None
+                if element_name in js_data:
+                    submitted_value = js_data[element_name]
+                elif isinstance(element, Checkbox):
+                    submitted_value = False
+                else:
+                    submitted_value = None
+                processed_data[element_name] = element.parse_value(
+                    submitted_value)
+            sig = inspect.signature(post_method)
+            bound_args = sig.bind_partial()
+            if 'data' in sig.parameters:
+                bound_args.arguments['data'] = lock.get("data", None)
+            if 'inputs' in sig.parameters:
+                bound_args.arguments['inputs'] = processed_data
+            if 'request' in sig.parameters:
+                bound_args.arguments['request'] = request
+            bound_args.apply_defaults()
+            try:
+                if inspect.iscoroutinefunction(post_method):
+                    result = await post_method(*bound_args.args, 
+                                               **bound_args.kwargs)
+                else:
+                    result = post_method(*bound_args.args, 
+                                         **bound_args.kwargs)
+                return {
+                    "result": result,
+                    "elements": elements
+                }
+            except InputsError as user_func_error:
+                user_func_error.errors.setdefault("_global_", [])
+                user_func_error.errors["_global_"].extend(
+                    user_func_error.args)
+                return {
+                    "errors": user_func_error.errors,
+                    "elements": elements
+                }
+            except Exception as user_func_exc:
+                raise HTTPException(
+                    status_code=500, detail=traceback.format_exc())
+
+        self.add_api_route(
+            "/_lock_/{fid:str}/{lid:str}", lock_get_handler, 
+            methods=["GET"])
+        self.add_api_route(
+            "/_lock_/{fid:str}/{lid:str}", lock_post_handler, 
+            methods=["POST"])
+        
 def _static(path):
     return ":/static" + path
 

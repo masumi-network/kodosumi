@@ -50,6 +50,8 @@ body {
     --surface-container: #eff2e7;
     --surface-container-high: #e9eddf;
     --surface-container-highest: #e3e8d7;
+
+    --awaiting: red;
 }
 
 body.dark {
@@ -100,5 +102,7 @@ body.dark {
     --surface-container: #2a2e24;
     --surface-container-high: #343a2e;
     --surface-container-highest: #3e4434;
+
+    --awaiting: red;
 }
 

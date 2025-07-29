@@ -10,14 +10,14 @@ from litestar.exceptions import NotFoundException
 
 from kodosumi.dtypes import EndpointResponse
 from kodosumi.log import logger
-from kodosumi.runner.const import NAMESPACE
+from kodosumi.const import NAMESPACE
 
 KODOSUMI_API = "x-kodosumi"
 KODOSUMI_AUTHOR = "x-author"
 KODOSUMI_ORGANIZATION = "x-organization"
 
 API_FIELDS: tuple = (
-    "summary", "description", "tags", "deprecated", KODOSUMI_AUTHOR, 
+    "summary", "description", "tags", "deprecated", KODOSUMI_AUTHOR,
     KODOSUMI_ORGANIZATION)
 
 
@@ -49,6 +49,7 @@ def _extract(openapi_url, js) -> dict:
                 details["url"] = "/-" + root + ext
                 details["uid"] = md5(details["url"].encode()).hexdigest()
                 details["source"] = openapi_url
+                details["base_url"] = base_url + "/" + ext
                 details["deprecated"] = details.get("deprecated") or False
                 ep = EndpointResponse.model_validate(details)
                 if meth == "get":
@@ -82,6 +83,14 @@ async def init(state: State) -> None:
     await load(state["settings"].REGISTER_FLOW, state)
 
 
+async def destroy(state: State) -> None:
+    register = state.get("register")
+    if register:
+        ray.kill(register)
+        logger.info(f"removed register actor: {register}")
+        state["register"] = None
+
+
 async def register(state: State, source: str) -> List[EndpointResponse]:
     register = state["register"]
     js = await _get_openapi(source)
@@ -104,18 +113,18 @@ async def register(state: State, source: str) -> List[EndpointResponse]:
     return sorted(it, key=lambda ep: ep.summary or "None")
 
 
-def find(state: State, query: Optional[str]=None) -> List[EndpointResponse]:
+def find(state: State, query: Optional[str] = None) -> List[EndpointResponse]:
     def _query(item):
         if query is None:
             return True
         return query.lower() in "".join([
             str(i) for i in [
-                item.summary, 
-                item.description, 
-                item.author, 
-                item.organization, 
+                item.summary,
+                item.description,
+                item.author,
+                item.organization,
                 "".join(item.tags)
-            ] if i]).lower()  
+            ] if i]).lower()
     it = items(state)
     scope = [item for nest in it for item in nest if _query(item)]
     scope = sorted(scope, key=lambda ep: (ep.summary or "", ep.url))
@@ -132,7 +141,7 @@ def items(state: State) -> List:
     return ret
 
 
-def reset(state: State, source: Optional[str]=None) -> None:
+def reset(state: State, source: Optional[str] = None) -> None:
     ray.get(state["register"].reset.remote(source))
 
 
@@ -149,7 +158,7 @@ async def unregister(state: State, openapi_url: str) -> None:
         ray.get(state["register"].remove.remote(openapi_url))
     else:
         raise NotFoundException(openapi_url)
-    
+
 
 async def load(scope: List[str], state: State) -> None:
     for source in scope:
@@ -173,7 +182,7 @@ class Register:
     def __init__(self):
         self.endpoints = {}
 
-    def reset(self, source: Optional[str]=None) -> None:
+    def reset(self, source: Optional[str] = None) -> None:
         if source is None:
             self.endpoints = {}
         else:
@@ -182,7 +191,7 @@ class Register:
 
     def add(self, source: str, endpoint: EndpointResponse) -> None:
         self.endpoints.setdefault(source, []).extend(endpoint)
-    
+
     def put(self, source: str, endpoints: List[EndpointResponse]) -> None:
         self.endpoints[source] = endpoints
 
@@ -197,6 +206,6 @@ class Register:
 
     def get_keys(self) -> List[str]:
         return list(self.endpoints.keys())
-    
+
     def get_items(self) -> List[EndpointResponse]:
         return list(self.endpoints.values())

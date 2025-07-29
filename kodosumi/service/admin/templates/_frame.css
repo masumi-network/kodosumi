@@ -127,7 +127,7 @@ pre {
 }
 
 #page-output a:hover {
-    color: #00008B;
+    color: #4169E1;
     text-decoration: none;
 }
 
@@ -147,5 +147,6 @@ body.dark .dark-logo {
     display: inline-block !important;
 }
 
-
-
+.awaiting {
+    color: var(--awaiting) !important;
+}

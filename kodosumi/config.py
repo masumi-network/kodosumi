@@ -60,6 +60,8 @@ class Settings(BaseSettings):
 
     APP_WORKERS: int = 1
 
+    LOCK_EXPIRES: float = 60 * 60 * 3
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="KODO_",

@@ -14,7 +14,7 @@ from ray.util.state.common import ActorState
 import kodosumi.config
 from kodosumi import helper
 from kodosumi.log import logger, spooler_logger
-from kodosumi.runner.const import DB_FILE, NAMESPACE
+from kodosumi.const import DB_FILE, NAMESPACE
 
 
 @ray.remote
@@ -212,5 +212,9 @@ def terminate(settings: kodosumi.config.Settings):
         logger.warning("no spooler found")
 
 
-if __name__ == "__main__":
+def run():
     main(kodosumi.config.Settings())
+
+
+if __name__ == "__main__":
+    run()

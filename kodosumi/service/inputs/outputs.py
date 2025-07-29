@@ -1,7 +1,7 @@
 import asyncio
 import sqlite3
 from pathlib import Path
-from typing import AsyncGenerator, Dict, List, Optional, Tuple, Union
+from typing import AsyncGenerator, Dict, List, Optional, Union
 
 import litestar
 import ray
@@ -11,24 +11,22 @@ from litestar.exceptions import NotFoundException
 from litestar.response import Response, ServerSentEvent, Template
 from litestar.types import SSEData
 
+from kodosumi.const import (SLEEP, AFTER, PING, CHECK_ALIVE, STATUS_TEMPLATE, 
+                            STATUS_RUNNING, STATUS_AWAITING, EVENT_LOCK, EVENT_LEASE)
 import kodosumi.core
-from kodosumi import dtypes, helper
+from kodosumi import dtypes
 from kodosumi.helper import now, serialize
 from kodosumi.log import logger
-from kodosumi.runner.const import *
+from kodosumi.const import *
 from kodosumi.runner.formatter import DefaultFormatter, Formatter
 from kodosumi.runner.main import kill_runner
+from kodosumi.service.store import connect
 
-
-STATUS_TEMPLATE = "status/status.html"
-SHORT_WAIT = 1
-SLEEP = 0.4
-AFTER = 10
-PING = 3.
-CHECK_ALIVE = 15
 
 async def _verify_actor(name: str, cursor):
     try:
+        # actor = ray.get_actor(name, namespace=NAMESPACE)
+        # return actor
         ray.get_actor(name, namespace=NAMESPACE)
         return True
     except ValueError:
@@ -41,36 +39,14 @@ async def _verify_actor(name: str, cursor):
             VALUES (?, 'status', 'error')
         """, (now(),))
         return False
-
-async def _connect(fid: str, 
-                   request: Request, 
-                   state: State,
-                   extended: bool) -> Tuple[sqlite3.Connection, Path]:
-    db_file = Path(state["settings"].EXEC_DIR).joinpath(
-        request.user, fid, DB_FILE)
-    waitfor = state["settings"].WAIT_FOR_JOB if extended else SHORT_WAIT
-    loop = False
-    t0 = helper.now()
-    while not db_file.exists():
-        if not loop:
-            loop = True
-        await asyncio.sleep(SLEEP)
-        if helper.now() > t0 + waitfor:
-            raise NotFoundException(
-                f"Execution {fid} not found after {waitfor}s.")
-    if loop:
-        logger.debug(f"{fid} - found after {now() - t0:.2f}s")
-    conn = sqlite3.connect(str(db_file), isolation_level=None)
-    conn.execute('pragma journal_mode=wal;')
-    conn.execute('pragma synchronous=normal;')
-    conn.execute('pragma read_uncommitted=true;')
-    return (conn, db_file)
+        # return None
 
 async def _event(
         fid: str,
         conn: sqlite3.Connection, 
         filter_events: Optional[List[str]]=None,
         formatter:Optional[Formatter]=None) -> AsyncGenerator[SSEData, None]:
+    #has_lock = False
     status = None
     offset = 0
     cursor = conn.cursor()
@@ -84,6 +60,12 @@ async def _event(
         status = row[0]
         if status not in STATUS_FINAL:
             await _verify_actor(fid, cursor)
+            # actor = await _verify_actor(fid, cursor)
+            # if actor is not None:
+            #     oref = actor.get_locks.remote()
+            #     locks = ray.get(oref)
+            #     if locks:
+            #         has_lock = True
     try:
         t0 = last = None
         check = now()
@@ -111,6 +93,15 @@ async def _event(
                     status = msg
                 out = f"{stamp}:"
                 out += formatter.convert(kind, msg) if formatter else msg
+                # out = f"{stamp}:"
+                # if kind == EVENT_STATUS:
+                #     status = msg
+                #     if has_lock:
+                #         out += "awaiting"
+                #     else:
+                #         out += f"{status}"
+                # else:
+                #     out += formatter.convert(kind, msg) if formatter else msg
                 if filter_events is None or kind in filter_events:
                     yield {
                         "event": kind,
@@ -118,28 +109,53 @@ async def _event(
                         "data": out
                     }
                 offset = _id
+                # print(f"got {kind} {msg}")
+                await asyncio.sleep(0)
             if status in STATUS_FINAL:
                 if last:
                     if now() - last > AFTER:
                         break
-            await asyncio.sleep(SLEEP)
+            #await asyncio.sleep(SLEEP)
             if now() > t0 + PING:
                 t0 = now()
                 if t0 > check + CHECK_ALIVE:
                     if status not in STATUS_FINAL:
                         check = t0
                         if await _verify_actor(fid, cursor):
+                        # actor = await _verify_actor(fid, cursor) 
+                        # if actor is not None:
+                        #     oref = actor.get_locks.remote()
+                        #     locks = ray.get(oref)
+                        #     if locks:
+                        #         if not has_lock:
+                        #             yield {
+                        #                 "id": 0,
+                        #                 "event": "status",
+                        #                 "data": f"{t0}:awaiting",
+                        #             }
+                        #         has_lock = True
+                        #     elif has_lock:
+                        #         yield {
+                        #             "id": 0,
+                        #             "event": "status",
+                        #             "data": f"{t0}:{status}",
+                        #         }
+                                # has_lock = False
                             yield {
                                 "id": 0,
                                 "event": "alive",
                                 "data": f"{t0}:actor and service alive",
+
                             }
+                        # else:
+                        #     has_lock = False
                         continue
                 yield {
                     "id": 0,
                     "event": "alive",
                     "data": f"{t0}:service alive"
                 }
+            await asyncio.sleep(0)
         yield {
             "id": 0,
             "event": "eof",
@@ -190,11 +206,39 @@ async def _status(conn: sqlite3.Connection) -> Dict:
         meta = meta_data.root.get("dict", {})
     else:
         meta = {}
+    fid = meta.get("fid", None)
+    # locks = {}
+    # if status not in STATUS_FINAL and fid:
+    #     actor = await _verify_actor(fid, cursor)
+    #     if actor is not None:
+    #         oref = actor.get_locks.remote()
+    #         locks = {k: v.get("expires") for k, v in ray.get(oref).items()}
+    #         if locks:
+    #             if status == STATUS_RUNNING:
+    #                 status = STATUS_AWAITING
+    query = """
+        SELECT kind, message 
+        FROM monitor 
+        WHERE kind IN (?, ?)
+        ORDER BY timestamp ASC
+    """
+    cursor.execute(query, (EVENT_LOCK, EVENT_LEASE))
+    locks = set()
+    for kind, msg in cursor.fetchall():
+        d = dtypes.DynamicModel.model_validate_json(msg)
+        lid = d.root["dict"]["lid"]
+        if kind == EVENT_LOCK:
+            locks.add(lid)
+        else:
+            locks.remove(lid)
+        await asyncio.sleep(0.05)
+    if status not in STATUS_FINAL and locks:
+        status = STATUS_AWAITING
     response = {
         "status": status,
         "timestamp": last_timestamp,
         "final": final,
-        "fid": meta.get("fid"),
+        "fid": fid,
         "summary": meta.get("summary"),
         "description": meta.get("description"),
         "tags": meta.get("tags"),
@@ -205,7 +249,8 @@ async def _status(conn: sqlite3.Connection) -> Dict:
         "kodosumi_version": meta.get("kodosumi_version"),
         "base_url": meta.get("base_url"),
         "entry_point": meta.get("entry_point"),
-        "username": meta.get("username")
+        "username": meta.get("username"),
+        "locks": locks
     }
     conn.close()
     return response
@@ -220,9 +265,9 @@ class OutputsController(litestar.Controller):
                          fid: str, 
                          state: State,
                          request: Request,
-                         extended: bool=False) -> Union[Template, Dict]:
+                         extended: bool=False) -> Dict:
         while True:
-            conn, _ = await _connect(fid, request, state, extended)
+            conn, _ = await connect(fid, request.user, state, extended)
             if not conn:
                 raise NotFoundException(f"Execution {fid} not found.")
             ret =  await _status(conn)
@@ -230,6 +275,7 @@ class OutputsController(litestar.Controller):
                 return ret
             await asyncio.sleep(SLEEP)
 
+    # todo: move to admin panel
     @get("/status/view/{fid:str}")
     async def view_status(self, fid: str) -> Template:
         return Template(STATUS_TEMPLATE, context={"fid": fid})
@@ -241,7 +287,7 @@ class OutputsController(litestar.Controller):
             fid: str, 
             request: Request, 
             state: State) -> None:
-        conn, db_file = await _connect(fid, request, state, False)
+        conn, db_file = await connect(fid, request.user, state, False)
         if not conn:
             raise NotFoundException(f"Execution {fid} not found.")
         job = await _status(conn)
@@ -307,7 +353,7 @@ class OutputsController(litestar.Controller):
                       filter_events=None,
                       formatter=None,
                       extended: bool=False) -> ServerSentEvent:
-        conn, db_file = await _connect(fid, request, state, extended)        
+        conn, db_file = await connect(fid, request.user, state, extended)        
         return ServerSentEvent(_event(fid, conn, filter_events, formatter))
  
     @delete("/", summary="Delete or Kill list of Executions",
@@ -318,7 +364,7 @@ class OutputsController(litestar.Controller):
             state: State) -> None:
         js = await request.json()
         for fid in js.get("fid", []):
-            conn, db_file = await _connect(fid, request, state, False)
+            conn, db_file = await connect(fid, request.user, state, False)
             if not conn:
                 raise NotFoundException(f"Execution {fid} not found.")
             job = await _status(conn)

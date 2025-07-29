@@ -1,6 +1,10 @@
 import asyncio
 import inspect
+import datetime
+import uuid
+import time
 from traceback import format_exc
+import asyncio
 from typing import Any, Callable, Optional, Tuple, Union
 
 import ray.util.queue
@@ -10,11 +14,11 @@ from fastapi.responses import JSONResponse
 
 import kodosumi.core
 from kodosumi.helper import now, serialize
-from kodosumi.runner.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
+from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                                    EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                                    NAMESPACE, STATUS_END, STATUS_ERROR,
                                    STATUS_RUNNING, STATUS_STARTING,
-                                   KODOSUMI_LAUNCH)
+                                   KODOSUMI_LAUNCH, EVENT_LOCK, EVENT_LEASE)
 from kodosumi.runner.tracer import Tracer
 
 
@@ -47,8 +51,9 @@ class Runner:
         self.inputs = inputs
         self.extra = extra
         self.active = True
+        self._locks: dict = {}
         self.message_queue = ray.util.queue.Queue()
-        self.tracer = Tracer(self.message_queue)
+        self.tracer = Tracer(self.fid, self.message_queue)
         self.tracer.init()
 
     async def get_username(self):
@@ -110,7 +115,7 @@ class Runner:
             **{
                 "fid": self.fid,
                 "username": self.username,
-                "base_url": self.base_url,
+                # "base_url": self.base_url,
                 "entry_point": rep_entry_point
             }, 
             **origin}))
@@ -191,6 +196,37 @@ class Runner:
             pass
         self.active = False
         return "Runner shutdown complete."
+    
+    def get_locks(self):
+        return self._locks
+    
+    async def lock(self, 
+                   name: str, 
+                   lid: str, 
+                   expires: float,
+                   data: Optional[dict]=None):
+        self._locks[lid] = {
+            "name": name,
+            "data": data,
+            "result": None,
+            "base_url": self.base_url,
+            "expires": expires
+        }
+        while True:
+            if self._locks.get(lid, {}).get("result", None) is not None:
+                break
+            if now() > expires:
+                self._locks.pop(lid) 
+                raise TimeoutError(f"Lock {lid} expired at{expires}")
+            await asyncio.sleep(1)
+        return self._locks.pop(lid)["result"]
+
+    async def lease(self, lid: str, result: Any):
+        if lid in self._locks:
+            if self._locks[lid]["result"] is None:
+                self._locks[lid]["result"] = result
+                return True
+        return False
 
 
 def kill_runner(fid: str):
@@ -213,7 +249,7 @@ def create_runner(username: str,
         lifetime="detached").remote(
             fid=fid,
             username=username,
-            base_url="/-" + base_url,
+            base_url=base_url,
             entry_point=entry_point,
             inputs=inputs,
             extra=extra

@@ -84,7 +84,7 @@ class EndpointResponse(BaseModel):
     author: Optional[str]
     organization: Optional[str]
     tags: List[str]
-
+    base_url: str
     class Config:
         from_attributes = True
 

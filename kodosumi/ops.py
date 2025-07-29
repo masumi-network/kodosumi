@@ -11,7 +11,7 @@ from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
 import yaml
 from kodosumi.config import InternalSettings
-from kodosumi.runner.const import DB_FILE, DB_ARCHIVE
+from kodosumi.const import DB_FILE, DB_ARCHIVE
 
 def _find_serve():
     return str(Path(sys.executable).parent.joinpath("serve"))

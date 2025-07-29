@@ -13,11 +13,11 @@ async def http_client(tmp_path) -> AsyncGenerator:
     async with AsyncTestClient(app=app) as client:
         yield client
 
-@pytest.fixture(autouse=True)
-def start_ray():
-    ray.init()
-    yield
-    ray.shutdown()
+# @pytest.fixture(autouse=True)
+# def start_ray():
+#     ray.init(ignore_reinit_error=True)
+#     yield
+#     ray.shutdown()
 
 
 @pytest.fixture

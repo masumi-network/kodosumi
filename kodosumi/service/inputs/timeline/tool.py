@@ -9,7 +9,7 @@ from enum import Enum as PyEnum
 
 from pydantic import BaseModel
 from kodosumi.dtypes import DynamicModel
-from kodosumi.runner import const
+from kodosumi import const
 from kodosumi.log import logger
 
 
@@ -28,7 +28,7 @@ META_FIELDS = ("fid", "tags", "summary", "description", "author",
                "organization", "version")
 
 DELIVER_FIELDS = ("fid", "tags", "summary", "inputs", "status", "startup",
-                  "finish", "runtime")
+                  "finish", "runtime", "locks")
 SEARCH_FIELDS = ("author", "organization", "summary", "description", "fid", 
                  "status")
 
@@ -84,7 +84,7 @@ def load_result(filename):
     status = get_status(cursor)
     query = """
     SELECT kind, message FROM monitor 
-    WHERE kind IN ('inputs', 'meta', 'final')
+    WHERE kind IN ('inputs', 'meta', 'final', 'lock', 'lease')
     ORDER BY id DESC
     """
     cursor.execute(query)
@@ -93,6 +93,9 @@ def load_result(filename):
     result["startup"] = startup
     result["finish"] = finish
     result["runtime"] = runtime
+    result["locks"] = []
+    lock = set()
+    lease = set()
     for rec in cursor.fetchall():
         kind, message = rec
         data = DynamicModel.model_validate_json(message)
@@ -101,6 +104,12 @@ def load_result(filename):
                 result[key] = data.root["dict"][key]
         elif kind in ("final", "inputs"):
             result[kind] = data.root
+        elif kind == "lock":
+            lock.add(data.root["dict"]["lid"])
+        elif kind == "lease":
+            lease.add(data.root["dict"]["lid"])
+    if result["status"] == "running":
+        result["locks"] = list(lock - lease)
     return result
 
 def load_page(root: Union[Path, str], 

@@ -11,7 +11,7 @@ import kodosumi.spooler
 from kodosumi import helper
 from kodosumi.config import LOG_LEVELS, Settings
 from kodosumi.log import spooler_logger
-from kodosumi.runner.const import NAMESPACE
+from kodosumi.const import NAMESPACE
 import kodosumi.ops
 import json as jsonlib
 

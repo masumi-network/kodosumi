@@ -2,6 +2,8 @@ let ioSource = null;
 let ioDone = false;
 let sse_loaded = false;
 
+let locks = {};
+
 let elmArticleHead = null;
 let elmToggleIcon = null;
 let elmDetailsElement = null;
@@ -79,6 +81,8 @@ let outputBuffer = [];
 const OUTPUT_BUFFER_SIZE = 10;
 let lastOutputFlush = Date.now();
 let outputFlushTimer = null;
+let elmWaiting = null;
+let elmWaitingBlock = null;
 
 function shouldFlushBuffer(lastFlush) {
     return Date.now() - lastFlush >= MIN_FLUSH_INTERVAL;
@@ -360,6 +364,8 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
     elmInputs = document.getElementsByClassName('inputs');
     eventSource = new EventSource(`/outputs/main/${fid}?extended=true`);
+    elmWaiting = document.getElementById('awaiting');
+    elmWaitingBlock = document.getElementById('awaiting-block');
 
     elmToggleIcon.addEventListener('click', () => {
         elmDetailsElement.open = !elmDetailsElement.open;
@@ -372,9 +378,30 @@ document.addEventListener('DOMContentLoaded', (event) => {
     eventSource.onerror = function() {
         console.log("main SSE stream error.");
     };
+    eventSource.addEventListener('lock', function(event) {
+        const [ts, js] = parseData(event);
+        const data = JSON.parse(js);
+        console.log("http://localhost:3370/inputs/lock/" + elmFID[0].innerText + "/" + data.dict.lid);
+        locks[data.dict.lid] = true;
+        applyToAll(elmStatus, (elm) => {elm.innerText = "awaiting"});
+        elmStatusValid.classList.add('awaiting');
+        elmWaitingBlock.style.display = 'block';
+        elmWaiting.innerHTML += `<li><span id="awaiting-${data.dict.lid}"><a href="/inputs/lock/${elmFID[0].innerText}/${data.dict.lid}">awaiting input</a></span>, expires at ${formatUnixTime(data.dict.expires)}</li>`;
+    });
+    eventSource.addEventListener('lease', function(event) {
+        const [ts, js] = parseData(event);
+        const data = JSON.parse(js);
+        delete locks[data.dict.lid];
+        if (Object.keys(locks).length === 0) {
+            elmStatusValid.classList.remove('awaiting');
+        }
+        let elm = document.getElementById(`awaiting-${data.dict.lid}`);
+        elm.innerHTML = "finished input";
+    });
     eventSource.addEventListener('status', function(event) {
         const [ts, js] = parseData(event);
         applyToAll(elmStatus, (elm) => {elm.innerText = js});
+        elmStatusValid.classList.remove('awaiting');
         if (js === "finished" || js === "error") {
             flow_active = false;
             stopAutoSpark();

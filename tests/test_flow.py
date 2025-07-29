@@ -1,7 +1,6 @@
 import pytest
 
 from kodosumi.dtypes import RegisterFlow
-from tests.test_role import auth_client, start_ray
 from ray import serve
 import asyncio
 from multiprocessing import Process
@@ -11,6 +10,8 @@ from fastapi import Request
 from pydantic import BaseModel
 from kodosumi.core import ServeAPI
 from kodosumi.service.inputs.forms import Model, InputText, Checkbox, Submit, Cancel
+from tests.test_role import auth_client
+from tests.test_execution import _run_uvicorn
 
 app = ServeAPI()
 
@@ -56,8 +57,6 @@ def create_app():
         author="Factory Author",    
         deprecated=False,
         description="Factory Description",
-        # response_model=dict,
-        # openapi_extra={KODOSUMI_API: True},
     )
     async def post(data: FormData, request: Request) -> dict:
         """Echo-Endpunkt, der die Eingaben zurückliefert."""
@@ -72,25 +71,11 @@ def create_app():
         author="Get Author",    
         deprecated=True,
         description="Get Description",
-
-        # response_model=dict,
-        # openapi_extra={KODOSUMI_API: True},
     )
     async def post(request: Request) -> dict:
         return {"result": None}
 
     return app
-
-def _run_uvicorn(factory: str, port: int):
-    import uvicorn
-
-    uvicorn.run(
-        factory,
-        host="localhost",
-        port=port,
-        reload=False,
-        # factory=True,
-    )
 
 
 @pytest.fixture
@@ -124,16 +109,17 @@ def fake_openapi(monkeypatch):
     )
     return stub_spec
 
-
 @pytest.mark.asyncio
 async def test_flow_list_empty(auth_client):
     """Verify that :http:get:`/flow` returns an empty list when no flows are
     registered."""
     response = await auth_client.get("/flow")
     assert response.status_code == 200
+    print("x"*80)
     payload = response.json()
     assert payload["items"] == []
     assert payload["offset"] is None
+    print("x"*80)
 
 
 @pytest.mark.asyncio
@@ -142,7 +128,8 @@ async def test_flow_register(fake_openapi, auth_client):
     that the returned payload contains exactly the Endpoint description
     extracted from the mocked OpenAPI specification.
     """
-    register_payload = RegisterFlow(url="http://dummy/openapi.json").model_dump()
+    register_payload = RegisterFlow(
+        url="http://dummy/openapi.json").model_dump()
     response = await auth_client.post("/flow/register", json=register_payload)
     assert response.status_code == 201
 
@@ -338,7 +325,7 @@ async def test_flow_register_two(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_flow_register_ray(auth_client, start_ray):
+async def test_flow_register_ray(auth_client):
 
     app = create_app()
     @serve.deployment
@@ -375,7 +362,7 @@ async def test_flow_register_ray(auth_client, start_ray):
     serve.shutdown()
 
 @pytest.mark.asyncio
-async def test_flow_register_ray_deep(auth_client, start_ray):
+async def test_flow_register_ray_deep(auth_client):
 
     app = create_app()
     @serve.deployment
@@ -485,3 +472,97 @@ async def test_flow_register_three(auth_client):
     proc3.join() 
 
     serve.shutdown()
+
+def create_app1():
+    app = ServeAPI()
+    form_model = Model(
+        InputText(label="Name", name="name", placeholder="Enter your name"),
+        Checkbox(label="Active", name="active", option="ACTIVE", value=False),
+        Submit("Submit"),
+        Cancel("Cancel"),
+    )
+    class FormData(BaseModel):
+        name: str
+        active: bool = False
+
+    @app.enter(
+        "/",
+        model=form_model,
+        summary="Root Example"
+    )
+    async def root(data: FormData, request: Request) -> dict:
+        return {"result": data.model_dump()}
+
+    @app.enter(
+        "/level1",
+        model=form_model,
+        summary="Level 1 Example"
+    )
+    async def level1(data: FormData, request: Request) -> dict:
+        return {"result": data.model_dump()}
+
+    @app.enter(
+        "/level2/deep",
+        model=form_model,
+        summary="Level 2 Example"
+    )
+    async def level2(data: FormData, request: Request) -> dict:
+        return {"result": data.model_dump()}
+
+    @app.get(
+        "/even/much/deper",
+        entry=True,
+        summary="Get Example"
+    )
+    async def dep(request: Request) -> dict:
+        return {"result": None}
+
+    return app
+
+
+
+@pytest.mark.asyncio
+async def test_flow_register_real_deep(auth_client):
+    port = 8124
+    proc = Process(target=_run_uvicorn, args=("tests.test_flow:create_app1", port,))
+    proc.start()
+    import httpx
+    url = f"http://localhost:{port}/openapi.json"
+    async with httpx.AsyncClient() as client:
+        for _ in range(40):  # max ~10 s
+            try:
+                r = await client.get(url)
+                if r.status_code == 200:
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.25)
+        else:
+            pytest.fail("uvicorn-App konnte nicht gestartet werden")
+
+    resp = await auth_client.post("/flow/register", json={"url": url})
+    assert resp.status_code == 201
+    endpoints = resp.json()
+    # assert [ep["summary"] for ep in endpoints] == ["Factory Example", "Get Example"]
+    # resp = await auth_client.get("/flow")
+    # assert resp.status_code == 200
+    # items = resp.json()["items"]
+    # assert len(items) == len(endpoints)
+    # assert items[0]["summary"] == "Factory Example"
+    # assert items[0]["tags"] == ["flow"]
+    # assert items[0]["method"] == "GET"
+    # assert items[0]["url"] == "/-/localhost/8124/-/"
+    # assert items[0]["source"] == 'http://localhost:8124/openapi.json'
+    # assert items[0]["description"] == "Factory Description"
+    # assert items[0]["deprecated"] is False
+    # assert items[0]["author"] == "Factory Author"
+    # assert items[0]["organization"] == "Factory Organization"
+    # assert items[1]["summary"] == "Get Example"
+    # assert items[1]["tags"] == []
+    # assert items[1]["method"] == "GET"
+    # assert items[1]["url"] == "/-/localhost/8124/-/get"
+    # assert items[1]["source"] == 'http://localhost:8124/openapi.json'
+    # assert items[1]["description"] == "Get Description"
+    # assert items[1]["deprecated"] is True
+    proc.terminate()
+    proc.join() 

@@ -1,29 +1,16 @@
-import asyncio
-import json
-import sqlite3
-from pathlib import Path
-from typing import AsyncGenerator, Optional, List, Union
+from typing import Union
 
 import litestar
-import ray
 from httpx import AsyncClient
 from litestar import Request, get, post
 from litestar.datastructures import State
+from litestar.response import Redirect, Template
 from litestar.exceptions import NotFoundException
-from litestar.response import Redirect, ServerSentEvent, Template
-from litestar.types import SSEData
 
-from kodosumi import helper
-from kodosumi.helper import now
+from kodosumi.const import FORM_TEMPLATE, STATUS_REDIRECT
 from kodosumi.log import logger
-from kodosumi.runner.const import (DB_FILE, EVENT_STATUS, NAMESPACE,
-                                   STATUS_FINAL)
-from kodosumi.runner.formatter import DefaultFormatter, Formatter
 from kodosumi.service.inputs.forms import Model
-from kodosumi.service.proxy import KODOSUMI_BASE, KODOSUMI_USER
-
-FORM_TEMPLATE = "form.html"
-STATUS_REDIRECT = "/outputs/status/view/{fid}"
+from kodosumi.service.proxy import KODOSUMI_USER, find_lock, LockNotFound
 
 
 class InputsController(litestar.Controller):
@@ -41,7 +28,7 @@ class InputsController(litestar.Controller):
         async with AsyncClient(timeout=timeout) as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
-            request_headers[KODOSUMI_BASE] = f"/-/{path}"
+            # request_headers[KODOSUMI_BASE] = f"/-/{path}"
             host = request.headers.get("host", None)
             response = await client.get(url=schema_url, headers=request_headers)
             response_headers = dict(response.headers)
@@ -62,7 +49,7 @@ class InputsController(litestar.Controller):
                         headers=response_headers)
 
     @post("/-/{path:path}")
-    async def post(self, 
+    async def post_scheme(self, 
                     path: str, 
                     state: State,
                     request: Request) -> Union[Template, Redirect]:
@@ -71,7 +58,7 @@ class InputsController(litestar.Controller):
         async with AsyncClient(timeout=timeout) as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
-            request_headers[KODOSUMI_BASE] = f"/-/{path}"
+            # request_headers[KODOSUMI_BASE] = f"/-/{path}"
             request_headers.pop("content-length", None)
             host = request.headers.get("host", None)
             data = await request.form()
@@ -109,3 +96,89 @@ class InputsController(litestar.Controller):
                         status_code=response.status_code,
                         headers=response_headers)
 
+    @get("/lock/{fid:str}/{lid:str}")
+    async def get_lock_scheme(self,
+                              fid: str,
+                              lid: str, 
+                              state: State,
+                              request: Request) -> Template:
+        try:
+            lock, _ = find_lock(fid, lid)
+        except LockNotFound as e:
+            raise NotFoundException(e.message) from e
+        base_url = lock['base_url']
+        lock_url = f"{base_url.rstrip('/')}/_lock_/{fid}/{lid}"
+        timeout = state["settings"].PROXY_TIMEOUT
+        async with AsyncClient(timeout=timeout) as client:
+            request_headers = dict(request.headers)
+            request_headers[KODOSUMI_USER] = request.user
+            # request_headers[KODOSUMI_BASE] = base
+            host = request.headers.get("host", None)
+            # body = await request.body()
+            response = await client.get(url=lock_url, headers=request_headers)
+            response_headers = dict(response.headers)
+            if host:
+                response_headers["host"] = host
+            response_headers.pop("content-length", None)
+            if response.status_code == 200:
+                model = Model.model_validate(response.json())
+                response_content = model.render()
+            else:
+                logger.error(
+                    f"Get Schema error: {response.status_code} {response.text}")
+                response_content = response.text
+        response_headers["content-type"] = "text/html"
+        return Template(FORM_TEMPLATE, 
+                        context={"html": response_content}, 
+                        headers=response_headers)
+
+
+    @post("/lock/{fid:str}/{lid:str}")
+    async def post_lock_scheme(self,
+                               fid: str,
+                               lid: str, 
+                               state: State,
+                               request: Request) -> Union[Template, Redirect]:
+        try:
+            lock, _ = find_lock(fid, lid)
+        except LockNotFound as e:
+            raise NotFoundException(e.message) from e
+        #base_url = lock['base_url']
+        base_url = str(request.base_url)
+        lock_url = f"{base_url.rstrip('/')}/lock/{fid}/{lid}"
+        timeout = state["settings"].PROXY_TIMEOUT
+        async with AsyncClient(timeout=timeout) as client:
+            request_headers = dict(request.headers)
+            request_headers[KODOSUMI_USER] = request.user
+            # request_headers[KODOSUMI_BASE] = base
+            request_headers.pop("content-length", None)
+            host = request.headers.get("host", None)
+            data = await request.form()
+            if  data.get("__cancel__") == "__cancel__":
+                return Redirect(STATUS_REDIRECT.format(fid=fid))
+            response = await client.post(
+                url=lock_url, headers=request_headers, json=dict(data))
+            response_headers = dict(response.headers)
+            if response.status_code == 200:
+                errors = response.json().get("errors", None)
+                result = response.json().get("result", None)
+                elements = response.json().get("elements", [])
+                if result:
+                    return Redirect(STATUS_REDIRECT.format(fid=fid))
+                model = Model.model_validate(elements, errors=errors)
+                model.set_data(dict(data))
+                response_content = model.render()
+            else:
+                logger.error(
+                    f"Get Schema error: {response.status_code} {response.text}")
+                response_content = f"<h1>500 Server Error</h1>"
+                try:
+                    js = response.json()
+                    text = js.get("detail")
+                except:
+                    text = response.text
+                response_content += f"<pre><code>{text}</code></pre>"
+        response_headers["content-type"] = "text/html"
+        return Template(FORM_TEMPLATE, 
+                        context={"html": response_content}, 
+                        headers=response_headers)

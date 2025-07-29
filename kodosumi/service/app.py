@@ -43,6 +43,7 @@ from kodosumi.service.inputs.timeline.controller import TimelineController
 from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
+from kodosumi.service.proxy import LockController
 
 
 def app_exception_handler(request: Request, 
@@ -118,6 +119,7 @@ async def startup(app: Litestar):
 
 
 async def shutdown(app):
+    await endpoint.destroy(app.state)
     helper.ray_shutdown()
 
 
@@ -168,6 +170,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/", route_handlers=[LoginControl]),
             Router(path="/role", route_handlers=[RoleControl]),
             Router(path="/-/", route_handlers=[ProxyControl]),
+            Router(path="/lock", route_handlers=[LockController]),
             Router(path="/admin", route_handlers=[AdminControl]),
             Router(path="/flow", route_handlers=[FlowControl]),
             Router(path="/inputs", route_handlers=[InputsController]),
