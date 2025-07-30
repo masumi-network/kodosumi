@@ -1,0 +1,350 @@
+import asyncio
+import os
+import shutil
+import uuid
+from pathlib import Path
+from typing import Annotated, Optional, List, Dict, Any
+
+import aiofiles
+import litestar
+from litestar import delete, post, Request, get
+from litestar.datastructures import State
+from litestar.enums import RequestEncodingType
+from litestar.params import Body
+from litestar.response import Stream
+from litestar.exceptions import NotFoundException, HTTPException
+
+from kodosumi.dtypes import ChunkUpload, UploadComplete, UploadInit
+from kodosumi.log import logger
+
+
+class FileControl(litestar.Controller):
+
+    tags = ["Files"]
+
+    def upload_dir(self, state: State) -> Path:
+        return Path(state.settings.UPLOAD_DIR.rstrip('/'))
+
+    def get_upload_status(self, state: State, upload_id: str) -> dict:
+        """Check filesystem to determine current upload status"""
+        session_dir = self.upload_dir(state) / upload_id
+        if not session_dir.exists():
+            return {"exists": False, "received_chunks": []}
+        received_chunks = []
+        for chunk_file in session_dir.iterdir():
+            if chunk_file.name.startswith("chunk_"):
+                chunk_num = int(chunk_file.name.split("_")[1])
+                received_chunks.append(chunk_num)
+        return {
+            "exists": True,
+            "received_chunks": sorted(received_chunks),
+            "total_received": len(received_chunks)
+        }
+
+    def generate_completion_id(self, batch_id: str | None = None) -> str:
+        """Generate completion_id deterministically from batch_id or create new one"""
+        if batch_id:
+            return batch_id
+        else:
+            return str(uuid.uuid4())
+
+    @post("/init_batch")
+    async def init_batch(self) -> dict:
+        """Initialize a new upload batch - returns batch_id for client to use"""
+        batch_id = str(uuid.uuid4())
+        return {"batch_id": batch_id}
+
+    @post("/init")
+    async def init_upload(self, data: UploadInit, state: State) -> dict:
+        upload_id = str(uuid.uuid4())
+        session_dir = self.upload_dir(state) / upload_id
+        session_dir.mkdir(parents=True)        
+        return {
+            "upload_id": upload_id, 
+            "batch_id": data.batch_id
+        }
+
+    @post("/chunk")
+    async def upload_chunk(self,
+                           data: Annotated[
+                               ChunkUpload, 
+                               Body(media_type=RequestEncodingType.MULTI_PART)
+                            ],
+                            state: State) -> dict:
+        session_dir = self.upload_dir(state) / data.upload_id
+        if not session_dir.exists():
+            return {"error": "Invalid upload ID - upload not initialized"}
+        chunk_path = session_dir / f"chunk_{data.chunk_number}"
+        if not chunk_path.exists():
+            async with aiofiles.open(chunk_path, 'wb') as f:
+                while data_chunk := await data.chunk.read(1024 * 1024):
+                    await f.write(data_chunk)
+                    await asyncio.sleep(0)
+        status = self.get_upload_status(state, data.upload_id)
+        return {
+            "status": "chunk received",
+            "chunk_number": data.chunk_number,
+            "received_chunks": status["total_received"]
+        }
+
+    async def _complete_file(self, 
+                             user: str,
+                             fid: str,
+                             batch_id: str,
+                             upload_id: str, 
+                             filename: str,
+                             total_chunks: int, 
+                             state: State) -> dict:
+        try:
+            status = self.get_upload_status(state, upload_id)
+            if not status["exists"]:
+                return {"error": "Invalid upload ID"}
+            if status["total_received"] != total_chunks:
+                return {"error": "Not all chunks uploaded"}
+            missing_chunks = []
+            for i in range(total_chunks):
+                chunk_path = self.upload_dir(
+                    state) / f"{upload_id}/chunk_{i}"
+                if not chunk_path.exists():
+                    missing_chunks.append(i)
+            if missing_chunks:
+                return {"error": f"Missing chunk files: {missing_chunks}"}
+            if fid:
+                completion_id = fid
+                completion_dir = Path(state.settings.EXEC_DIR) / user / fid
+            else:
+                completion_id = self.generate_completion_id(batch_id)
+                completion_dir = self.upload_dir(state) / completion_id
+            completion_dir.mkdir(parents=True, exist_ok=True)
+            final_path = completion_dir / "in" / filename
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            async with aiofiles.open(final_path, 'wb') as final_file:
+                for i in range(total_chunks):
+                    chunk_path = self.upload_dir(state) / upload_id / f"chunk_{i}"
+                    try:
+                        async with aiofiles.open(chunk_path, 'rb') as chunk_file:
+                            while data_chunk := await chunk_file.read(1024 * 1024):
+                                await final_file.write(data_chunk)
+                                await asyncio.sleep(0)
+                    except Exception as e:
+                        return {"error": f"Error reading chunk {i}: {str(e)}"}
+            try:
+                session_dir = self.upload_dir(state) / upload_id
+                if session_dir.exists():
+                    for file in session_dir.iterdir():
+                        if file.is_file():
+                            os.remove(file)
+                    os.rmdir(session_dir)
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
+            return {
+                "status": "upload complete", 
+                "completion_id": completion_id,
+                "batch_id": batch_id,
+                "final_file": filename,
+                "final_path": f"{completion_id}/{filename}"
+            }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"error": f"Internal server error: {str(e)}"}
+
+    @post("/complete")
+    async def complete_upload(self, 
+                              request: Request,
+                              data: UploadComplete, 
+                              state: State) -> dict:
+        return await self._complete_file(
+            request.user,
+            data.fid or "",
+            data.batch_id or "",
+            data.upload_id,
+            data.filename,
+            data.total_chunks,
+            state)
+
+    @post("/complete/{fid:str}/{batch_id:str}")
+    async def complete_all(self, 
+                           fid: str,
+                           batch_id: str,
+                           request: Request,
+                           state: State) -> List:
+        result = []
+        payload = await request.json()
+        for upload_id, info in payload.items():
+            result.append(
+                await self._complete_file(
+                    request.user,
+                    fid,
+                    batch_id,
+                    upload_id,
+                    info["filename"],
+                    info["totalChunks"],
+                    state))
+        return result
+
+    @delete("/cancel/{upload_id:str}")
+    async def cancel_upload(self, upload_id: str, state: State) -> None:
+        """Cancel an upload and clean up temporary files."""
+        try:
+            session_dir = self.upload_dir(state) / upload_id
+            if not session_dir.exists():
+                raise RuntimeError(f"Invalid upload ID - upload not found")
+            if session_dir.exists():
+                shutil.rmtree(session_dir)
+        except Exception as e:
+            raise RuntimeError(f"Error cancelling upload: {str(e)}")
+
+    @get("/{fid:str}/{dir_type:str}")
+    async def list_files(self, 
+                         fid: str, 
+                         dir_type: str,
+                         request: Request, 
+                         state: State) -> List[Dict[str, Any]]:
+        """List all files and directories in the specified execution directory with their structure and sizes."""
+        # try:
+        # Validate dir_type parameter
+        if dir_type not in ["in", "out"]:
+            raise HTTPException(status_code=404, detail="Invalid directory type. Must be 'in' or 'out'")
+        
+        # Construct path to execution directory for this user and flow ID
+        exec_dir = Path(state.settings.EXEC_DIR) / request.user / fid / dir_type
+        
+        if not exec_dir.exists():
+            return []
+        
+        entries_list = []
+        processed_dirs = set()
+        
+        # First, collect all files and track their parent directories
+        for file_path in exec_dir.rglob("*"):
+            if file_path.is_file():
+                # Calculate relative path from the "in" directory
+                relative_path = file_path.relative_to(exec_dir)
+                
+                # Get file size in bytes
+                file_size = file_path.stat().st_size
+                
+                # Get last modified timestamp
+                last_modified = file_path.stat().st_mtime
+                
+                entries_list.append({
+                    "path": str(relative_path),
+                    "size": file_size,
+                    "last_modified": last_modified,
+                    "is_directory": False
+                })
+                
+                # Track all parent directories of this file
+                current_parent = relative_path.parent
+                while current_parent != Path("."):
+                    processed_dirs.add(str(current_parent))
+                    current_parent = current_parent.parent
+        
+        # Add directory entries
+        for dir_path_str in processed_dirs:
+            dir_full_path = exec_dir / dir_path_str
+            if dir_full_path.exists() and dir_full_path.is_dir():
+                last_modified = dir_full_path.stat().st_mtime
+                
+                entries_list.append({
+                    "path": dir_path_str,
+                    "size": 0,  # Directories have size 0
+                    "last_modified": last_modified,
+                    "is_directory": True
+                })
+        
+        # Sort entries by path for consistent ordering
+        entries_list.sort(key=lambda x: x["path"])
+        
+        return entries_list
+        
+        # except Exception as e:
+        #     logger.error(f"Error listing files in {dir_type} directory for fid {fid}, user {request.user}: {str(e)}")
+        #     return []
+
+    @get("/{fid:str}/{dir_type:str}/{path:path}")
+    async def get_file(self, fid: str, dir_type: str, path: str, request: Request, state: State) -> Stream:
+        """Retrieve a file for download from either 'in' or 'out' directory. Directories cannot be retrieved."""
+        try:
+            # Validate dir_type parameter
+            if dir_type not in ["in", "out"]:
+                raise HTTPException(status_code=400, detail="Invalid directory type. Must be 'in' or 'out'")
+            
+            # Construct path to execution directory for this user and flow ID
+            exec_dir = Path(state.settings.EXEC_DIR) / request.user / fid / dir_type
+            
+            if not exec_dir.exists():
+                raise NotFoundException(f"Directory '{dir_type}' not found for flow {fid}")
+            
+            # Construct the full file path - normalize path to remove leading slash
+            # Leading slashes would make pathlib treat it as absolute path, bypassing exec_dir
+            normalized_path = path.lstrip('/')
+            file_path = exec_dir / normalized_path
+            
+            # Security check: ensure the resolved path is within the execution directory
+            try:
+                file_path = file_path.resolve()
+                exec_dir = exec_dir.resolve()
+                if not file_path.is_relative_to(exec_dir):
+                    raise HTTPException(status_code=403, detail="Access denied: path outside allowed directory")
+            except (OSError, ValueError):
+                raise NotFoundException(f"Invalid file path: {path}")
+            
+            # Check if file exists
+            if not file_path.exists():
+                raise NotFoundException(f"File not found: {path}")
+            
+            # Check if it's a directory (not allowed)
+            if file_path.is_dir():
+                raise HTTPException(status_code=400, detail="Cannot retrieve directories, only files are allowed")
+            
+            # Check if it's actually a file
+            if not file_path.is_file():
+                raise HTTPException(status_code=400, detail="Path does not point to a valid file")
+            
+            # Get file size for Content-Length header
+            file_size = file_path.stat().st_size
+            
+            # Extract filename for Content-Disposition header
+            filename = file_path.name
+            
+            # Create async generator to stream the file
+            async def file_streamer():
+                try:
+                    async with aiofiles.open(file_path, 'rb') as f:
+                        while chunk := await f.read(8192):  # 8KB chunks
+                            yield chunk
+                except Exception as e:
+                    logger.error(f"Error streaming file {file_path}: {str(e)}")
+                    raise HTTPException(status_code=500, detail="Error reading file")
+            
+            # Return streaming response with appropriate headers
+            return Stream(
+                content=file_streamer(),
+                media_type="application/octet-stream",
+                headers={
+                    "Content-Length": str(file_size),
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Cache-Control": "no-cache"
+                }
+            )
+            
+        except (NotFoundException, HTTPException):
+            # Re-raise these exceptions as-is
+            raise
+        except Exception as e:
+            logger.error(f"Error retrieving file {path} from {dir_type} directory for fid {fid}, user {request.user}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error while retrieving file")
+
+    @delete("/{fid:str}/{dir_type:str}/{path:path}")
+    async def delete_file(self, fid: str, dir_type: str, path: str, request: Request, state: State) -> None:
+        """Delete a file from either 'in' or 'out' directory."""
+        # Validate dir_type parameter
+        if dir_type not in ["in", "out"]:
+            raise HTTPException(status_code=400, detail="Invalid directory type. Must be 'in' or 'out'")
+        
+        # TODO: Implement file deletion logic
+        pass
+
+

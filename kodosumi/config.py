@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     SPOOLER_LOG_FILE: str = "./data/spooler.log"
     SPOOLER_LOG_FILE_LEVEL: str = "DEBUG"
     SPOOLER_STD_LEVEL: str = "INFO"
-    
+
+    UPLOAD_DIR: str = "./data/uploads"    
     RAY_SERVER: str = "localhost:6379"
     RAY_DASHBOARD: str = "http://localhost:8265"
     #RAY_HTTP: str = "http://localhost:8001"

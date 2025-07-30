@@ -23,7 +23,8 @@ class InputsController(litestar.Controller):
                          path: str, 
                          state: State,
                          request: Request) -> Template:
-        schema_url = str(request.base_url).rstrip("/") + f"/-/{path}"
+        schema_url = str(request.base_url).rstrip(
+            "/") + f"/-/{path.lstrip('/')}"
         timeout = state["settings"].PROXY_TIMEOUT
         async with AsyncClient(timeout=timeout) as client:
             request_headers = dict(request.headers)

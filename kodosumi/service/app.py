@@ -44,7 +44,7 @@ from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
 from kodosumi.service.proxy import LockController
-
+from kodosumi.service.files import FileControl
 
 def app_exception_handler(request: Request, 
                           exc: Exception) -> Union[Template, Response]:
@@ -178,6 +178,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/timeline", route_handlers=[TimelineController]),
             Router(path="/deploy", route_handlers=[DeployControl]),
             Router(path="/serve", route_handlers=[ServeControl]),
+            Router(path="/files", route_handlers=[FileControl]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],

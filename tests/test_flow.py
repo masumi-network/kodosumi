@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from kodosumi.core import ServeAPI
 from kodosumi.service.inputs.forms import Model, InputText, Checkbox, Submit, Cancel
 from tests.test_role import auth_client
-from tests.test_execution import _run_uvicorn
+from tests.test_execution import run_uvicorn
 
 app = ServeAPI()
 
@@ -203,7 +203,7 @@ async def test_flow_update(fake_openapi, auth_client):
 @pytest.mark.asyncio
 async def test_flow_register_real(auth_client):
     port = 8123
-    proc = Process(target=_run_uvicorn, args=("tests.test_flow:app", port,))
+    proc = Process(target=run_uvicorn, args=("tests.test_flow:app", port,))
     proc.start()
     import httpx
     url = f"http://localhost:{port}/openapi.json"
@@ -244,7 +244,7 @@ async def test_flow_register_real(auth_client):
 @pytest.mark.asyncio
 async def test_flow_register_real_factory(auth_client):
     port = 8124
-    proc = Process(target=_run_uvicorn, args=("tests.test_flow:create_app", port,))
+    proc = Process(target=run_uvicorn, args=("tests.test_flow:create_app", port,))
     proc.start()
     import httpx
     url = f"http://localhost:{port}/openapi.json"
@@ -302,9 +302,9 @@ async def wait_for(url: str):
 
 @pytest.mark.asyncio
 async def test_flow_register_two(auth_client):
-    proc1 = Process(target=_run_uvicorn, args=("tests.test_flow:create_app", 8125,))
+    proc1 = Process(target=run_uvicorn, args=("tests.test_flow:create_app", 8125,))
     proc1.start()
-    proc2 = Process(target=_run_uvicorn, args=("tests.test_flow:app", 8126,))
+    proc2 = Process(target=run_uvicorn, args=("tests.test_flow:app", 8126,))
     proc2.start()
     url1 = f"http://localhost:8125/openapi.json"
     url2 = f"http://localhost:8126/openapi.json"
@@ -386,9 +386,9 @@ async def test_flow_register_ray_deep(auth_client):
 
 @pytest.mark.asyncio
 async def test_flow_register_three(auth_client):
-    proc1 = Process(target=_run_uvicorn, args=("tests.test_flow:create_app", 8125,))
+    proc1 = Process(target=run_uvicorn, args=("tests.test_flow:create_app", 8125,))
     proc1.start()
-    proc2 = Process(target=_run_uvicorn, args=("tests.test_flow:app", 8126,))
+    proc2 = Process(target=run_uvicorn, args=("tests.test_flow:app", 8126,))
     proc2.start()
     url1 = f"http://localhost:8125/openapi.json"
     url2 = f"http://localhost:8126/openapi.json"
@@ -444,7 +444,7 @@ async def test_flow_register_three(auth_client):
         proc.terminate()
         proc.join() 
 
-    proc3 = Process(target=_run_uvicorn, args=("tests.test_flow:create_app", 
+    proc3 = Process(target=run_uvicorn, args=("tests.test_flow:create_app", 
                                                8126,))
     proc3.start()
     url3 = f"http://localhost:8126/openapi.json"
@@ -524,7 +524,7 @@ def create_app1():
 @pytest.mark.asyncio
 async def test_flow_register_real_deep(auth_client):
     port = 8124
-    proc = Process(target=_run_uvicorn, args=("tests.test_flow:create_app1", port,))
+    proc = Process(target=run_uvicorn, args=("tests.test_flow:create_app1", port,))
     proc.start()
     import httpx
     url = f"http://localhost:{port}/openapi.json"

@@ -12,7 +12,7 @@ from kodosumi.core import ServeAPI, Launch, Tracer
 from kodosumi.service.inputs.forms import Model, InputText, Checkbox, Submit, Cancel, Markdown
 
 
-def _run_uvicorn(factory: str, port: int):
+def run_uvicorn(factory: str, port: int):
     import uvicorn
     uvicorn.run(
         factory,
@@ -177,7 +177,7 @@ def app_factory_2():
 @pytest.fixture
 def app_server():
     proc = Process(
-        target=_run_uvicorn,
+        target=run_uvicorn,
         args=("tests.test_execution:app_factory", 8125,))
     proc.start()
     yield f"http://localhost:8125"
@@ -189,7 +189,7 @@ def app_server():
 @pytest.fixture
 def app_server2():
     proc = Process(
-        target=_run_uvicorn,
+        target=run_uvicorn,
         args=("tests.test_execution:app_factory_2", 8125,))
     proc.start()
     yield f"http://localhost:8125"
@@ -210,7 +210,7 @@ def spooler_server():
 @pytest.fixture
 def koco_server():
     proc = Process(
-        target=_run_uvicorn,
+        target=run_uvicorn,
         args=("kodosumi.service.app:create_app", 8126,))
     proc.start()
     yield f"http://localhost:8126"
@@ -437,7 +437,7 @@ async def test_get_lock_deep(app_server, spooler_server, koco_server):
     html = resp.text.replace("\n", "")
     assert """<h1 id="hello-world">hello world</h1>""" in html
     assert """<button type="submit">yes</button>""" in html
-    assert """<button name="__cancel__" value="__cancel__">no</button>""" in html
+    assert """<a class="button" href="javascript:history.back()">no</a>""" in html
     #assert """<a class="button" href="/">no</a>""" in html
     await client.aclose()
 

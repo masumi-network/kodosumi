@@ -1,6 +1,9 @@
 {% extends "_master.html" %}
 
 {% block main %}
+<script>
+{% include "form.js" %}
+</script>
 <main class="responsive center padding margin">
     <form method="post">
         {{ html | safe }}

@@ -93,7 +93,8 @@ class ProxyControl(litestar.Controller):
                 headers=request_headers,
                 content=body,
                 params=request.query_params,
-                follow_redirects=True)
+                follow_redirects=True,
+                timeout=60)
             response_headers = dict(response.headers)
             if host:
                 response_headers["host"] = host

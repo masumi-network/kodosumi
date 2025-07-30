@@ -1,10 +1,11 @@
-from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 from textwrap import dedent
-from pydantic import BaseModel
-import re
-from kodosumi import dtypes
-from kodosumi.log import logger
+from typing import Any, Dict, List, Optional
+
 import markdown
+from pydantic import BaseModel
+
+from kodosumi.log import logger
+
 
 class Element:
 
@@ -665,15 +666,15 @@ class Cancel(ActionElement):
         super().__init__(text=text, error=error)
 
     def render(self) -> str:
-        ret = []
-        attrs = [f'name="__cancel__"']
-        attrs.append(f'value="__cancel__"')
-        ret.append(f'<button {" ".join(attrs)}>')
-        ret.append(self.text or "")
-        ret.append(f'</button>')
-        return "\n".join(ret)
-        # return "\n".join([
-        #     "<a class=\"button\" href=\"/\">", self.text or "", '</a>'])
+        # ret = []
+        # attrs = [f'name="__cancel__"']
+        # attrs.append(f'value="__cancel__"')
+        # ret.append(f'<button {" ".join(attrs)}>')
+        # ret.append(self.text or "")
+        # ret.append(f'</button>')
+        # return "\n".join(ret)
+        return "\n".join([
+            "<a class=\"button\" href=\"javascript:history.back()\">", self.text or "", '</a>'])
 
 
 class Action(FormElement):
@@ -711,6 +712,57 @@ class Action(FormElement):
 
     def parse_value(self, value: Any) -> Any:
         return value
+
+
+class InputFiles(FormElement):
+    type = "file"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            multiple: bool = False,
+            directory: bool = False,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, None, required, error=error)
+        self.multiple = multiple
+        self.directory = directory
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "multiple": self.multiple,
+            "directory": self.directory
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<span style="" id="{self.name}-files">')
+        ret.append(f'<div id="{self.name}-items"></div>')
+        ret.append(f'<div class="space"></div></span>')
+        ret.append(f'<button id="button-{self.name}" class="fileInput medium circle">')
+        ret.append(f'<i>attach_file</i>')
+        attrs = [f'type="{self.type}" name="{self.name}"']
+        if self.required:
+            attrs.append(f'required')
+        if self.multiple:
+            attrs.append(f'multiple')
+        if self.directory:
+            attrs.append(f'webkitdirectory')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append(f'</button>')
+        ret.append(f'<input type="hidden" name="_list-{self.name}" id="list-{self.name}" value="">')
+        ret.append(f'<div class="space"></div>')
+        return "\n".join(ret)
 
 
 class JsonModel(BaseModel):
@@ -756,7 +808,8 @@ class Model:
             Submit, 
             Cancel, 
             Action,
-            Errors
+            Errors,
+            InputFiles
         }
         children = []
         for elm in elms:
@@ -800,5 +853,5 @@ class Model:
 
 __all__ = [
     "Model", "Break", "InputText", "InputNumber", "Checkbox", "InputOption", 
-    "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime"
+    "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime", "InputFiles"
 ]

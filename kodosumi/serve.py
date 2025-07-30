@@ -3,16 +3,16 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Union, Tuple
 import copy
-
+import json
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import ValidationException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-
+import httpx
 import kodosumi.service.admin
 from kodosumi.service.endpoint import KODOSUMI_API
 from kodosumi.service.inputs.errors import InputsError
-from kodosumi.service.inputs.forms import Checkbox, Model
+from kodosumi.service.inputs.forms import Checkbox, Model, InputFiles
 from kodosumi.service.proxy import (find_lock, KODOSUMI_USER, KODOSUMI_BASE, 
                                     LockNotFound)
 from kodosumi.const import KODOSUMI_LAUNCH
@@ -28,6 +28,7 @@ class ServeAPI(FastAPI):
         self._route_lookup = {}
         self._lock_lookup = {}
         self._lease_lookup = {}
+
     def _process_route(self, method, path, *args, **kwargs):
         entry = kwargs.pop("entry", None)
         openapi_extra = kwargs.get('openapi_extra', {}) or {}
@@ -86,18 +87,27 @@ class ServeAPI(FastAPI):
             async def post_form_handler_internal(request: Request):
                 js_data = await request.json()
                 elements = model.get_model()
-                processed_data: Dict[str, Any] = await request.json()
+                processed_data: Dict[str, Any] = {}
+                items = None
+                batch_id = None
                 for element in model.children:
                     if not hasattr(element, 'name') or element.name is None:
                         continue
                     element_name = element.name
                     submitted_value: Any = None
-                    if element_name in js_data:
+                    if isinstance(element, InputFiles):
+                        upload = js_data.get(f"_list-{element_name}")
+                        if upload:
+                            js_upload = json.loads(upload)
+                            items = js_upload["items"]
+                            batch_id = js_upload["batchId"]
+                            submitted_value = [
+                                i["filename"] for i in items.values()
+                            ]
+                    elif element_name in js_data:
                         submitted_value = js_data[element_name]
                     elif isinstance(element, Checkbox):
                         submitted_value = False
-                    else:
-                        submitted_value = None
                     processed_data[element_name] = element.parse_value(
                         submitted_value)
 
@@ -108,12 +118,27 @@ class ServeAPI(FastAPI):
                 if 'request' in sig.parameters:
                     bound_args.arguments['request'] = request
                 bound_args.apply_defaults()
+
                 try:
                     if inspect.iscoroutinefunction(func):
                         result = await func(*bound_args.args, 
                                             **bound_args.kwargs)
                     else:
                         result = func(*bound_args.args, **bound_args.kwargs)
+                    fid = result.headers.get(KODOSUMI_LAUNCH, None)
+                    if fid:
+                        if items and batch_id:
+                            url = str(request.base_url).rstrip("/")
+                            url += f"/files/complete/{fid}/{batch_id}"
+                            async with httpx.AsyncClient() as client:
+                                resp = await client.post(
+                                    url, json=items, cookies=request.cookies,
+                                    timeout=60)
+                                if resp.status_code != 201:
+                                    raise HTTPException(
+                                        status_code=400,
+                                        detail=f"Failed to upload files: {resp.text}")
+
                     return {
                         "result": result.headers.get(KODOSUMI_LAUNCH, None),
                         "elements": elements
@@ -185,7 +210,7 @@ class ServeAPI(FastAPI):
 
         async def _get_model(request: Request, 
                              fid: str, 
-                             lid: str) -> Tuple[Dict, List]:
+                             lid: str) -> Tuple[Dict, Model]:
             try:
                 lock, _ = find_lock(fid, lid)
             except LockNotFound as e:
@@ -227,7 +252,10 @@ class ServeAPI(FastAPI):
             #         status_code=404, detail=f"Lock {lid} for {fid} released.")
             # get_method = self._lock_lookup[lock["name"]]
             # model = await get_method()
-            post_method = self._lease_lookup[lock["name"]]
+            if lock["name"] in self._lease_lookup:
+                post_method = self._lease_lookup[lock["name"]]
+            else:
+                post_method = None
             js_data = await request.json()
             elements = model.get_model()
             processed_data: Dict[str, Any] = await request.json()
@@ -244,6 +272,11 @@ class ServeAPI(FastAPI):
                     submitted_value = None
                 processed_data[element_name] = element.parse_value(
                     submitted_value)
+            if post_method is None:
+                return {
+                    "result": processed_data,
+                    "elements": elements
+                }
             sig = inspect.signature(post_method)
             bound_args = sig.bind_partial()
             if 'data' in sig.parameters:

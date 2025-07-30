@@ -4,7 +4,6 @@ from kodosumi.service.app import create_app
 from kodosumi import helper
 from typing import AsyncGenerator
 import ray
-# from tests.test_runner import init_ray
 
 @pytest.fixture
 async def http_client(tmp_path) -> AsyncGenerator:
@@ -13,18 +12,12 @@ async def http_client(tmp_path) -> AsyncGenerator:
     async with AsyncTestClient(app=app) as client:
         yield client
 
-# @pytest.fixture(autouse=True)
-# def start_ray():
-#     ray.init(ignore_reinit_error=True)
-#     yield
-#     ray.shutdown()
-
-
 @pytest.fixture
 async def auth_client(tmp_path) -> AsyncGenerator:
     url = f"sqlite+aiosqlite:///{tmp_path}/admin.db"
     app = create_app(ADMIN_DATABASE=url,
-                     EXEC_DIR=str(tmp_path.joinpath("data")))
+                     EXEC_DIR=str(tmp_path.joinpath("data", "execution")),
+                     UPLOAD_DIR=str(tmp_path.joinpath("data", "upload")))
     base_url = "http://kodosumi"
     async with AsyncTestClient(app=app, base_url=base_url) as client:
         response = await client.get(
