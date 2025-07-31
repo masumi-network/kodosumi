@@ -28,6 +28,8 @@ class ServeAPI(FastAPI):
         self._route_lookup = {}
         self._lock_lookup = {}
         self._lease_lookup = {}
+        # Mapping von Code-Objekten zu ursprünglichen Handlern
+        self._code_lookup = {}
 
     def _process_route(self, method, path, *args, **kwargs):
         entry = kwargs.pop("entry", None)
@@ -44,7 +46,8 @@ class ServeAPI(FastAPI):
         def wrapper_decorator(func):
             self._method_lookup[func] = kwargs
             self._route_lookup[(method, path)] = func
-            func._kodosumi_ = True
+            # Code-Objekt-Mapping für schnellen Lookup in Launch
+            self._code_lookup[func.__code__] = func
             return original_decorator(func)
         return wrapper_decorator
     
@@ -171,12 +174,14 @@ class ServeAPI(FastAPI):
             }
             self._route_lookup[("get", path)] = user_func 
             post_handler = _create_post_handler(user_func)
+            # Code-Objekt-Mapping für späteres Lookup
+            self._code_lookup[post_handler.__code__] = user_func
+            self._code_lookup[user_func.__code__] = user_func
             kwargs_copy = copy.deepcopy(kwargs)
             kwargs_copy['openapi_extra'][KODOSUMI_API] = False
             self.add_api_route(
                 path, post_handler, methods=["POST"], **kwargs_copy)
             self._route_lookup[("post", path)] = user_func 
-            user_func._kodosumi_ = True  # type: ignore
             return user_func 
         return decorator
 

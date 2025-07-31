@@ -262,11 +262,18 @@ def Launch(request: Any,
            reference: Optional[Callable] = None,
            summary: Optional[str] = None,
            description: Optional[str] = None) -> Any:
+    # if reference is None:
+    #     for sf in inspect.stack():
+    #         if getattr(sf.frame.f_globals.get(sf.function), "_kodosumi_", None):
+    #             reference = sf.frame.f_globals.get(sf.function)
+    #             break
     if reference is None:
-        for sf in inspect.stack():
-            if getattr(sf.frame.f_globals.get(sf.function), "_kodosumi_", None):
-                reference = sf.frame.f_globals.get(sf.function)
-                break
+        if hasattr(request.app, "_code_lookup"):
+            for sf in inspect.stack():
+                reference = request.app._code_lookup.get(sf.frame.f_code)
+                if reference is not None:
+                    break
+
     if reference is None:
         extra = {}
     else:

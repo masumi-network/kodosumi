@@ -6,7 +6,7 @@ import asyncio
 from multiprocessing import Process
 import httpx
 
-from fastapi import Request
+from fastapi import Request, Response
 from pydantic import BaseModel
 from kodosumi.core import ServeAPI
 from kodosumi.service.inputs.forms import Model, InputText, Checkbox, Submit, Cancel
@@ -32,9 +32,9 @@ class FormData(BaseModel):
     summary="Model Example",
     tags=["flow"],
 )
-async def post(data: FormData, request: Request) -> dict:
+async def post(inputs: dict, request: Request) -> Response:
     """Echo-Endpunkt, der die Eingaben zurückliefert."""
-    return {"result": data.model_dump()}
+    return Response(content="hi")
 
 def create_app():
     app = ServeAPI()
