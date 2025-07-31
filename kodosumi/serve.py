@@ -88,7 +88,10 @@ class ServeAPI(FastAPI):
 
         def _create_post_handler(func: Callable) -> Callable:
             async def post_form_handler_internal(request: Request):
-                js_data = await request.json()
+                try:
+                    js_data = await request.json()
+                except Exception:
+                    js_data = {}
                 elements = model.get_model()
                 processed_data: Dict[str, Any] = {}
                 items = None
@@ -128,6 +131,18 @@ class ServeAPI(FastAPI):
                                             **bound_args.kwargs)
                     else:
                         result = func(*bound_args.args, **bound_args.kwargs)
+                except InputsError as user_func_error:
+                    user_func_error.errors.setdefault("_global_", [])
+                    user_func_error.errors["_global_"].extend(
+                        user_func_error.args)
+                    return {
+                        "errors": user_func_error.errors,
+                        "elements": elements
+                    }
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=500, detail=repr(exc)) from exc
+                try:
                     fid = result.headers.get(KODOSUMI_LAUNCH, None)
                     if fid:
                         if items and batch_id:
@@ -140,23 +155,18 @@ class ServeAPI(FastAPI):
                                 if resp.status_code != 201:
                                     raise HTTPException(
                                         status_code=400,
-                                        detail=f"Failed to upload files: {resp.text}")
-
-                    return {
-                        "result": result.headers.get(KODOSUMI_LAUNCH, None),
-                        "elements": elements
-                    }
-                except InputsError as user_func_error:
-                    user_func_error.errors.setdefault("_global_", [])
-                    user_func_error.errors["_global_"].extend(
-                        user_func_error.args)
-                    return {
-                        "errors": user_func_error.errors,
-                        "elements": elements
-                    }
-                except Exception as user_func_exc:
+                                        detail=f"Failed to upload files: "
+                                               f"{resp.text}")
+                        return {
+                            "result": fid,
+                            "elements": elements
+                        }
+                    raise Exception()
+                except Exception as exc:
                     raise HTTPException(
-                        status_code=500, detail=traceback.format_exc())
+                        status_code=500, 
+                        detail="kodosumi endpoint must return a Launch object "
+                               "or raise an InputsError")
 
             return post_form_handler_internal
 

@@ -311,7 +311,6 @@ class FileControl(litestar.Controller):
                     "Cache-Control": "no-cache"
                 }
             )
-            
         except (NotFoundException, HTTPException):
             raise
         except Exception as e:

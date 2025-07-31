@@ -13,7 +13,7 @@ class InputsError(Exception):
             self.errors.setdefault(field, []).append(message)
 
     def flash(self, message: str):
-        self.errors.setdefault("__general__", []).append(message)
+        self.errors.setdefault("_global_", []).append(message)
 
     def has_errors(self) -> bool:
         return bool(self.errors)

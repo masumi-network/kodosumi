@@ -11,30 +11,26 @@ from tests.test_execution import run_uvicorn
 
 
 async def runner(inputs: dict, tracer: Tracer):
-    await tracer.debug("this is a debug message")
-    print("this is stdout")
-    result = await tracer.lock("lock-1", data={"hello": "from runner"})
-    return {"lock-result": result}
-    # return {"Ergebnis": "ok"}
+    # result = await tracer.lock("lock-1", data={"hello": "from runner"})
+    # return {"lock-result": result}
+    # from kodosumi.helper import debug
+    # debug()
+    return {"Ergebnis": "ok"}
 
 def app_factory():
     app = ServeAPI()
-    form_model = Model(
-        InputText(label="Name", name="name", placeholder="Enter your name"),
-        Checkbox(label="Active", name="active", option="ACTIVE", value=False),
-        InputFiles(label="Upload Files", name="upload", multiple=True, 
-                   directory=True, required=True),
-        Submit("GO"),
-        Cancel("Cancel"),
-    )
-
-    class FormData(BaseModel):
-        name: str
-        active: bool = False
 
     @app.enter(
         "/",
-        model=form_model,
+        model=Model(
+            Markdown("""# Upload Files"""),
+            Markdown("""Upload one or multiple files and launch the job"""),
+            InputText(label="Name", name="name", placeholder="Enter a name"),
+            InputFiles(label="Upload Files", name="files", multiple=True, 
+                    directory=False, required=True),
+            Submit("GO"),
+            Cancel("Cancel"),
+        ),
         summary="File Upload Example",
         organization="Factory Organization",
         author="Factory Author",
@@ -42,16 +38,6 @@ def app_factory():
     )
     async def post(inputs: dict, request: Request) -> dict:
         return Launch(request, "tests.test_inputs:runner", inputs=inputs)
-
-    @app.lock("lock-1")
-    async def lock_1():
-        return Model(
-            Markdown("# hello world"),
-            Checkbox(label="Continue", name="continue",
-                     option="CONTINUE", value=False),
-            Submit("yes"),
-            Cancel("no"),
-        )
 
     return app
 

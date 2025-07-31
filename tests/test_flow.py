@@ -8,7 +8,7 @@ import httpx
 
 from fastapi import Request, Response
 from pydantic import BaseModel
-from kodosumi.core import ServeAPI
+from kodosumi.core import ServeAPI, Launch
 from kodosumi.service.inputs.forms import Model, InputText, Checkbox, Submit, Cancel
 from tests.test_role import auth_client
 from tests.test_execution import run_uvicorn
@@ -34,7 +34,7 @@ class FormData(BaseModel):
 )
 async def post(inputs: dict, request: Request) -> Response:
     """Echo-Endpunkt, der die Eingaben zurückliefert."""
-    return Response(content="hi")
+    return Launch(request, "tests.test_execution:runner", inputs=inputs)
 
 def create_app():
     app = ServeAPI()
@@ -60,7 +60,9 @@ def create_app():
     )
     async def post(data: FormData, request: Request) -> dict:
         """Echo-Endpunkt, der die Eingaben zurückliefert."""
+        # todo: test this
         return {"result": data.model_dump()}
+        return Response(content="hi")   
 
     @app.get(
         "/get",

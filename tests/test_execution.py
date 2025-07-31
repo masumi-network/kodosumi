@@ -6,7 +6,7 @@ import kodosumi.spooler
 import httpx
 import re
 
-from fastapi import Request
+from fastapi import Request, Response
 from pydantic import BaseModel
 from kodosumi.core import ServeAPI, Launch, Tracer
 from kodosumi.service.inputs.forms import (Model, InputText, Checkbox, Submit, 
@@ -22,6 +22,11 @@ def run_uvicorn(factory: str, port: int):
         port=port,
         reload=False
     )
+
+async def runner_0(inputs: dict, tracer: Tracer):
+    await tracer.debug("this is a debug message")
+    print("this is stdout")
+    return {"runner_0_result": "ok"}
 
 
 async def runner(inputs: dict, tracer: Tracer):
@@ -217,6 +222,77 @@ def app_factory_2():
 
     return app
 
+def app_factory_3():
+
+    app = ServeAPI()
+
+    @app.enter(
+        "/simple",
+        model=Model(
+            InputText(label="Name", name="name", placeholder="Enter your name"),
+            Submit("Submit"),
+            Cancel("Cancel"),
+        ),
+        summary="Simple Example 3",
+        description="launches runner_2",
+    )
+    async def simple(inputs: dict, request: Request) -> Launch:
+        return Launch(request, "tests.test_execution:runner_0", inputs=inputs)
+
+    @app.enter(
+        "/error",
+        model=Model(Submit("Submit")),
+        summary="Error Raiser",
+        description="no launch",
+    )
+    async def throw(inputs: dict, request: Request) -> Launch:
+        error = InputsError()
+        error.flash("This is not allowed and does not launch")
+        raise error
+
+    @app.enter(
+        "/wrong",
+        model=Model(Submit("Submit")),
+        summary="Wrong Returns",
+        description="no launch",
+    )
+    async def wrong(inputs: dict, request: Request) -> dict:
+        return {"result": "wrong"}
+
+    @app.enter(
+        "/except",
+        model=Model(Submit("Submit")),
+        summary="Exception",
+        description="no launch",
+    )
+    async def exception(inputs: dict, request: Request) -> dict:
+        raise RuntimeError("This is a runtime error")
+
+    @app.enter(
+        "/response",
+        model=Model(Submit("Submit")),
+        summary="Response Error",
+        description="no launch",
+    )
+    async def return_response(inputs: dict, request: Request) -> Response:
+        return Response(content="hi")   
+
+    return app
+
+app4 = ServeAPI()
+
+@app4.enter(
+    "/simple",
+    model=Model(
+        InputText(label="Name", name="name", placeholder="Enter your name"),
+        Submit("Submit"),
+        Cancel("Cancel"),
+    ),
+    summary="Simple Example 4",
+    description="launches runner_2",
+)
+async def simple(inputs: dict, request: Request) -> Launch:
+    return Launch(request, "tests.test_execution:runner_0", inputs=inputs)
 
 @pytest.fixture
 def app_server():
@@ -235,6 +311,29 @@ def app_server2():
     proc = Process(
         target=run_uvicorn,
         args=("tests.test_execution:app_factory_2", 8125,))
+    proc.start()
+    yield f"http://localhost:8125"
+    proc.kill()
+    proc.terminate()
+    proc.join()
+
+
+@pytest.fixture
+def app_server3():
+    proc = Process(
+        target=run_uvicorn,
+        args=("tests.test_execution:app_factory_3", 8125,))
+    proc.start()
+    yield f"http://localhost:8125"
+    proc.kill()
+    proc.terminate()
+    proc.join()
+
+@pytest.fixture
+def app_server4():
+    proc = Process(
+        target=run_uvicorn,
+        args=("tests.test_execution:app4", 8125,))
     proc.start()
     yield f"http://localhost:8125"
     proc.kill()
@@ -575,7 +674,8 @@ async def _prep_factory2(app_server2, spooler_server, koco_server, url_index):
         await asyncio.sleep(0.25)
 
     resp = await client.post(f"{koco_server}/flow/register",
-                             json={"url": [f"{app_server2}/openapi.json"]})
+                             json={"url": [f"{app_server2}/openapi.json"]},
+                             timeout=300)
     assert resp.status_code == 201
 
     endpoints = resp.json()
@@ -590,7 +690,7 @@ async def _prep_factory2(app_server2, spooler_server, koco_server, url_index):
         "active": "on"
     }
     resp = await client.post(
-        f"{koco_server}/inputs" + url, data=form_data)
+        f"{koco_server}/inputs" + url, data=form_data, timeout=300)
     assert resp.status_code == 302
     url = resp.headers.get("location")
     fid = url.split("/")[-1]
@@ -790,3 +890,68 @@ async def test_lease_failed(app_server2, spooler_server, koco_server):
                 if not lock:
                     raise Exception("Lock event before lease event")
     await client.aclose()
+
+async def register_flow(app_server, koco_server):
+    client = httpx.AsyncClient()
+    for _ in range(40):  # max ~10 s
+        try:
+            resp = await client.get(
+                f"{koco_server}/login?name=admin&password=admin")
+            if resp.status_code == 200:
+                break
+        except Exception:
+            pass
+        await asyncio.sleep(0.25)
+
+    resp = await client.post(f"{koco_server}/flow/register",
+                                json={"url": [f"{app_server}/openapi.json"]},
+                                timeout=300)
+    assert resp.status_code == 201
+    endpoints = resp.json()
+    return client, endpoints
+    
+@pytest.mark.asyncio
+async def test_simple_factory(app_server3, spooler_server, koco_server):
+    client, endpoints = await register_flow(app_server3, koco_server)
+    assert [e["summary"] for e in endpoints] == sorted([
+        'Simple Example 3', 'Error Raiser', 'Wrong Returns', 'Exception',
+        'Response Error'])
+
+    resp = await client.post(f"{koco_server}/-/localhost/8125/-/error",
+                             timeout=300)
+    assert resp.status_code == 200
+    assert resp.json()["errors"] == {
+        "_global_": ["This is not allowed and does not launch"]
+    }
+
+    resp = await client.post(f"{koco_server}/-/localhost/8125/-/wrong",
+                             timeout=300)
+    assert resp.status_code == 500
+    assert resp.json() == {
+        'detail': 'kodosumi endpoint must return a Launch object or raise an InputsError'
+    }
+
+    resp = await client.post(f"{koco_server}/-/localhost/8125/-/except",
+                             timeout=300)
+    assert resp.status_code == 500
+    assert resp.json() == {
+        'detail': "RuntimeError('This is a runtime error')"
+    }
+
+    resp = await client.post(f"{koco_server}/-/localhost/8125/-/response",
+                             timeout=300)
+    assert resp.status_code == 500
+    assert resp.json() == {
+        'detail': 'kodosumi endpoint must return a Launch object or raise an InputsError'
+    }
+
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_simple_global(app_server4, spooler_server, koco_server):
+    client, endpoints = await register_flow(app_server4, koco_server)
+    assert [e["summary"] for e in endpoints] == ['Simple Example 4']
+    await client.aclose()
+
+
