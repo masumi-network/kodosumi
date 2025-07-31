@@ -53,10 +53,6 @@ def app_factory():
             Cancel("no"),
         )
 
-    # @app.lease("lock-1")
-    # async def lease_1(inputs: dict):
-    #     return {"phase": "lease-1", "inputs": inputs}
-
     return app
 
 

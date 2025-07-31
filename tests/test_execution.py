@@ -9,7 +9,9 @@ import re
 from fastapi import Request
 from pydantic import BaseModel
 from kodosumi.core import ServeAPI, Launch, Tracer
-from kodosumi.service.inputs.forms import Model, InputText, Checkbox, Submit, Cancel, Markdown
+from kodosumi.service.inputs.forms import (Model, InputText, Checkbox, Submit, 
+                                           Cancel, Markdown)
+from kodosumi.service.inputs.errors import InputsError
 
 
 def run_uvicorn(factory: str, port: int):
@@ -33,7 +35,7 @@ async def runner(inputs: dict, tracer: Tracer):
 async def runner_2(inputs: dict, tracer: Tracer):
     await tracer.debug("this is a debug message 2")
     print("this is stdout 2")
-    result = await tracer.lock("lock-2", data={"hello": "from runner 2",
+    result = await tracer.lock("lock-1", data={"hello": "from runner 2",
                                                "inputs": inputs})
     # await asyncio.sleep(3)
     return {"lock-result": result}
@@ -41,12 +43,18 @@ async def runner_2(inputs: dict, tracer: Tracer):
 async def runner_3(inputs: dict, tracer: Tracer):
     await tracer.debug("this is a debug message 2")
     print("this is stdout 3")
-    result = await tracer.lock("lock-3", 
+    result = await tracer.lock("lock-2", 
                                data={"hello": "from runner 3",
                                      "inputs": inputs
                                }, timeout=3)
     return {"lock-result": result}
 
+async def runner_4(inputs: dict, tracer: Tracer):
+    result = await tracer.lock("lock-3", 
+                               data={"hello": "from runner 4",
+                                     "inputs": inputs
+                               })
+    return {"lock-result": result}
 
 def app_factory():
     app = ServeAPI()
@@ -122,8 +130,37 @@ def app_factory_2():
         deprecated=False,
         description="Factory Description 2",
     )
-    async def post2(inputs: dict, request: Request) -> dict:
+    async def post1(inputs: dict, request: Request) -> dict:
         return Launch(request, "tests.test_execution:runner_2", inputs=inputs)
+
+    @app.lock("lock-1")
+    async def lock_1(data: dict):
+        return Model(
+            Markdown(f"# hello world {data['hello']}"),
+            Checkbox(label="Continue", name="continue",
+                     option="CONTINUE", value=False),
+            InputText(label="Name", name="name",
+                      placeholder="Enter another name"),
+            Submit("yes"),
+            Cancel("no"),
+        )
+
+    @app.lease("lock-1")
+    async def lease_1(inputs: dict):
+        return {"phase": "lease-1", "inputs": inputs, "outputs": "hello world"}
+
+    @app.enter(
+        "/timeout",
+        model=form_model,
+        summary="Factory Example 2 Timeout",
+        tags=["flow"],
+        organization="Factory Organization 2",
+        author="Factory Author 2",
+        deprecated=False,
+        description="Factory Description 2",
+    )
+    async def post2(inputs: dict, request: Request) -> dict:
+        return Launch(request, "tests.test_execution:runner_3", inputs=inputs)
 
     @app.lock("lock-2")
     async def lock_2(data: dict):
@@ -142,34 +179,41 @@ def app_factory_2():
         return {"phase": "lease-2", "inputs": inputs, "outputs": "hello world"}
 
     @app.enter(
-        "/timeout",
+        "/post3",
         model=form_model,
-        summary="Factory Example 2 Timeout",
+        summary="Factory Example 3 Failed",
         tags=["flow"],
-        organization="Factory Organization 2",
-        author="Factory Author 2",
+        organization="Factory Organization 3",
+        author="Factory Author 3",
         deprecated=False,
-        description="Factory Description 2",
+        description="Factory Description 3",
     )
     async def post3(inputs: dict, request: Request) -> dict:
-        return Launch(request, "tests.test_execution:runner_3", inputs=inputs)
+        return Launch(request, "tests.test_execution:runner_4", inputs=inputs)
 
     @app.lock("lock-3")
-    async def lock_2(data: dict):
+    async def lock_3(data: dict):
         return Model(
             Markdown(f"# hello world {data['hello']}"),
             Checkbox(label="Continue", name="continue",
                      option="CONTINUE", value=False),
             InputText(label="Name", name="name",
-                      placeholder="Enter another name"),
+                      placeholder="say yes to continue"),
             Submit("yes"),
             Cancel("no"),
         )
 
     @app.lease("lock-3")
-    async def lease_2(inputs: dict):
+    async def lease_3(inputs: dict):
+        # fail
+        error = InputsError()
+        if not inputs.get("continue"):
+            error.add(**{"continue": "Continue must be checked"})
+        if inputs.get("name") != "yes":
+            error.add(name="Name must be 'yes'")
+        if error.has_errors():
+            raise error
         return {"phase": "lease-3", "inputs": inputs, "outputs": "hello world"}
-
 
     return app
 
@@ -535,9 +579,10 @@ async def _prep_factory2(app_server2, spooler_server, koco_server, url_index):
     assert resp.status_code == 201
 
     endpoints = resp.json()
-    assert len(endpoints) == 2
+    assert len(endpoints) == 3
     assert endpoints[0]["summary"] == "Factory Example 2"
     assert endpoints[1]["summary"] == "Factory Example 2 Timeout"
+    assert endpoints[2]["summary"] == "Factory Example 3 Failed"
 
     url = endpoints[url_index]["url"]
     form_data = {
@@ -618,7 +663,7 @@ async def test_lock_data(app_server2, spooler_server, koco_server):
             'name': 'Test User'
         },
         'outputs': 'hello world',
-        'phase': 'lease-2'
+        'phase': 'lease-1'
     }
     assert resp.json()["result"] == result
     resp = await client.get(f"{koco_server}/lock/{fid}/{lid}", timeout=120)
@@ -699,7 +744,42 @@ async def test_lock_stream(app_server2, spooler_server, koco_server):
                              json=form_data, timeout=120)
     assert resp.status_code == 200
     
-    # Korrekte httpx Streaming-Implementierung
+    async with client.stream('GET', f"{koco_server}/outputs/main/{fid}", timeout=120) as resp:
+        lock = False
+        async for line in resp.aiter_lines():
+            print(line)
+            if line.strip() == "event: lock":
+                lock = True
+            elif line.strip() == "event: lease":
+                if not lock:
+                    raise Exception("Lock event before lease event")
+    await client.aclose()
+
+@pytest.mark.asyncio
+async def test_lease_failed(app_server2, spooler_server, koco_server):
+    client, fid, lid, model = await _prep_factory2(
+        app_server2, spooler_server, koco_server, 2)
+    form_data = {
+        "name": "no",
+        "continue": "off"
+    }
+    resp = await client.post(f"{koco_server}/lock/{fid}/{lid}",
+                             json=form_data, timeout=120)
+    assert resp.status_code == 200
+    expected = {
+        'continue': ['Continue must be checked'], 
+        'name': ["Name must be 'yes'"], '_global_': []
+    }
+    assert resp.json()["errors"] == expected
+
+    form_data = {
+        "name": "yes",
+        "continue": "on"
+    }
+    resp = await client.post(f"{koco_server}/lock/{fid}/{lid}",
+                             json=form_data, timeout=120)
+    assert resp.status_code == 200
+
     async with client.stream('GET', f"{koco_server}/outputs/main/{fid}", timeout=120) as resp:
         lock = False
         async for line in resp.aiter_lines():

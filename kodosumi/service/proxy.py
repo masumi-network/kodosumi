@@ -87,6 +87,7 @@ class ProxyControl(litestar.Controller):
             request_headers[KODOSUMI_BASE] = base
             host = request.headers.get("host", None)
             body = await request.body()
+            request_headers.pop("content-length", None)
             response = await client.request(
                 method=meth,
                 url=target,
@@ -140,6 +141,7 @@ class LockController(litestar.Controller):
             # request_headers[KODOSUMI_BASE] = base
             host = request.headers.get("host", None)
             body = await request.body()
+            request_headers.pop("content-length", None)
             response = await client.request(
                 method=meth,
                 url=target,

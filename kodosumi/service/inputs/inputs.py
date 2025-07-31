@@ -160,6 +160,7 @@ class InputsController(litestar.Controller):
             response = await client.post(
                 url=lock_url, headers=request_headers, json=dict(data))
             response_headers = dict(response.headers)
+            response_headers.pop("content-length", None)
             if response.status_code == 200:
                 errors = response.json().get("errors", None)
                 result = response.json().get("result", None)
