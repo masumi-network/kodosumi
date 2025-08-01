@@ -15,10 +15,11 @@ from fastapi.responses import JSONResponse
 import kodosumi.core
 from kodosumi.helper import now, serialize
 from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
-                                   EVENT_INPUTS, EVENT_META, EVENT_STATUS,
-                                   NAMESPACE, STATUS_END, STATUS_ERROR,
-                                   STATUS_RUNNING, STATUS_STARTING,
-                                   KODOSUMI_LAUNCH, EVENT_LOCK, EVENT_LEASE)
+                            EVENT_INPUTS, EVENT_META, EVENT_STATUS,
+                            NAMESPACE, STATUS_END, STATUS_ERROR,
+                            STATUS_RUNNING, STATUS_STARTING,
+                            KODOSUMI_LAUNCH, EVENT_LOCK, EVENT_LEASE,
+                            TOKEN_KEY)
 from kodosumi.runner.tracer import Tracer
 
 
@@ -43,7 +44,9 @@ class Runner:
                  base_url: str,
                  entry_point: Union[Callable, str],
                  inputs: Any=None,
-                 extra: Optional[dict]=None):
+                 extra: Optional[dict]=None,
+                 jwt: Optional[str]=None,
+                 panel_url: Optional[str]=None):
         self.fid = fid
         self.username = username
         self.base_url = base_url
@@ -53,7 +56,7 @@ class Runner:
         self.active = True
         self._locks: dict = {}
         self.message_queue = ray.util.queue.Queue()
-        self.tracer = Tracer(self.fid, self.message_queue)
+        self.tracer = Tracer(self.fid, self.message_queue, panel_url, jwt)
         self.tracer.init()
 
     async def get_username(self):
@@ -239,6 +242,8 @@ def create_runner(username: str,
                   entry_point: Union[str, Callable],
                   inputs: Union[BaseModel, dict],
                   extra: Optional[dict] = None,
+                  jwt: Optional[str] = None,
+                  panel_url: Optional[str] = None,
                   fid: Optional[str]= None) -> Tuple[str, Runner]:
     if fid is None:
         fid = str(ObjectId())
@@ -252,7 +257,9 @@ def create_runner(username: str,
             base_url=base_url,
             entry_point=entry_point,
             inputs=inputs,
-            extra=extra
+            extra=extra,
+            jwt=jwt,
+            panel_url=panel_url
     )
     return fid, actor
 
@@ -262,18 +269,12 @@ def Launch(request: Any,
            reference: Optional[Callable] = None,
            summary: Optional[str] = None,
            description: Optional[str] = None) -> Any:
-    # if reference is None:
-    #     for sf in inspect.stack():
-    #         if getattr(sf.frame.f_globals.get(sf.function), "_kodosumi_", None):
-    #             reference = sf.frame.f_globals.get(sf.function)
-    #             break
     if reference is None:
         if hasattr(request.app, "_code_lookup"):
             for sf in inspect.stack():
                 reference = request.app._code_lookup.get(sf.frame.f_code)
                 if reference is not None:
                     break
-
     if reference is None:
         extra = {}
     else:
@@ -283,7 +284,13 @@ def Launch(request: Any,
     if description is not None:
         extra["description"] = description
     fid, runner = create_runner(
-        username=request.state.user, base_url=request.state.prefix, 
-        entry_point=entry_point, inputs=inputs, extra=extra)
+        username=request.state.user, 
+        base_url=request.state.prefix, 
+        entry_point=entry_point, 
+        inputs=inputs, 
+        extra=extra,
+        jwt=request.cookies.get(TOKEN_KEY),
+        panel_url=str(request.base_url)
+    )
     runner.run.remote()  # type: ignore
     return JSONResponse(content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})

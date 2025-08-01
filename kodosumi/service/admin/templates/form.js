@@ -188,6 +188,7 @@ async function updateForm(name) {
     }
     listInput.value = JSON.stringify(data);
 }
+
 document.addEventListener('DOMContentLoaded', () => {
     Array.from(document.getElementsByClassName('fileInput')).forEach(input => {
         input.addEventListener('change', (e) => {

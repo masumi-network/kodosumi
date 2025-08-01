@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker, 
                                     create_async_engine)
 
+from kodosumi.const import TOKEN_KEY
 import kodosumi.core
 import kodosumi.service.endpoint as endpoint
 from kodosumi import helper
@@ -40,7 +41,7 @@ from kodosumi.service.flow import FlowControl
 from kodosumi.service.inputs.inputs import InputsController
 from kodosumi.service.inputs.outputs import OutputsController
 from kodosumi.service.inputs.timeline.controller import TimelineController
-from kodosumi.service.jwt import TOKEN_KEY, JWTAuthenticationMiddleware
+from kodosumi.service.jwt import JWTAuthenticationMiddleware
 from kodosumi.service.proxy import ProxyControl
 from kodosumi.service.role import RoleControl
 from kodosumi.service.proxy import LockController

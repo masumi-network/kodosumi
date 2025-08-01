@@ -44,11 +44,11 @@ def ray_shutdown():
     ray.shutdown()
 
 
-def debug():
+def debug(port: int=63256):
     import debugpy
     try:
         if not debugpy.is_client_connected():
-            debugpy.listen(("localhost", 63256))
+            debugpy.listen(("localhost", port))
             debugpy.wait_for_client()
     except:
         print("error in kodosumi.helper.debug()")

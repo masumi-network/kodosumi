@@ -1,4 +1,7 @@
 # event stream kinds:
+from kodosumi.config import InternalSettings
+
+
 EVENT_META    = "meta"  # flow metadata and entry point information
 EVENT_INPUTS  = "inputs" # user input data
 EVENT_AGENT   = "agent" # agent information
@@ -40,3 +43,8 @@ CHECK_ALIVE = 15
 STATUS_TEMPLATE = "status/status.html"
 FORM_TEMPLATE = "form.html"
 STATUS_REDIRECT = "/outputs/status/view/{fid}"
+TOKEN_KEY = "kodosumi_jwt"
+HEADER_KEY = "KODOSUMI_API_KEY"
+DEFAULT_TIME_DELTA = 86400  # 1 day in seconds
+ALGORITHM = "HS256"
+JWT_SECRET = InternalSettings().SECRET_KEY

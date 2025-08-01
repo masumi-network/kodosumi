@@ -121,7 +121,9 @@ class Spooler:
             ray.kill(runner)
             logger.info(f"finished {fid} with {n} records")
         except Exception as e:
-            logger.critical(f"failed to retrieve from {fid}", exc_info=True)
+            logger.critical(
+                f"failed to retrieve from {fid} after {n} records",
+                exc_info=True)
         finally:
             conn.close()
 

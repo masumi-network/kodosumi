@@ -3,16 +3,16 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Annotated, Optional, List, Dict, Any
+from typing import Annotated, Any, Dict, List
 
 import aiofiles
 import litestar
-from litestar import delete, post, Request, get
+from litestar import Request, delete, get, post
 from litestar.datastructures import State
 from litestar.enums import RequestEncodingType
+from litestar.exceptions import HTTPException, NotFoundException
 from litestar.params import Body
 from litestar.response import Stream
-from litestar.exceptions import NotFoundException, HTTPException
 
 from kodosumi.dtypes import ChunkUpload, UploadComplete, UploadInit
 from kodosumi.log import logger
@@ -331,8 +331,26 @@ class FileControl(litestar.Controller):
         """Delete a file from either 'in' or 'out' directory."""
         if dir_type not in ["in", "out"]:
             raise HTTPException(status_code=400, detail="Invalid directory type. Must be 'in' or 'out'")
-        
-        # TODO: Implement file deletion logic
-        pass
 
+        base_dir = Path(state.settings.EXEC_DIR) / request.user / fid / dir_type
+        target_path = (base_dir / path.strip("/")).resolve()
 
+        if not str(target_path).startswith(str(base_dir.resolve())):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        if not target_path.exists():
+            raise NotFoundException(detail=f"Path not found: {path}")
+
+        try:
+            if target_path.is_dir():
+                shutil.rmtree(target_path)
+                # return Response(status_code=204)
+            elif target_path.is_file():
+                os.remove(target_path)
+                # return Response(status_code=204)
+            else:
+                # This case handles things like broken symlinks
+                raise HTTPException(status_code=400, detail="Path is not a file or directory")
+        except OSError as e:
+            logger.error(f"Error deleting path {target_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error deleting path: {e.strerror}")

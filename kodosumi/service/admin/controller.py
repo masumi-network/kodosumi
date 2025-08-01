@@ -7,10 +7,11 @@ from litestar.exceptions import NotAuthorizedException
 from litestar.response import Redirect, Template
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from kodosumi.const import TOKEN_KEY
 import kodosumi.core
 import kodosumi.service.endpoint as endpoint
 from kodosumi.dtypes import RoleEdit
-from kodosumi.service.auth import TOKEN_KEY, get_user_details
+from kodosumi.service.auth import get_user_details
 from kodosumi.service.jwt import operator_guard
 from kodosumi.service.role import update_role
 

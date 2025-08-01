@@ -1,15 +1,17 @@
 import sys
-from typing import Any, Optional
-import asyncio
-import uuid
-import ray.util.queue
 import traceback
+import uuid
+from typing import Any, Optional
+
+import ray.util.queue
 
 from kodosumi import dtypes
-from kodosumi.helper import now, serialize
-from kodosumi.const import (EVENT_ACTION, EVENT_DEBUG, EVENT_RESULT,
-                                   EVENT_STDERR, EVENT_STDOUT, NAMESPACE, EVENT_LOCK, EVENT_LEASE)
 from kodosumi.config import InternalSettings
+from kodosumi.const import (EVENT_ACTION, EVENT_DEBUG, EVENT_LEASE, EVENT_LOCK,
+                            EVENT_RESULT, EVENT_STDERR, EVENT_STDOUT,
+                            NAMESPACE)
+from kodosumi.helper import now, serialize
+from kodosumi.runner.files import FileSystem, SyncFileSystem
 
 
 class StdoutHandler:
@@ -41,14 +43,22 @@ class StderrHandler(StdoutHandler):
 
 
 class Tracer:
-    def __init__(self, fid: str, queue: ray.util.queue.Queue):
+    def __init__(self, 
+                 fid: str, 
+                 queue: ray.util.queue.Queue, 
+                 panel_url: str,
+                 jwt: str):
+        # from kodosumi.helper import debug
+        # debug(63255)
         self.fid = fid
         self.queue = queue
+        self.panel_url = panel_url.rstrip("/")
+        self.jwt = jwt
         self._init = False
 
     def __reduce__(self):
         deserializer = Tracer
-        serialized_data = (self.queue,)
+        serialized_data = (self.fid, self.queue, self.panel_url, self.jwt)
         return deserializer, serialized_data
 
     def init(self):
@@ -139,7 +149,6 @@ class Tracer:
             output.append(traceback.format_exc())
         self._put(EVENT_STDERR, "\n".join(output))
 
-
     async def lock(self, 
                    name: str, 
                    data: Optional[dict] = None, 
@@ -156,45 +165,33 @@ class Tracer:
         await self._put_async(EVENT_LEASE, serialize(lease_data))
         return result
 
-class Mock:
+    async def fs(self):
+        return FileSystem(self.fid, self.panel_url, self.jwt)
 
-    async def debug(self, *message: str):
-        print(f"{EVENT_DEBUG} {' '.join(message)}")
+    def fs_sync(self):
+        return SyncFileSystem(self.fid, self.panel_url, self.jwt)
 
-    def debug_sync(self, *message: str):
-        print(f"{EVENT_DEBUG} {' '.join(message)}")
+    # async def upload(self, path: str):
+    #     pass
 
-    async def result(self, *message: Any):
-        for m in message:
-            print(f"{EVENT_RESULT} {serialize(m)}")
+    # async def get_file(self, path: str):
+    #     url = f"{self.panel_url}/files/{self.fid}/in/{path.lstrip('/')}"
+    #     cookies = {"kodosumi_jwt": self.jwt}
+    #     async with AsyncClient(timeout=300) as client:
+    #         async with client.stream("GET", url, cookies=cookies) as resp:
+    #             if resp.status_code != 200:
+    #                 raise Exception(
+    #                     f"Failed to download file: {resp.status_code}")
+    #             async for chunk in resp.aiter_bytes():
+    #                 yield chunk
+    #                 await asyncio.sleep(0)
 
-    def result_sync(self, *message: Any):
-        for m in message:
-            print(f"{EVENT_RESULT} {serialize(m)}")
-
-    async def action(self, *message: Any):
-        for m in message:
-            print(f"{EVENT_ACTION} {serialize(m)}")
-
-    def action_sync(self, *message: Any):
-        for m in message:
-            print(f"{EVENT_ACTION} {serialize(m)}")
-
-    async def markdown(self, *message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.Markdown(body=' '.join(message)))}")
-
-    def markdown_sync(self, *message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.Markdown(body=' '.join(message)))}")
-
-    async def html(self, *message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.HTML(body=' '.join(message)))}")
-
-    def html_sync(self, *message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.HTML(body=' '.join(message)))}")
-
-    async def text(self, *message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.Text(body=' '.join(message)))}")
-
-    def text_sync(self, *message: str):
-        print(f"{EVENT_RESULT} {serialize(dtypes.Text(body=' '.join(message)))}")
+    # async def list_file(self):
+    #     async with AsyncClient(timeout=300) as client:
+    #         resp = await client.get(
+    #             f"{self.panel_url}/files/{self.fid}/in",
+    #             cookies={"kodosumi_jwt": self.jwt})
+    #         if resp.status_code == 200:
+    #             return resp.json()
+    #         raise Exception(f"Failed to list files: {resp.status_code}")
 

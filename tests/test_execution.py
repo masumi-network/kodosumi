@@ -10,9 +10,9 @@ from fastapi import Request, Response
 from pydantic import BaseModel
 from kodosumi.core import ServeAPI, Launch, Tracer
 from kodosumi.service.inputs.forms import (Model, InputText, Checkbox, Submit, 
-                                           Cancel, Markdown)
+                                           Cancel, Markdown, InputFiles)
 from kodosumi.service.inputs.errors import InputsError
-
+from kodosumi.const import STATUS_FINAL
 
 def run_uvicorn(factory: str, port: int):
     import uvicorn
@@ -24,8 +24,21 @@ def run_uvicorn(factory: str, port: int):
     )
 
 async def runner_0(inputs: dict, tracer: Tracer):
+    # from kodosumi.helper import debug
+    # debug()
     await tracer.debug("this is a debug message")
+    listing = await tracer.list_file()
+    print(listing)
+    chunks = []
+    async for chunk in tracer.get_file("docs/document1.txt"):
+        chunks.append(chunk)
+    file = b"".join(chunks)
+    print(file)
     print("this is stdout")
+    async for chunk in tracer.get_file("image_data.bin"):
+        print(len(chunk))
+        chunks.append(chunk)
+    file = b"".join(chunks)
     return {"runner_0_result": "ok"}
 
 
@@ -230,6 +243,8 @@ def app_factory_3():
         "/simple",
         model=Model(
             InputText(label="Name", name="name", placeholder="Enter your name"),
+            InputFiles(label="Upload Files", name="files", multiple=True, 
+                       directory=False, required=True),
             Submit("Submit"),
             Cancel("Cancel"),
         ),
@@ -909,9 +924,32 @@ async def register_flow(app_server, koco_server):
     assert resp.status_code == 201
     endpoints = resp.json()
     return client, endpoints
-    
+
+async def wait_for_job(client, koco_server, fid):
+    while True:
+        try:
+            resp = await client.get(f"{koco_server}/outputs/status/{fid}")
+            if resp.status_code == 200:
+                status = resp.json().get("status")
+                if status in STATUS_FINAL:
+                    return status
+        except Exception:
+            pass
+        await asyncio.sleep(0.25)
+
 @pytest.mark.asyncio
 async def test_simple_factory(app_server3, spooler_server, koco_server):
+    client, _ = await register_flow(app_server3, koco_server)
+    resp = await client.post(f"{koco_server}/-/localhost/8125/-/simple",
+                             timeout=300)
+    assert resp.status_code == 200
+    fid = resp.json()["result"]
+    assert fid is not None
+    status = await wait_for_job(client, koco_server, fid)
+    assert status == "finished"
+
+@pytest.mark.asyncio
+async def test_factory_errors(app_server3, spooler_server, koco_server):
     client, endpoints = await register_flow(app_server3, koco_server)
     assert [e["summary"] for e in endpoints] == sorted([
         'Simple Example 3', 'Error Raiser', 'Wrong Returns', 'Exception',

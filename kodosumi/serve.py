@@ -1,21 +1,23 @@
+import copy
 import inspect
+import json
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Union, Tuple
-import copy
-import json
+from typing import Any, Callable, Dict, List, Tuple, Union
+
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import ValidationException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-import httpx
+
 import kodosumi.service.admin
+from kodosumi.const import KODOSUMI_LAUNCH
 from kodosumi.service.endpoint import KODOSUMI_API
 from kodosumi.service.inputs.errors import InputsError
-from kodosumi.service.inputs.forms import Checkbox, Model, InputFiles
-from kodosumi.service.proxy import (find_lock, KODOSUMI_USER, KODOSUMI_BASE, 
-                                    LockNotFound)
-from kodosumi.const import KODOSUMI_LAUNCH
+from kodosumi.service.inputs.forms import Checkbox, InputFiles, Model
+from kodosumi.service.proxy import (KODOSUMI_BASE, KODOSUMI_USER, LockNotFound,
+                                    find_lock)
 
 ANNONYMOUS_USER = "_annon_"
 
@@ -28,7 +30,6 @@ class ServeAPI(FastAPI):
         self._route_lookup = {}
         self._lock_lookup = {}
         self._lease_lookup = {}
-        # Mapping von Code-Objekten zu ursprünglichen Handlern
         self._code_lookup = {}
 
     def _process_route(self, method, path, *args, **kwargs):
@@ -46,7 +47,6 @@ class ServeAPI(FastAPI):
         def wrapper_decorator(func):
             self._method_lookup[func] = kwargs
             self._route_lookup[(method, path)] = func
-            # Code-Objekt-Mapping für schnellen Lookup in Launch
             self._code_lookup[func.__code__] = func
             return original_decorator(func)
         return wrapper_decorator
@@ -184,7 +184,6 @@ class ServeAPI(FastAPI):
             }
             self._route_lookup[("get", path)] = user_func 
             post_handler = _create_post_handler(user_func)
-            # Code-Objekt-Mapping für späteres Lookup
             self._code_lookup[post_handler.__code__] = user_func
             self._code_lookup[user_func.__code__] = user_func
             kwargs_copy = copy.deepcopy(kwargs)
@@ -258,15 +257,6 @@ class ServeAPI(FastAPI):
                            fid: str, 
                            lid: str) -> Union[List, Dict]:
             lock, model = await _get_model(request, fid, lid)
-            # try:
-            #     lock, _ = find_lock(fid, lid)
-            # except LockNotFound as e:
-            #     raise HTTPException(404, e.message) from e
-            # if lock["result"] is not None:
-            #     raise HTTPException(
-            #         status_code=404, detail=f"Lock {lid} for {fid} released.")
-            # get_method = self._lock_lookup[lock["name"]]
-            # model = await get_method()
             if lock["name"] in self._lease_lookup:
                 post_method = self._lease_lookup[lock["name"]]
             else:

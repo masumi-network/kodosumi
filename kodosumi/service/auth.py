@@ -11,9 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from kodosumi import helper
+from kodosumi.const import HEADER_KEY, TOKEN_KEY
 from kodosumi.dtypes import Role, RoleLogin
 from kodosumi.log import logger
-from kodosumi.service.jwt import HEADER_KEY, TOKEN_KEY, encode_jwt_token
+from kodosumi.service.jwt import encode_jwt_token
 
 
 class LoginControl(litestar.Controller):
