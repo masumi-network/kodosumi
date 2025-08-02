@@ -267,7 +267,7 @@ async def test_environment(env):
 
     form_data = {
         "runner": "runner1",
-        "trhow": "off",
+        "throw": "off",
         "_list-files": json.dumps(files_payload)
     }
 
