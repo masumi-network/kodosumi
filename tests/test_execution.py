@@ -23,22 +23,19 @@ def run_uvicorn(factory: str, port: int):
         reload=False
     )
 
+
 async def runner_0(inputs: dict, tracer: Tracer):
     # from kodosumi.helper import debug
     # debug()
-    await tracer.debug("this is a debug message")
-    listing = await tracer.list_file()
-    print(listing)
-    chunks = []
-    async for chunk in tracer.get_file("docs/document1.txt"):
-        chunks.append(chunk)
-    file = b"".join(chunks)
-    print(file)
-    print("this is stdout")
-    async for chunk in tracer.get_file("image_data.bin"):
-        print(len(chunk))
-        chunks.append(chunk)
-    file = b"".join(chunks)
+    # listing = await tracer.list_file()
+    # if listing == []:
+    #     tracer.get_file("image_data.bin")
+    # else:
+    #     chunks = []
+    #     async for chunk in tracer.get_file("image_data.bin"):
+    #         chunks.append(chunk)
+    #     file = b"".join(chunks)
+    #     assert file == b"BINARY_IMAGE_DATA_" * 10 * 1024 * 1024
     return {"runner_0_result": "ok"}
 
 
@@ -925,13 +922,13 @@ async def register_flow(app_server, koco_server):
     endpoints = resp.json()
     return client, endpoints
 
-async def wait_for_job(client, koco_server, fid):
+async def wait_for_job(client, koco_server, fid, final=STATUS_FINAL):
     while True:
         try:
             resp = await client.get(f"{koco_server}/outputs/status/{fid}")
             if resp.status_code == 200:
                 status = resp.json().get("status")
-                if status in STATUS_FINAL:
+                if status in final:
                     return status
         except Exception:
             pass
