@@ -69,7 +69,7 @@ async def test_simple(app_server3, spooler_server, koco_server):
         }
     form_data = {
         "name": "hello world",
-        "_list-files": json.dumps(complete_payload)
+        "files": json.dumps(complete_payload)
     }
     resp = await client.post(f"{koco_server}/-/localhost/8125/-/simple",
                              json=form_data, timeout=300)

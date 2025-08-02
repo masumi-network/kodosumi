@@ -102,7 +102,7 @@ class ServeAPI(FastAPI):
                     element_name = element.name
                     submitted_value: Any = None
                     if isinstance(element, InputFiles):
-                        upload = js_data.get(f"_list-{element_name}")
+                        upload = js_data.get(element_name)
                         if upload:
                             js_upload = json.loads(upload)
                             items = js_upload["items"]

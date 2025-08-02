@@ -268,7 +268,7 @@ async def test_environment(env):
     form_data = {
         "runner": "runner1",
         "throw": "off",
-        "_list-files": json.dumps(files_payload)
+        "files": json.dumps(files_payload)
     }
 
     resp = await env.post("/-/localhost/8125/-/runner", json=form_data)
