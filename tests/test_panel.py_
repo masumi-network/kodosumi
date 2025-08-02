@@ -1,0 +1,86 @@
+from litestar.testing import TestClient, AsyncTestClient
+import pytest
+from kodosumi.service.app import create_app
+from kodosumi import helper
+from multiprocessing import Process
+import asyncio
+from typing import AsyncGenerator
+from tests.test_role import start_ray
+
+
+@pytest.fixture
+async def http_client(tmp_path) -> AsyncGenerator:
+    url = f"sqlite+aiosqlite:///{tmp_path}/admin.db"
+    app = create_app(ADMIN_DATABASE=url)
+    async with AsyncTestClient(app=app) as client:
+        yield client
+
+
+@pytest.fixture
+async def auth_client(tmp_path) -> AsyncGenerator:
+    url = f"sqlite+aiosqlite:///{tmp_path}/admin.db"
+    app = create_app(ADMIN_DATABASE=url,
+                     EXEC_DIR=str(tmp_path.joinpath("data")))
+    base_url = "http://kodosumi"
+    async with AsyncTestClient(app=app, base_url=base_url) as client:
+        response = await client.get(
+            "/login", params={"name": "admin", "password": "admin" })
+        assert response.status_code == 200
+        client.cookies = response.cookies
+        yield client
+
+def _run_uvicorn(factory: str, port: int, workers: int=1):
+    import uvicorn
+    uvicorn.run(
+        factory,
+        host="localhost",
+        port=port,
+        reload=False,
+        workers=workers,
+    )
+
+async def test_start(tmp_path, start_ray):
+    app = create_app(ADMIN_DATABASE=f"sqlite+aiosqlite:///{tmp_path}/admin.db")
+    async with AsyncTestClient(app=app) as http_client:
+        response = await http_client.get(
+            "/login", params={"name": "admin", "password": "admin" })
+        assert response.status_code == 200
+        resp = await http_client.get("/logout", cookies=response.cookies)
+        assert resp.status_code == 200
+
+
+
+
+# async def test_run(tmp_path):
+#     port = 8123
+#     proc = Process(target=_run_uvicorn, args=("kodosumi.service.app:create_app", port, 1))
+#     proc.start()
+#     import httpx
+#     url = f"http://localhost:{port}/login"
+#     async with httpx.AsyncClient() as client:
+#         success = False
+#         for _ in range(20):  # max ~10 s
+#             try:
+#                 r = await client.get(
+#                     url, params={"name": "admin", "password": "admin" })
+#                 if r.status_code == 200:
+#                     success = True
+#                     break
+#             except Exception:
+#                 pass
+#             await asyncio.sleep(0.25)
+#         if not success:
+#             pytest.fail("uvicorn-App konnte nicht gestartet werden")
+#     proc.terminate()
+#     proc.join() 
+
+
+    # from kodosumi.service.server import run
+    # from kodosumi.config import InternalSettings
+    # settings = InternalSettings()
+    # run(settings)
+    # print("OK")
+
+
+# todo: start koco serve with --register
+# todo: test tags of flows
