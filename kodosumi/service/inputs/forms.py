@@ -516,10 +516,12 @@ class Checkbox(FormElement):
     def __init__(
         self,
         name: str,
-        option: str,
+        option: Optional[str] = None,
         label: Optional[str] = None,
         value: bool = False,
         error: Optional[List[str]] = None):
+        if option is None:
+            option = "on"
         super().__init__(name, label, value, required=False, text=option, 
                          error=error)
 
