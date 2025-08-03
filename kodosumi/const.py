@@ -48,3 +48,5 @@ HEADER_KEY = "KODOSUMI_API_KEY"
 DEFAULT_TIME_DELTA = 86400  # 1 day in seconds
 ALGORITHM = "HS256"
 JWT_SECRET = InternalSettings().SECRET_KEY
+KODOSUMI_USER = "x-kodosumi_user"
+KODOSUMI_BASE = "x-kodosumi_base"

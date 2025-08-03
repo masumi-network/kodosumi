@@ -1,25 +1,20 @@
 import asyncio
 import inspect
-import datetime
-import uuid
-import time
 from traceback import format_exc
-import asyncio
 from typing import Any, Callable, Optional, Tuple, Union
 
 import ray.util.queue
 from bson.objectid import ObjectId
-from pydantic import BaseModel
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 import kodosumi.core
-from kodosumi.helper import now, serialize
 from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                             EVENT_INPUTS, EVENT_META, EVENT_STATUS,
-                            NAMESPACE, STATUS_END, STATUS_ERROR,
-                            STATUS_RUNNING, STATUS_STARTING,
-                            KODOSUMI_LAUNCH, EVENT_LOCK, EVENT_LEASE,
+                            KODOSUMI_LAUNCH, NAMESPACE, STATUS_END,
+                            STATUS_ERROR, STATUS_RUNNING, STATUS_STARTING,
                             TOKEN_KEY)
+from kodosumi.helper import now, serialize
 from kodosumi.runner.tracer import Tracer
 
 

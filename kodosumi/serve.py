@@ -12,11 +12,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 import kodosumi.service.admin
-from kodosumi.const import KODOSUMI_LAUNCH
+from kodosumi.const import KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER
 from kodosumi.service.endpoint import KODOSUMI_API
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.service.inputs.forms import Checkbox, InputFiles, Model
-from kodosumi.service.proxy import (KODOSUMI_BASE, KODOSUMI_USER, LockNotFound,
+from kodosumi.service.proxy import (LockNotFound,
                                     find_lock)
 
 ANNONYMOUS_USER = "_annon_"

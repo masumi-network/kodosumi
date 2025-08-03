@@ -1,7 +1,7 @@
 import asyncio
 import sqlite3
 from pathlib import Path
-from typing import AsyncGenerator, Dict, List, Optional, Union
+from typing import AsyncGenerator, Dict, List, Optional
 
 import litestar
 import ray
@@ -11,13 +11,11 @@ from litestar.exceptions import NotFoundException
 from litestar.response import Response, ServerSentEvent, Template
 from litestar.types import SSEData
 
-from kodosumi.const import (SLEEP, AFTER, PING, CHECK_ALIVE, STATUS_TEMPLATE, 
-                            STATUS_RUNNING, STATUS_AWAITING, EVENT_LOCK, EVENT_LEASE)
 import kodosumi.core
 from kodosumi import dtypes
+from kodosumi.const import *
 from kodosumi.helper import now, serialize
 from kodosumi.log import logger
-from kodosumi.const import *
 from kodosumi.runner.formatter import DefaultFormatter, Formatter
 from kodosumi.runner.main import kill_runner
 from kodosumi.service.store import connect
@@ -25,8 +23,6 @@ from kodosumi.service.store import connect
 
 async def _verify_actor(name: str, cursor):
     try:
-        # actor = ray.get_actor(name, namespace=NAMESPACE)
-        # return actor
         ray.get_actor(name, namespace=NAMESPACE)
         return True
     except ValueError:
@@ -39,14 +35,12 @@ async def _verify_actor(name: str, cursor):
             VALUES (?, 'status', 'error')
         """, (now(),))
         return False
-        # return None
 
 async def _event(
         fid: str,
         conn: sqlite3.Connection, 
         filter_events: Optional[List[str]]=None,
         formatter:Optional[Formatter]=None) -> AsyncGenerator[SSEData, None]:
-    #has_lock = False
     status = None
     offset = 0
     cursor = conn.cursor()
@@ -60,12 +54,6 @@ async def _event(
         status = row[0]
         if status not in STATUS_FINAL:
             await _verify_actor(fid, cursor)
-            # actor = await _verify_actor(fid, cursor)
-            # if actor is not None:
-            #     oref = actor.get_locks.remote()
-            #     locks = ray.get(oref)
-            #     if locks:
-            #         has_lock = True
     try:
         t0 = last = None
         check = now()
@@ -93,15 +81,6 @@ async def _event(
                     status = msg
                 out = f"{stamp}:"
                 out += formatter.convert(kind, msg) if formatter else msg
-                # out = f"{stamp}:"
-                # if kind == EVENT_STATUS:
-                #     status = msg
-                #     if has_lock:
-                #         out += "awaiting"
-                #     else:
-                #         out += f"{status}"
-                # else:
-                #     out += formatter.convert(kind, msg) if formatter else msg
                 if filter_events is None or kind in filter_events:
                     yield {
                         "event": kind,
@@ -109,46 +88,23 @@ async def _event(
                         "data": out
                     }
                 offset = _id
-                # print(f"got {kind} {msg}")
                 await asyncio.sleep(0)
             if status in STATUS_FINAL:
                 if last:
                     if now() - last > AFTER:
                         break
-            #await asyncio.sleep(SLEEP)
             if now() > t0 + PING:
                 t0 = now()
                 if t0 > check + CHECK_ALIVE:
                     if status not in STATUS_FINAL:
                         check = t0
                         if await _verify_actor(fid, cursor):
-                        # actor = await _verify_actor(fid, cursor) 
-                        # if actor is not None:
-                        #     oref = actor.get_locks.remote()
-                        #     locks = ray.get(oref)
-                        #     if locks:
-                        #         if not has_lock:
-                        #             yield {
-                        #                 "id": 0,
-                        #                 "event": "status",
-                        #                 "data": f"{t0}:awaiting",
-                        #             }
-                        #         has_lock = True
-                        #     elif has_lock:
-                        #         yield {
-                        #             "id": 0,
-                        #             "event": "status",
-                        #             "data": f"{t0}:{status}",
-                        #         }
-                                # has_lock = False
                             yield {
                                 "id": 0,
                                 "event": "alive",
                                 "data": f"{t0}:actor and service alive",
 
                             }
-                        # else:
-                        #     has_lock = False
                         continue
                 yield {
                     "id": 0,
@@ -207,15 +163,6 @@ async def _status(conn: sqlite3.Connection) -> Dict:
     else:
         meta = {}
     fid = meta.get("fid", None)
-    # locks = {}
-    # if status not in STATUS_FINAL and fid:
-    #     actor = await _verify_actor(fid, cursor)
-    #     if actor is not None:
-    #         oref = actor.get_locks.remote()
-    #         locks = {k: v.get("expires") for k, v in ray.get(oref).items()}
-    #         if locks:
-    #             if status == STATUS_RUNNING:
-    #                 status = STATUS_AWAITING
     query = """
         SELECT kind, message 
         FROM monitor 
@@ -328,8 +275,8 @@ class OutputsController(litestar.Controller):
         else:
             formatter = DefaultFormatter()
         return await self._stream(
-            fid, state, request, filter_events=MAIN_EVENTS, formatter=formatter,
-            extended=extended)
+            fid, state, request, filter_events=MAIN_EVENTS, 
+            formatter=formatter, extended=extended)
 
     @get("/stdio/{fid:str}")
     async def get_stdio_stream(

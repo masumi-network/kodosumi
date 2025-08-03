@@ -1,22 +1,20 @@
-from typing import Any, Dict, Optional, Union, List
+from typing import Any, Dict, Optional, Union
 
 import litestar
+import ray
 from httpx import AsyncClient
 from litestar import MediaType, Request, route
 from litestar.datastructures import State
-from litestar.exceptions import NotFoundException, HTTPException
-from litestar.response import Redirect, Response, Template
-import ray
+from litestar.exceptions import HTTPException, NotFoundException
+from litestar.response import Redirect, Response
 
-from kodosumi import helper
-from kodosumi.log import logger
-from kodosumi.const import FORM_TEMPLATE, KODOSUMI_LAUNCH, NAMESPACE
 import kodosumi.service.endpoint as endpoint
+from kodosumi import helper
+from kodosumi.const import (KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER, 
+                            NAMESPACE)
+from kodosumi.log import logger
 from kodosumi.service.inputs.forms import Model
 
-
-KODOSUMI_USER = "x-kodosumi_user"
-KODOSUMI_BASE = "x-kodosumi_base"
 
 class LockNotFound(Exception):
     

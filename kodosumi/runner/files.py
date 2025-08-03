@@ -17,7 +17,6 @@ class StreamState(Enum):
 DirectoryType = Literal["in", "out"]
 
 
-# Gemeinsame Konstanten und Hilfsfunktionen
 def create_client_config(panel_url: str, jwt: str) -> Dict[str, Any]:
     return {
         "timeout": 300,

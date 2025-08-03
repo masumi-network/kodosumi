@@ -7,10 +7,10 @@ from litestar.datastructures import State
 from litestar.response import Redirect, Template
 from litestar.exceptions import NotFoundException
 
-from kodosumi.const import FORM_TEMPLATE, STATUS_REDIRECT
+from kodosumi.const import FORM_TEMPLATE, KODOSUMI_USER, STATUS_REDIRECT
 from kodosumi.log import logger
 from kodosumi.service.inputs.forms import Model
-from kodosumi.service.proxy import KODOSUMI_USER, find_lock, LockNotFound
+from kodosumi.service.proxy import find_lock, LockNotFound
 
 
 class InputsController(litestar.Controller):
@@ -59,7 +59,6 @@ class InputsController(litestar.Controller):
         async with AsyncClient(timeout=timeout) as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
-            # request_headers[KODOSUMI_BASE] = f"/-/{path}"
             request_headers.pop("content-length", None)
             host = request.headers.get("host", None)
             data = await request.form()
@@ -113,9 +112,7 @@ class InputsController(litestar.Controller):
         async with AsyncClient(timeout=timeout) as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
-            # request_headers[KODOSUMI_BASE] = base
             host = request.headers.get("host", None)
-            # body = await request.body()
             response = await client.get(url=lock_url, headers=request_headers)
             response_headers = dict(response.headers)
             if host:
@@ -144,14 +141,12 @@ class InputsController(litestar.Controller):
             lock, _ = find_lock(fid, lid)
         except LockNotFound as e:
             raise NotFoundException(e.message) from e
-        #base_url = lock['base_url']
         base_url = str(request.base_url)
         lock_url = f"{base_url.rstrip('/')}/lock/{fid}/{lid}"
         timeout = state["settings"].PROXY_TIMEOUT
         async with AsyncClient(timeout=timeout) as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
-            # request_headers[KODOSUMI_BASE] = base
             request_headers.pop("content-length", None)
             host = request.headers.get("host", None)
             data = await request.form()
