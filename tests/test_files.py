@@ -932,9 +932,10 @@ async def test_get_file_security(auth_client, tmp_path):
     ]
     
     for malicious_path in path_traversal_attempts:
-        malicious_response = await auth_client.get(f"/files/{fid}/in/{malicious_path}")
+        malicious_response = await auth_client.get(
+            f"/files/{fid}/in/{malicious_path}")
         # Should be either 404 (not found) or 403 (access denied)
-        assert malicious_response.status_code in [403, 404], f"Path traversal not blocked for: {malicious_path}"
+        assert malicious_response.status_code in [403, 404, 400], f"Path traversal not blocked for: {malicious_path}"
     
     # Test that legitimate file still works
     legitimate_response = await auth_client.get(f"/files/{fid}/in/test.txt")

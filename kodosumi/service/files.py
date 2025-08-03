@@ -21,20 +21,80 @@ from kodosumi.log import logger
 class FileControl(litestar.Controller):
 
     tags = ["Files"]
+    
+    # Konstanten für bessere Wartbarkeit
+    VALID_DIR_TYPES = ["in", "out"]
+    CHUNK_PREFIX = "chunk_"
 
     def upload_dir(self, state: State) -> Path:
         return Path(state.settings.UPLOAD_DIR.rstrip('/'))
+
+    def _validate_dir_type(self, dir_type: str) -> None:
+        """Validiert den Verzeichnistyp und wirft HTTPException bei ungültigem Typ"""
+        if dir_type not in self.VALID_DIR_TYPES:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid directory type. Must be one of: {', '.join(self.VALID_DIR_TYPES)}"
+            )
+
+    def _get_exec_dir(self, user: str, fid: str, dir_type: str, state: State) -> Path:
+        """Erstellt und validiert das Ausführungsverzeichnis"""
+        self._validate_dir_type(dir_type)
+        return Path(state.settings.EXEC_DIR) / user / fid / dir_type
+
+    def _validate_file_path(self, file_path: Path, base_dir: Path, path: str) -> Path:
+        """Validiert einen Dateipfad für Sicherheit und Existenz"""
+        try:
+            file_path = file_path.resolve()
+            base_dir = base_dir.resolve()
+            if not file_path.is_relative_to(base_dir):
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Access denied: path outside allowed directory"
+                )
+        except (OSError, ValueError):
+            raise NotFoundException(f"Invalid file path: {path}")
+        
+        if not file_path.exists():
+            raise NotFoundException(f"File not found: {path}")
+        
+        return file_path
+
+    async def _stream_file(self, file_path: Path, state: State):
+        """Streamt eine Datei asynchron"""
+        try:
+            async with aiofiles.open(file_path, 'rb') as f:
+                while chunk := await f.read(state.settings.SAVE_CHUNK_SIZE):
+                    yield chunk
+                    await asyncio.sleep(0)
+        except Exception as e:
+            logger.error(f"Error streaming file {file_path}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error reading file")
+
+    async def _cleanup_session(self, upload_id: str, state: State) -> None:
+        """Bereinigt eine Upload-Session"""
+        try:
+            session_dir = self.upload_dir(state) / upload_id
+            if session_dir.exists():
+                for file in session_dir.iterdir():
+                    if file.is_file():
+                        os.remove(file)
+                os.rmdir(session_dir)
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}")
 
     def get_upload_status(self, state: State, upload_id: str) -> dict:
         """Check filesystem to determine current upload status"""
         session_dir = self.upload_dir(state) / upload_id
         if not session_dir.exists():
             return {"exists": False, "received_chunks": []}
+        
         received_chunks = []
         for chunk_file in session_dir.iterdir():
-            if chunk_file.name.startswith("chunk_"):
+            if chunk_file.name.startswith(self.CHUNK_PREFIX):
                 chunk_num = int(chunk_file.name.split("_")[1])
                 received_chunks.append(chunk_num)
+        
         return {
             "exists": True,
             "received_chunks": sorted(received_chunks),
@@ -42,19 +102,10 @@ class FileControl(litestar.Controller):
         }
 
     def generate_completion_id(self, batch_id: str | None = None) -> str:
-        """
-        Generate completion_id deterministically from batch_id or create new one
-        """
-        if batch_id:
-            return batch_id
-        else:
-            return str(uuid.uuid4())
+        return batch_id if batch_id else str(uuid.uuid4())
 
     @post("/init_batch")
     async def init_batch(self) -> dict:
-        """
-        Initialize a new upload batch - returns batch_id for client to use
-        """
         batch_id = str(uuid.uuid4())
         return {"batch_id": batch_id}
 
@@ -78,13 +129,14 @@ class FileControl(litestar.Controller):
         session_dir = self.upload_dir(state) / data.upload_id
         if not session_dir.exists():
             return {"error": "Invalid upload ID - upload not initialized"}
-        chunk_path = session_dir / f"chunk_{data.chunk_number}"
+        
+        chunk_path = session_dir / f"{self.CHUNK_PREFIX}{data.chunk_number}"
         if not chunk_path.exists():
             async with aiofiles.open(chunk_path, 'wb') as f:
-                while data_chunk := await data.chunk.read(
-                        state.settings.SAVE_CHUNK_SIZE):
+                while data_chunk := await data.chunk.read(state.settings.SAVE_CHUNK_SIZE):
                     await f.write(data_chunk)
                     await asyncio.sleep(0)
+        
         status = self.get_upload_status(state, data.upload_id)
         logger.info(f"upload complete {chunk_path}")
         return {
@@ -103,53 +155,55 @@ class FileControl(litestar.Controller):
                              total_chunks: int, 
                              state: State) -> dict:
         try:
+            # Validierung
+            self._validate_dir_type(dir_type)
             status = self.get_upload_status(state, upload_id)
-            if dir_type not in ["in", "out"]:
-                raise HTTPException(
-                    status_code=404, 
-                    detail="Invalid directory type. Must be 'in' or 'out'")
+            
             if not status["exists"]:
                 return {"error": "Invalid upload ID"}
+            
             if status["total_received"] != total_chunks:
                 return {"error": "Not all chunks uploaded"}
+            
+            # Überprüfe fehlende Chunks
             missing_chunks = []
             for i in range(total_chunks):
-                path = self.upload_dir(
-                    state) / f"{upload_id}/chunk_{i}"
+                path = self.upload_dir(state) / f"{upload_id}/{self.CHUNK_PREFIX}{i}"
                 if not path.exists():
                     missing_chunks.append(i)
+            
             if missing_chunks:
                 return {"error": f"Missing chunk files: {missing_chunks}"}
+            
+            # Bestimme Zielverzeichnis
             if fid:
                 completion_id = fid
                 completion_dir = Path(state.settings.EXEC_DIR) / user / fid
             else:
                 completion_id = self.generate_completion_id(batch_id)
                 completion_dir = self.upload_dir(state) / completion_id
+            
             completion_dir.mkdir(parents=True, exist_ok=True)
             final_path = completion_dir / dir_type / filename
             final_path.parent.mkdir(parents=True, exist_ok=True)
+            
             logger.info(f"complete upload {filename}")
+            
+            # Kombiniere Chunks zu finaler Datei
             async with aiofiles.open(final_path, 'wb') as final_file:
                 for i in range(total_chunks):
-                    path = self.upload_dir(state) / upload_id / f"chunk_{i}"
+                    path = self.upload_dir(state) / upload_id / f"{self.CHUNK_PREFIX}{i}"
                     try:
                         async with aiofiles.open(path, 'rb') as file:
-                            while chunk := await file.read(
-                                    state.settings.SAVE_CHUNK_SIZE):
+                            while chunk := await file.read(state.settings.SAVE_CHUNK_SIZE):
                                 await final_file.write(chunk)
                                 await asyncio.sleep(0)
                     except Exception as e:
                         return {"error": f"Error reading chunk {i}: {str(e)}"}
-            try:
-                session_dir = self.upload_dir(state) / upload_id
-                if session_dir.exists():
-                    for file in session_dir.iterdir():
-                        if file.is_file():
-                            os.remove(file)
-                    os.rmdir(session_dir)
-            except Exception as e:
-                logger.error(f"Cleanup error: {e}")
+            
+            # Bereinige Session
+            await self._cleanup_session(upload_id, state)
+            
             return {
                 "status": "upload complete", 
                 "completion_id": completion_id,
@@ -202,15 +256,11 @@ class FileControl(litestar.Controller):
 
     @delete("/cancel/{upload_id:str}")
     async def cancel_upload(self, upload_id: str, state: State) -> None:
-        """
-        Cancel an upload and clean up temporary files.
-        """
         try:
             session_dir = self.upload_dir(state) / upload_id
             if not session_dir.exists():
                 raise RuntimeError(f"Invalid upload ID - upload not found")
-            if session_dir.exists():
-                shutil.rmtree(session_dir)
+            shutil.rmtree(session_dir)
         except Exception as e:
             raise RuntimeError(f"Error cancelling upload: {str(e)}")
 
@@ -220,19 +270,15 @@ class FileControl(litestar.Controller):
                          dir_type: str,
                          request: Request, 
                          state: State) -> List[Dict[str, Any]]:
-        """
-        List all files and directories in the specified execution directory 
-        with their structure and sizes.
-        """
-        if dir_type not in ["in", "out"]:
-            raise HTTPException(
-                status_code=404, 
-                detail="Invalid directory type. Must be 'in' or 'out'")
-        exec_dir = Path(state.settings.EXEC_DIR) / request.user / fid / dir_type
+        exec_dir = self._get_exec_dir(request.user, fid, dir_type, state)
+        
         if not exec_dir.exists():
             return []
+        
         entries_list = []
         processed_dirs = set()
+        
+        # Sammle Dateien und Verzeichnisse
         for file_path in exec_dir.rglob("*"):
             if file_path.is_file():
                 relative_path = file_path.relative_to(exec_dir)
@@ -244,10 +290,14 @@ class FileControl(litestar.Controller):
                     "last_modified": last_modified,
                     "is_directory": False
                 })
+                
+                # Sammle übergeordnete Verzeichnisse
                 current_parent = relative_path.parent
                 while current_parent != Path("."):
                     processed_dirs.add(str(current_parent))
                     current_parent = current_parent.parent
+        
+        # Füge Verzeichnisse hinzu
         for dir_path_str in processed_dirs:
             dir_full_path = exec_dir / dir_path_str
             if dir_full_path.exists() and dir_full_path.is_dir():
@@ -258,7 +308,8 @@ class FileControl(litestar.Controller):
                     "last_modified": last_modified,
                     "is_directory": True
                 })
-        entries_list.sort(key=lambda x: x["path"])
+        
+        entries_list.sort(key=lambda x: str(x["path"]))
         return entries_list
 
     @get("/{fid:str}/{dir_type:str}/{path:path}")
@@ -268,56 +319,30 @@ class FileControl(litestar.Controller):
                        path: str, 
                        request: Request, 
                        state: State) -> Stream:
-        """
-        Retrieve a file for download from either 'in' or 'out' directory. 
-        Directories cannot be retrieved.
-        """
         try:
-            if dir_type not in ["in", "out"]:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="Invalid directory type. Must be 'in' or 'out'")
-            exec_dir = Path(
-                state.settings.EXEC_DIR) / request.user / fid / dir_type
+            exec_dir = self._get_exec_dir(request.user, fid, dir_type, state)
+            
             if not exec_dir.exists():
-                raise NotFoundException(
-                    f"Directory '{dir_type}' not found for flow {fid}")
+                raise NotFoundException(f"Directory '{dir_type}' not found for flow {fid}")
+            
             normalized_path = path.lstrip('/')
             file_path = exec_dir / normalized_path
-            try:
-                file_path = file_path.resolve()
-                exec_dir = exec_dir.resolve()
-                if not file_path.is_relative_to(exec_dir):
-                    raise HTTPException(
-                        status_code=403, 
-                        detail="Access denied: path outside allowed directory")
-            except (OSError, ValueError):
-                raise NotFoundException(f"Invalid file path: {path}")
-            if not file_path.exists():
-                raise NotFoundException(f"File not found: {path}")
+            
+            # Validiere Pfad
+            file_path = self._validate_file_path(file_path, exec_dir, path)
+            
+            # Überprüfe Dateityp
             if file_path.is_dir():
-                raise HTTPException(
-                    status_code=400, 
-                    detail="Cannot retrieve directories")
+                raise HTTPException(status_code=400, detail="Cannot retrieve directories")
+            
             if not file_path.is_file():
-                raise HTTPException(
-                    status_code=400, 
-                    detail="Path does not point to a valid file")
+                raise HTTPException(status_code=400, detail="Path does not point to a valid file")
+            
             file_size = file_path.stat().st_size
             filename = file_path.name
-            async def file_streamer():
-                try:
-                    async with aiofiles.open(file_path, 'rb') as f:
-                        while chunk := await f.read(
-                                state.settings.SAVE_CHUNK_SIZE):
-                            yield chunk
-                            await asyncio.sleep(0)
-                except Exception as e:
-                    logger.error(f"Error streaming file {file_path}: {str(e)}")
-                    raise HTTPException(
-                        status_code=500, detail="Error reading file")
+            
             return Stream(
-                content=file_streamer(),
+                content=self._stream_file(file_path, state),
                 media_type="application/octet-stream",
                 headers={
                     "Content-Length": str(file_size),
@@ -342,15 +367,15 @@ class FileControl(litestar.Controller):
                           path: str, 
                           request: Request, 
                           state: State) -> None:
-        """Delete a file from either 'in' or 'out' directory."""
-        if dir_type not in ["in", "out"]:
-            raise HTTPException(status_code=400, detail="Invalid directory type. Must be 'in' or 'out'")
-        base_dir = Path(state.settings.EXEC_DIR) / request.user / fid / dir_type
+        base_dir = self._get_exec_dir(request.user, fid, dir_type, state)
         target_path = (base_dir / path.strip("/")).resolve()
+        
         if not str(target_path).startswith(str(base_dir.resolve())):
             raise HTTPException(status_code=403, detail="Forbidden")
+        
         if not target_path.exists():
             raise NotFoundException(detail=f"Path not found: {path}")
+        
         try:
             if target_path.is_dir():
                 shutil.rmtree(target_path)
@@ -360,5 +385,4 @@ class FileControl(litestar.Controller):
                 raise HTTPException(status_code=400, detail="Path is not a file or directory")
         except OSError as e:
             logger.error(f"Error deleting path {target_path}: {e}")
-            raise HTTPException(
-                status_code=500, detail=f"Error deleting path: {e.strerror}")
+            raise HTTPException(status_code=500, detail=f"Error deleting path: {e.strerror}")
