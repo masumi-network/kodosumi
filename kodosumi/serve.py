@@ -147,7 +147,7 @@ class ServeAPI(FastAPI):
                     if fid:
                         if items and batch_id:
                             url = str(request.base_url).rstrip("/")
-                            url += f"/files/complete/{fid}/{batch_id}"
+                            url += f"/files/complete/{fid}/{batch_id}/in"
                             async with httpx.AsyncClient() as client:
                                 resp = await client.post(
                                     url, json=items, cookies=request.cookies,

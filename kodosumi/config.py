@@ -62,7 +62,9 @@ class Settings(BaseSettings):
     APP_WORKERS: int = 1
 
     LOCK_EXPIRES: float = 60 * 60 * 3
-
+    CHUNK_SIZE: int = 5 * 1024 * 1024
+    SAVE_CHUNK_SIZE: int = 1024 * 1024
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="KODO_",
@@ -92,10 +94,8 @@ class Settings(BaseSettings):
 class InternalSettings(Settings):
 
     def __init__(self, **kwargs):
-        for field in self.model_fields:
+        for field in self.__class__.model_fields:
             env_var = f"iKODO_{field}"
             if env_var in os.environ and field not in kwargs:
                 kwargs[field] = json.loads(os.environ[env_var])
         super().__init__(**kwargs)
-
-

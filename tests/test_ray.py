@@ -6,6 +6,7 @@ import time
 from multiprocessing import Process
 from pathlib import Path
 from random import random
+from kodosumi.runner.files import AsyncFileSystem, SyncFileSystem
 
 import pytest
 import ray
@@ -56,16 +57,26 @@ def process_range2(num: int, tracer: Tracer):
     # debug()
     tracer.debug_sync(f"process {num}")
     fs = tracer.fs_sync()
+    fh = fs.open("docs/document1.txt")
+    result = []
+    for chunk in fh.read():
+        result.append(len(chunk))
+    fh.close()
     fs.close()
-    return None
+    return {"result": result}
 
 
 async def runner2(inputs: dict, tracer: Tracer):
     # from kodosumi.helper import debug
     # debug()
+    fs = tracer.fs()
     futures = [process_range2.remote(i, tracer) for i in range(10)]
     result = await asyncio.gather(*futures)
     return result
+
+
+async def runner3(inputs: dict, tracer: Tracer):
+    return {"ok": True}
 
 
 def app_factory1():
@@ -114,7 +125,8 @@ class Environment:
         self._port = 8125
         self.apps = {}
         self.panel_url = "http://localhost:8120"
-        self.tmp_path = tmp_path
+        self.tmp_path = tmp_path / "kodosumi-test"
+        self.tmp_path = Path("/tmp") / "kodosumi-test"
         if not self.tmp_path.exists():
             self.tmp_path.mkdir()
         self.client = AsyncClient(timeout=300, base_url=self.panel_url)
@@ -283,3 +295,282 @@ async def test_environment(env):
             if match:
                 found.add(match.group(1))
     assert sorted(found) == ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+
+
+def _norm(filename):
+    p = Path(filename)
+    idx = [i for i, k in enumerate(p.parts) if k.startswith("kodosumi-")][0]
+    return "/".join(p.parts[idx+1:])
+
+
+@pytest.mark.asyncio
+async def test_download(env):
+    await env.start_app("tests.test_ray:app_factory1")
+    files_data = [
+        ("docs/document1.txt", b"This is the first document content. "),
+        ("docs/document2.txt", b"This is the second document content. "),
+        ("docs/document3.txt", b"This is the third document content. "),
+        ("docs/assets/asset1.txt", b"This is the first asst content. "),
+        ("docs/assets/asset2.txt", b"This is the second asst content. "),
+        ("text1.txt", b"This is the first text content. "),
+        ("text2.txt", b"This is the second text content. "),
+        ("text3.txt", b"This is the third text content. ")
+    ]
+    files_payload = await env.upload_files(files_data)
+    form_data = {
+        "runner": "runner2",
+        "throw": "off",
+        "files": json.dumps(files_payload)
+    }
+    resp = await env.post("/-/localhost/8125/-/runner", json=form_data)
+    assert resp.status_code == 200
+    fid = resp.json()["result"]
+    status = await env.wait_for(fid, "finished", "error")
+    assert status == "finished"
+
+    expected = sorted([
+        "docs",
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "docs/assets",
+        "docs/assets/asset1.txt",
+        "docs/assets/asset2.txt",
+        "text1.txt",
+        "text2.txt",
+        "text3.txt",
+    ])
+
+    fs = SyncFileSystem(
+        fid, env.panel_url, env.client.cookies.get("kodosumi_jwt"))
+    afs = AsyncFileSystem(
+        fid, env.panel_url, env.client.cookies.get("kodosumi_jwt"))
+
+    ret = fs.ls("in")
+    assert [f["path"] for f in ret] == expected
+
+    ret = await afs.ls("in")
+    assert [f["path"] for f in ret] == expected
+
+    ret = fs.open("docs/document1.txt", "in")
+    assert ret.read_all() == b"This is the first document content. "
+    ret.close()
+    ret.close()
+    ret.remove()
+
+    ret = afs.open("docs/document2.txt")
+    assert await ret.read_all() == b"This is the second document content. "
+    await ret.close()
+
+    ret = fs.open("docs/document1.txt")
+    with pytest.raises(FileNotFoundError):
+        ret.read_all()
+    
+    ret = afs.open("docs/document1.txt")
+    with pytest.raises(FileNotFoundError):
+        await ret.read_all()
+
+    fs.remove("text1.txt")
+    ret = fs.open("text1.txt")
+    with pytest.raises(FileNotFoundError):
+        for chunk in ret.read():
+            print(chunk)
+
+    ret = afs.open("text1.txt")
+    with pytest.raises(FileNotFoundError):
+        await ret.read_all()
+
+    ret = afs.open("text2.txt")
+    async for chunk in ret.read():
+        print(chunk)
+
+    ret = afs.open("text1.txt", "in")
+    with pytest.raises(FileNotFoundError):
+        await ret.remove()
+
+    expected = sorted([
+        "docs",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "docs/assets",
+        "docs/assets/asset1.txt",
+        "docs/assets/asset2.txt",
+        "text2.txt",
+        "text3.txt",
+    ])
+
+    ret = await afs.ls("in")
+    assert [f["path"] for f in ret] == expected
+
+    expected = sorted([
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "docs/assets/asset1.txt",
+        "docs/assets/asset2.txt",
+        "text2.txt",
+        "text3.txt",
+    ])
+    listing = list(fs.download())
+    ret = [_norm(f) for f in listing]
+    assert ret == expected
+    assert all([Path(p).exists() for p in listing])
+
+    listing = []
+    async for f in afs.download():
+        listing.append(f)
+    ret = [_norm(f) for f in listing]
+    assert ret == expected
+    assert all([Path(p).exists() for p in listing])
+
+    fs.close()
+    await afs.close()
+
+
+@pytest.mark.asyncio
+async def test_upload(env, tmp_path):
+    await env.start_app("tests.test_ray:app_factory1")
+    form_data = {
+        "runner": "runner3",
+        "throw": "off",
+        "files": []
+    }
+    resp = await env.post("/-/localhost/8125/-/runner", json=form_data)
+    assert resp.status_code == 200
+    fid = resp.json()["result"]
+    status = await env.wait_for(fid, "finished", "error")
+    assert status == "finished"
+
+    fs = SyncFileSystem(
+        fid, env.panel_url, env.client.cookies.get("kodosumi_jwt"))
+    ret = fs.ls("in")
+    assert ret == []
+    ret = fs.ls("out")
+    assert ret == []
+
+    files_data = [
+        ("docs/document1.txt", b"This is the first document content. "),
+        ("docs/document2.txt", b"This is the second document content. "),
+        ("docs/document3.txt", b"This is the third document content. "),
+        ("text1.txt", b"This is the first text content. "),
+        ("text2.txt", b"This is the second text content. "),
+    ]
+    upload_path = tmp_path / "upload-test"
+    upload_path.mkdir(parents=True, exist_ok=True)
+    for filename, content in files_data:
+        target = upload_path / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("wb") as f:
+            f.write(content)
+    fs.upload(upload_path)
+    ret = fs.ls("out")
+    assert sorted([f["path"] for f in ret]) == sorted([
+        "docs",
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "text1.txt",
+        "text2.txt",
+    ])
+    listing = list(fs.download("out"))
+    ret = [_norm(f) for f in listing]
+    expected = sorted([
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "text1.txt",
+        "text2.txt",
+    ])
+    assert ret == expected
+    assert all([Path(p).exists() for p in listing])
+
+    fs.remove("docs/document3.txt", "out")
+
+    listing = list(fs.download("out"))
+    ret = [_norm(f) for f in listing]
+    expected = sorted([
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "text1.txt",
+        "text2.txt",
+    ])
+    assert ret == expected
+    assert all([Path(p).exists() for p in listing])
+
+    fs.close()
+
+@pytest.mark.asyncio
+async def test_async_upload(env, tmp_path):
+    await env.start_app("tests.test_ray:app_factory1")
+    form_data = {
+        "runner": "runner3",
+        "throw": "off",
+        "files": []
+    }
+    resp = await env.post("/-/localhost/8125/-/runner", json=form_data)
+    assert resp.status_code == 200
+    fid = resp.json()["result"]
+    status = await env.wait_for(fid, "finished", "error")
+    assert status == "finished"
+
+    fs = AsyncFileSystem(
+        fid, env.panel_url, env.client.cookies.get("kodosumi_jwt"))
+    ret = await fs.ls("in")
+    assert ret == []
+    ret = await fs.ls("out")
+    assert ret == []
+
+    files_data = [
+        ("docs/document1.txt", b"This is the first document content. "),
+        ("docs/document2.txt", b"This is the second document content. "),
+        ("docs/document3.txt", b"This is the third document content. "),
+        ("text1.txt", b"This is the first text content. "),
+        ("text2.txt", b"This is the second text content. "),
+    ]
+    upload_path = tmp_path / "upload-test"
+    upload_path.mkdir(parents=True, exist_ok=True)
+    for filename, content in files_data:
+        target = upload_path / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("wb") as f:
+            f.write(content)
+    await fs.upload(upload_path)
+    ret = await fs.ls("out")
+    assert sorted([f["path"] for f in ret]) == sorted([
+        "docs",
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "text1.txt",
+        "text2.txt",
+    ])
+    listing = []
+    async for f in fs.download("out"):
+        listing.append(f)
+    ret = [_norm(f) for f in listing]
+    expected = sorted([
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "text1.txt",
+        "text2.txt",
+    ])
+    assert ret == expected
+    assert all([Path(p).exists() for p in listing])
+
+    await fs.remove("docs/document3.txt", "out")
+
+    listing = []
+    async for f in fs.download("out"):
+        listing.append(f)
+    ret = [_norm(f) for f in listing]
+    expected = sorted([
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "text1.txt",
+        "text2.txt",
+    ])
+    assert ret == expected
+    assert all([Path(p).exists() for p in listing])
+
+    fs.close()
+

@@ -2,6 +2,7 @@ import pytest
 import json
 from tests.test_execution import (register_flow, wait_for_job,
                                   app_server3, spooler_server, koco_server)
+from kodosumi.runner.files import AsyncFileSystem
 
 
 @pytest.mark.asyncio
@@ -80,8 +81,7 @@ async def test_simple(app_server3, spooler_server, koco_server):
     status = await wait_for_job(client, koco_server, fid)
     assert status == "finished"
 
-    from kodosumi.runner.files import FileSystem
-    fs = FileSystem(fid, koco_server, client.cookies["kodosumi_jwt"])
+    fs = AsyncFileSystem(fid, koco_server, client.cookies["kodosumi_jwt"])
     listing = await fs.ls()
     assert [f["path"] for f in listing] == [
         "docs", "docs/document1.txt", "docs/document2.txt", "image_data.bin"]

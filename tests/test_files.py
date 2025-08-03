@@ -144,7 +144,8 @@ async def test_complete_upload_success(auth_client, sample_file_data, tmp_path):
         "total_chunks": total_chunks,
         "batch_id": batch_id
     }
-    response = await auth_client.post("/files/complete", json=complete_payload)
+    response = await auth_client.post(
+        "/files/complete/in", json=complete_payload)
     assert response.status_code == 201
     
     data = response.json()
@@ -210,7 +211,8 @@ async def test_multi_chunk_upload_success(auth_client, large_file_data, tmp_path
         "total_chunks": total_chunks,
         "batch_id": batch_id
     }
-    response = await auth_client.post("/files/complete", json=complete_payload)
+    response = await auth_client.post(
+        "/files/complete/in", json=complete_payload)
     assert response.status_code == 201
     
     data = response.json()
@@ -301,7 +303,8 @@ async def test_multiple_files_upload_success(auth_client, tmp_path):
             "batch_id": batch_id
         }
         
-        response = await auth_client.post("/files/complete", json=complete_payload)
+        response = await auth_client.post(
+            "/files/complete/in", json=complete_payload)
         assert response.status_code == 201
         
         data = response.json()
@@ -419,7 +422,8 @@ async def test_multiple_files_with_cancellation(auth_client, tmp_path):
             "batch_id": batch_id
         }
         
-        response = await auth_client.post("/files/complete", json=complete_payload)
+        response = await auth_client.post(
+            "/files/complete/in", json=complete_payload)
         assert response.status_code == 201
         
         data = response.json()
@@ -552,8 +556,7 @@ async def test_multiple_files_directory_structure_complete_all(auth_client, tmp_
     
     # Use complete_all endpoint to finish all uploads at once
     complete_all_response = await auth_client.post(
-        f"/files/complete/{fid}/{batch_id}",
-        json=upload_mapping
+        f"/files/complete/{fid}/{batch_id}/in", json=upload_mapping
     )
     assert complete_all_response.status_code == 201
     
@@ -697,9 +700,7 @@ async def test_list_files_directory_structure(auth_client, tmp_path):
     # Complete all uploads using complete_all
     fid = str(uuid.uuid4())
     complete_all_response = await auth_client.post(
-        f"/files/complete/{fid}/{batch_id}",
-        json=upload_mapping
-    )
+        f"/files/complete/{fid}/{batch_id}/in", json=upload_mapping)
     assert complete_all_response.status_code == 201
     
     # Now test the list_files endpoint
@@ -827,9 +828,7 @@ async def test_get_file_download(auth_client, tmp_path):
     # Complete all uploads
     fid = str(uuid.uuid4())
     complete_all_response = await auth_client.post(
-        f"/files/complete/{fid}/{batch_id}",
-        json=upload_mapping
-    )
+        f"/files/complete/{fid}/{batch_id}/in", json=upload_mapping)
     assert complete_all_response.status_code == 201
     
     # Test downloading each file
@@ -918,9 +917,7 @@ async def test_get_file_security(auth_client, tmp_path):
         }
     }
     complete_response = await auth_client.post(
-        f"/files/complete/{fid}/{batch_id}",
-        json=upload_mapping
-    )
+        f"/files/complete/{fid}/{batch_id}/in", json=upload_mapping)
     assert complete_response.status_code == 201
     
     # Test path traversal attempts (should all fail with 403 or 404)
@@ -1001,9 +998,7 @@ async def test_get_file_path_normalization(auth_client, tmp_path):
     # Complete upload
     fid = str(uuid.uuid4())
     complete_response = await auth_client.post(
-        f"/files/complete/{fid}/{batch_id}",
-        json=upload_mapping
-    )
+        f"/files/complete/{fid}/{batch_id}/in", json=upload_mapping)
     assert complete_response.status_code == 201
     
     # Test that various path formats all work and return the same content

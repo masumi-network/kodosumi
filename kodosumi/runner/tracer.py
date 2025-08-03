@@ -11,7 +11,7 @@ from kodosumi.const import (EVENT_ACTION, EVENT_DEBUG, EVENT_LEASE, EVENT_LOCK,
                             EVENT_RESULT, EVENT_STDERR, EVENT_STDOUT,
                             NAMESPACE)
 from kodosumi.helper import now, serialize
-from kodosumi.runner.files import FileSystem, SyncFileSystem
+from kodosumi.runner.files import AsyncFileSystem, SyncFileSystem
 
 
 class StdoutHandler:
@@ -48,8 +48,6 @@ class Tracer:
                  queue: ray.util.queue.Queue, 
                  panel_url: str,
                  jwt: str):
-        # from kodosumi.helper import debug
-        # debug(63255)
         self.fid = fid
         self.queue = queue
         self.panel_url = panel_url.rstrip("/")
@@ -166,32 +164,7 @@ class Tracer:
         return result
 
     async def fs(self):
-        return FileSystem(self.fid, self.panel_url, self.jwt)
+        return AsyncFileSystem(self.fid, self.panel_url, self.jwt)
 
     def fs_sync(self):
         return SyncFileSystem(self.fid, self.panel_url, self.jwt)
-
-    # async def upload(self, path: str):
-    #     pass
-
-    # async def get_file(self, path: str):
-    #     url = f"{self.panel_url}/files/{self.fid}/in/{path.lstrip('/')}"
-    #     cookies = {"kodosumi_jwt": self.jwt}
-    #     async with AsyncClient(timeout=300) as client:
-    #         async with client.stream("GET", url, cookies=cookies) as resp:
-    #             if resp.status_code != 200:
-    #                 raise Exception(
-    #                     f"Failed to download file: {resp.status_code}")
-    #             async for chunk in resp.aiter_bytes():
-    #                 yield chunk
-    #                 await asyncio.sleep(0)
-
-    # async def list_file(self):
-    #     async with AsyncClient(timeout=300) as client:
-    #         resp = await client.get(
-    #             f"{self.panel_url}/files/{self.fid}/in",
-    #             cookies={"kodosumi_jwt": self.jwt})
-    #         if resp.status_code == 200:
-    #             return resp.json()
-    #         raise Exception(f"Failed to list files: {resp.status_code}")
-
