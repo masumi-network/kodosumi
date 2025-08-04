@@ -868,7 +868,7 @@ async def test_get_file_download(auth_client, tmp_path):
     
     # Test trying to download a directory (should fail)
     directory_response = await auth_client.get(f"/files/{fid}/in/docs")
-    assert directory_response.status_code == 400
+    assert directory_response.status_code == 404
     assert "Cannot retrieve directories" in directory_response.json()["detail"]
 
 

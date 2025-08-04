@@ -2,11 +2,12 @@ import asyncio
 from enum import Enum, auto
 from pathlib import Path
 from tempfile import mkdtemp
-from typing import List, Literal, Union, Dict, Any
+from typing import Any, Dict, List, Literal
 
 from httpx import AsyncClient, Client, Response
 
 from kodosumi.config import InternalSettings
+
 
 class StreamState(Enum):
     FRESH = auto()
@@ -21,12 +22,13 @@ def create_client_config(panel_url: str, jwt: str) -> Dict[str, Any]:
     return {
         "timeout": 300,
         "cookies": {"kodosumi_jwt": jwt},
-        "base_url": panel_url
+        "base_url": panel_url,
+        "follow_redirects": True
     }
 
 
 def build_file_path(fid: str, path: str = "") -> tuple[str, str]:
-    root, *sub_path = path.lstrip("/").split("/", 1)
+    root, *sub_path = path.strip("/").split("/", 1)
     if root not in ("in", "out"):
         raise ValueError(f"invalid root '{root}'")
     if sub_path:
@@ -81,7 +83,11 @@ def calculate_total_chunks(file_size: int, chunk_size: int) -> int:
 
 def get_files_to_upload(path: str) -> List[Path]:
     path_obj = Path(path)
-    return [f for f in path_obj.rglob("*") if f.is_file()]
+    if path_obj.is_file():
+        return [path_obj]
+    if path_obj.is_dir():
+        return [f for f in path_obj.rglob("*") if f.is_file()]
+    return []
 
 
 class AsyncFileStream:
@@ -237,20 +243,40 @@ class AsyncFileSystem:
         await self.close()
 
     async def download(self, path: str = "in"):
-        api_path, sub_path = build_file_path(self.fid, path)
-        resp = await self._client.get(api_path)
-        validate_response(resp, sub_path)
-        folder = mkdtemp(prefix="kodosumi-")
-        for file in resp.json():
-            # if file["is_directory"]:
-            #     continue
-            target = Path(folder).joinpath(file["path"])
-            target.parent.mkdir(parents=True, exist_ok=True)
-            async with self.open(file["path"]) as src:
-                with open(str(target), "wb") as dst:
+        local_folder = mkdtemp(prefix="kodosumi-")
+        root, *subpath = path.strip("/").split('/', 1)
+        found = False
+        search = Path(root) / "/".join(subpath)
+        search_len = len(search.parts)
+        for item in await self.ls(root):
+            in_scope = False
+            if not subpath:
+                in_scope = True
+                parent = Path(root)
+                found = True
+            else:
+                item_path = Path(item["path"])
+                if search == item_path:
+                    in_scope = True
+                    parent = search.parent
+                    found = True
+                elif search_len < len(item_path.parts):
+                    if search.parts == item_path.parts[0:search_len]:
+                        in_scope = True
+                        parent = search
+                        found = True
+            if not in_scope:
+                continue
+            relative_path = Path(item['path']).relative_to(parent)
+            target_path = Path(local_folder).joinpath(relative_path)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            async with self.open(item['path']) as src:
+                with open(str(target_path), "wb") as dst:
                     async for chunk in src.read():
                         dst.write(chunk)
-                    yield str(target)
+                yield str(target_path)
+        if not found:
+            raise FileNotFoundError(path)
 
     async def upload(self, path: str):
         batch_response = await self._client.post("/files/init_batch")
@@ -258,14 +284,18 @@ class AsyncFileSystem:
         batch_id = batch_response.json()["batch_id"]
         
         path_obj = Path(path)
+        base_path = path_obj.parent if path_obj.is_file() else path_obj
         files_to_upload = get_files_to_upload(path)
+        if not files_to_upload:
+            return None
+
         upload_ids = []
         
         for file in files_to_upload:
             total_chunks = calculate_total_chunks(
                 file.stat().st_size, self.chunk_size)
             init_payload = create_upload_payload(
-                file, path_obj, total_chunks, batch_id)
+                file, base_path, total_chunks, batch_id)
             init_response = await self._client.post(
                 "/files/init", json=init_payload)
             assert init_response.status_code == 201
@@ -296,7 +326,7 @@ class AsyncFileSystem:
                     assert data["chunk_number"] == chunk_num
                     await asyncio.sleep(0)
             items[upload_id] = create_completion_payload(
-                file, path_obj, total_chunks)
+                file, base_path, total_chunks)
         response = await self._client.post(
             f"/files/complete/{self.fid}/{batch_id}/out", json=items)
         assert response.status_code == 201
@@ -313,10 +343,11 @@ class SyncFileSystem:
         self.chunk_size = settings.CHUNK_SIZE
 
     def ls(self, path: str = "in") -> List[dict]:
-        api_path, sub_path = build_file_path(self.fid, path)
+        api_path, root = build_file_path(self.fid, path)
         resp = self._client.get(api_path)
-        validate_response(resp, sub_path)
-        return resp.json()
+        validate_response(resp, root)
+        all_files = resp.json()
+        return all_files
 
     def open(self, 
              path: str) -> "SyncFileStream":
@@ -324,13 +355,12 @@ class SyncFileSystem:
         stream_context = self._client.stream("GET", api_path)
         return SyncFileStream(self, sub_path, stream_context)
 
-    def remove(self, 
-               path: str) -> bool:
+    def remove(self, path: str) -> bool:
         api_path, sub_path = build_file_path(self.fid, path)
         resp = self._client.delete(api_path)
-        if resp.status_code != 204:
-            raise FileNotFoundError(sub_path)
-        return True
+        if resp.status_code == 204:
+            return True
+        raise FileNotFoundError(sub_path)
     
     def close(self):
         self._client.close()
@@ -342,35 +372,59 @@ class SyncFileSystem:
         self.close()
 
     def download(self, path: str = "in"):
-        api_path, sub_path = build_file_path(self.fid, path)
-        resp = self._client.get(api_path)
-        validate_response(resp, sub_path)
-        folder = mkdtemp(prefix="kodosumi-")
-        for file in resp.json():
-            # if file["is_directory"]:
-            #     continue
-            target = Path(folder).joinpath(file["path"])
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with self.open(file["path"]) as src:
-                with open(str(target), "wb") as dst:
+        local_folder = mkdtemp(prefix="kodosumi-")
+        root, *subpath = path.strip("/").split('/', 1)
+        found = False
+        search = Path(root) / "/".join(subpath)
+        search_len = len(search.parts)
+        for item in self.ls(root):
+            in_scope = False
+            if not subpath:
+                in_scope = True
+                parent = Path(root)
+                found = True
+            else:
+                item_path = Path(item["path"])
+                if search == item_path:
+                    in_scope = True
+                    parent = search.parent
+                    found = True
+                elif search_len < len(item_path.parts):
+                    if search.parts == item_path.parts[0:search_len]:
+                        in_scope = True
+                        parent = search
+                        found = True
+            if not in_scope:
+                continue
+            relative_path = Path(item['path']).relative_to(parent)
+            target_path = Path(local_folder).joinpath(relative_path)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.open(item['path']) as src:
+                with open(str(target_path), "wb") as dst:
                     for chunk in src.read():
                         dst.write(chunk)
-                    yield str(target)
-
+                yield str(target_path)
+        if not found:
+            raise FileNotFoundError(path)
+        
     def upload(self, path: str):
         batch_response = self._client.post("/files/init_batch")
         assert batch_response.status_code == 201
         batch_id = batch_response.json()["batch_id"]
         
         path_obj = Path(path)
+        base_path = path_obj.parent if path_obj.is_file() else path_obj
         files_to_upload = get_files_to_upload(path)
+        if not files_to_upload:
+            return None
+
         upload_ids = []
         
         for file in files_to_upload:
             total_chunks = calculate_total_chunks(
                 file.stat().st_size, self.chunk_size)
             init_payload = create_upload_payload(
-                file, path_obj, total_chunks, batch_id)
+                file, base_path, total_chunks, batch_id)
             init_response = self._client.post("/files/init", json=init_payload)
             assert init_response.status_code == 201
             upload_data = init_response.json()
@@ -399,7 +453,7 @@ class SyncFileSystem:
                     assert data["status"] == "chunk received"
                     assert data["chunk_number"] == chunk_num
             items[upload_id] = create_completion_payload(
-                file, path_obj, total_chunks)
+                file, base_path, total_chunks)
         response = self._client.post(
             f"/files/complete/{self.fid}/{batch_id}/out", json=items)
         assert response.status_code == 201

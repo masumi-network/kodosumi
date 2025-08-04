@@ -102,7 +102,7 @@ def app_factory1():
         throw = inputs.get("throw")
         if throw:
             raise Exception("test error")
-        return Launch(request, f"tests.test_ray:{runner}", inputs=inputs)
+        return Launch(request, runner, inputs=inputs)
 
     return app
 
@@ -278,7 +278,7 @@ async def test_environment(env):
     files_payload = await env.upload_files(files_data)
 
     form_data = {
-        "runner": "runner1",
+        "runner": "tests.test_ray:runner1",
         "throw": "off",
         "files": json.dumps(files_payload)
     }
@@ -318,7 +318,7 @@ async def test_download(env):
     ]
     files_payload = await env.upload_files(files_data)
     form_data = {
-        "runner": "runner2",
+        "runner": "tests.test_ray:runner2",
         "throw": "off",
         "files": json.dumps(files_payload)
     }
@@ -403,12 +403,12 @@ async def test_download(env):
     assert [f["path"] for f in ret] == expected
 
     expected = sorted([
-        "in/docs/document2.txt",
-        "in/docs/document3.txt",
-        "in/docs/assets/asset1.txt",
-        "in/docs/assets/asset2.txt",
-        "in/text2.txt",
-        "in/text3.txt",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "docs/assets/asset1.txt",
+        "docs/assets/asset2.txt",
+        "text2.txt",
+        "text3.txt",
     ])
     listing = list(fs.download())
     ret = [_norm(f) for f in listing]
@@ -430,7 +430,7 @@ async def test_download(env):
 async def test_upload(env, tmp_path):
     await env.start_app("tests.test_ray:app_factory1")
     form_data = {
-        "runner": "runner3",
+        "runner": "tests.test_ray:runner3",
         "throw": "off",
         "files": []
     }
@@ -474,11 +474,11 @@ async def test_upload(env, tmp_path):
     listing = list(fs.download("out"))
     ret = [_norm(f) for f in listing]
     expected = sorted([
-        "out/docs/document1.txt",
-        "out/docs/document2.txt",
-        "out/docs/document3.txt",
-        "out/text1.txt",
-        "out/text2.txt",
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "text1.txt",
+        "text2.txt",
     ])
     assert ret == expected
     assert all([Path(p).exists() for p in listing])
@@ -488,10 +488,10 @@ async def test_upload(env, tmp_path):
     listing = list(fs.download("out"))
     ret = [_norm(f) for f in listing]
     expected = sorted([
-        "out/docs/document1.txt",
-        "out/docs/document2.txt",
-        "out/text1.txt",
-        "out/text2.txt",
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "text1.txt",
+        "text2.txt",
     ])
     assert ret == expected
     assert all([Path(p).exists() for p in listing])
@@ -502,7 +502,7 @@ async def test_upload(env, tmp_path):
 async def test_async_upload(env, tmp_path):
     await env.start_app("tests.test_ray:app_factory1")
     form_data = {
-        "runner": "runner3",
+        "runner": "tests.test_ray:runner3",
         "throw": "off",
         "files": []
     }
@@ -548,11 +548,11 @@ async def test_async_upload(env, tmp_path):
         listing.append(f)
     ret = [_norm(f) for f in listing]
     expected = sorted([
-        "out/docs/document1.txt",
-        "out/docs/document2.txt",
-        "out/docs/document3.txt",
-        "out/text1.txt",
-        "out/text2.txt",
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "docs/document3.txt",
+        "text1.txt",
+        "text2.txt",
     ])
     assert ret == expected
     assert all([Path(p).exists() for p in listing])
@@ -564,10 +564,10 @@ async def test_async_upload(env, tmp_path):
         listing.append(f)
     ret = [_norm(f) for f in listing]
     expected = sorted([
-        "out/docs/document1.txt",
-        "out/docs/document2.txt",
-        "out/text1.txt",
-        "out/text2.txt",
+        "docs/document1.txt",
+        "docs/document2.txt",
+        "text1.txt",
+        "text2.txt",
     ])
     assert ret == expected
     assert all([Path(p).exists() for p in listing])

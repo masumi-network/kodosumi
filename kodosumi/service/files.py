@@ -185,6 +185,7 @@ class FileControl(litestar.Controller):
             
             logger.info(f"complete upload {filename}")
             
+            
             # Kombiniere Chunks zu finaler Datei
             async with aiofiles.open(final_path, 'wb') as final_file:
                 for i in range(total_chunks):
@@ -265,77 +266,45 @@ class FileControl(litestar.Controller):
                         path: str,
                         request: Request, 
                         state: State) -> Union[List[Dict[str, Any]], Stream]:
-        root, *sub_path = path.lstrip("/").split("/", 1)
-        if root not in self.VALID_DIR_TYPES:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid directory type. Must be one of: "
-                       f"{', '.join(self.VALID_DIR_TYPES)}"
-            )
-        _path = "/".join(sub_path).rstrip("/")
-        if not _path:
-            exec_dir = self._get_exec_dir(request.user, fid, root, state)
-            if not exec_dir.exists():
-                return []
-            entries_list = []
-            # processed_dirs = set()
-            for file_path in exec_dir.rglob("*"):
-                if file_path.is_file():
-                    relative_path = file_path.relative_to(exec_dir.parent)
-                    file_size = file_path.stat().st_size
-                    last_modified = file_path.stat().st_mtime
-                    entries_list.append({
-                        "path": str(relative_path),
-                        "size": file_size,
-                        "last_modified": last_modified
-                    })
-            entries_list.sort(key=lambda x: str(x["path"]))
-            return entries_list
-        try:
-            exec_dir = self._get_exec_dir(request.user, fid, root, state)
-            if not exec_dir.exists():
-                raise NotFoundException(
-                    f"Directory '{root}' not found for flow {fid}")
-            normalized_path = _path.lstrip('/')
-            file_path = exec_dir / normalized_path
-            file_path = self._validate_file_path(file_path, exec_dir.parent, _path)
-            if file_path.is_dir():
-                raise HTTPException(
-                    status_code=400, detail="Cannot retrieve directories")
-            if not file_path.is_file():
-                raise HTTPException(
-                    status_code=400, 
-                    detail="Path does not point to a valid file")
-            file_size = file_path.stat().st_size
-            filename = file_path.name
+        dir_type, *sub_path = path.lstrip("/").split("/", 1)
+        self._validate_dir_type(dir_type)
+        exec_dir = self._get_exec_dir(request.user, fid, dir_type, state)
+        if sub_path:
+            # retrieve file
+            file = exec_dir / "/".join(sub_path)
+            if not file.exists():
+                raise NotFoundException(f"'{file}' not found for flow {fid}")
+            if file.is_dir():
+                raise NotFoundException("Cannot retrieve directories")
+            size = file.stat().st_size
+            filename = file.name
             return Stream(
-                content=self._stream_file(file_path, state),
+                content=self._stream_file(file, state),
                 media_type="application/octet-stream",
                 headers={
-                    "Content-Length": str(file_size),
+                    "Content-Length": str(size),
                     "Content-Disposition": f'attachment; filename="{filename}"',
                     "Cache-Control": "no-cache",
                     "Content-Type": "application/octet-stream"
                 }
             )
-        except (NotFoundException, HTTPException):
-            raise
-        except Exception as e:
-            logger.error(
-                f"Error retrieving file {path} from {root} directory "
-                f"for fid {fid}, user {request.user}: {str(e)}")
-            raise HTTPException(
-                status_code=500, 
-                detail="Internal server error while retrieving file")
-
-    # @get(["/{fid:str}/{dir_type:str}/{path:path}",
-    #       "/{fid:str}/{dir_type:str}/"])
-    # async def get_file(self, 
-    #                    fid: str, 
-    #                    dir_type: str, 
-    #                    request: Request, 
-    #                    state: State,
-    #                    path: str = "") -> Stream:
+        else:
+            # retrieve folder
+            if not exec_dir.exists():
+                return []
+            entries_list = []
+            for file in exec_dir.rglob("*"):
+                if file.is_file():
+                    relative_path = file.relative_to(exec_dir.parent)
+                    size = file.stat().st_size
+                    last_modified = file.stat().st_mtime
+                    entries_list.append({
+                        "path": str(relative_path),
+                        "size": size,
+                        "last_modified": last_modified
+                    })
+            entries_list.sort(key=lambda x: str(x["path"]))
+            return entries_list
 
     @delete("/{fid:str}/{path:path}")
     async def delete_file(self, 
@@ -353,19 +322,9 @@ class FileControl(litestar.Controller):
         _path = "/".join(sub_path).rstrip("/")
         base_dir = self._get_exec_dir(request.user, fid, root, state)
         target_path = (base_dir / _path.strip("/")).resolve()
-        if not str(target_path).startswith(str(base_dir.resolve())):
-            raise HTTPException(status_code=403, detail="Forbidden")
         if not target_path.exists():
             raise NotFoundException(detail=f"Path not found: {path}")
-        try:
-            if target_path.is_dir():
-                shutil.rmtree(target_path)
-            elif target_path.is_file():
-                os.remove(target_path)
-            else:
-                raise HTTPException(
-                    status_code=400, detail="Path is not a file or directory")
-        except OSError as e:
-            logger.error(f"Error deleting path {target_path}: {e}")
-            raise HTTPException(
-                status_code=500, detail=f"Error deleting path: {e.strerror}")
+        if target_path.is_dir():
+            shutil.rmtree(target_path)
+        elif target_path.is_file():
+            os.remove(target_path)
