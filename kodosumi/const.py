@@ -50,3 +50,6 @@ ALGORITHM = "HS256"
 JWT_SECRET = InternalSettings().SECRET_KEY
 KODOSUMI_USER = "x-kodosumi_user"
 KODOSUMI_BASE = "x-kodosumi_base"
+KODOSUMI_API = "x-kodosumi"
+KODOSUMI_AUTHOR = "x-author"
+KODOSUMI_ORGANIZATION = "x-organization"

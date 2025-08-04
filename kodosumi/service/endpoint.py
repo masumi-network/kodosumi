@@ -4,17 +4,16 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 import ray
-from httpx import AsyncClient
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
 
-from kodosumi.dtypes import EndpointResponse
-from kodosumi.log import logger
 from kodosumi.const import NAMESPACE
-
-KODOSUMI_API = "x-kodosumi"
-KODOSUMI_AUTHOR = "x-author"
-KODOSUMI_ORGANIZATION = "x-organization"
+from kodosumi.const import KODOSUMI_API
+from kodosumi.const import KODOSUMI_AUTHOR
+from kodosumi.const import KODOSUMI_ORGANIZATION
+from kodosumi.dtypes import EndpointResponse
+from kodosumi.helper import HTTPXClient
+from kodosumi.log import logger
 
 API_FIELDS: tuple = (
     "summary", "description", "tags", "deprecated", KODOSUMI_AUTHOR,
@@ -22,7 +21,7 @@ API_FIELDS: tuple = (
 
 
 async def _get_openapi(url: str) -> dict:
-    async with AsyncClient() as client:
+    async with HTTPXClient() as client:
         response = await client.get(url)
         response.raise_for_status()
         return response.json()

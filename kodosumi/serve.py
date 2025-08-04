@@ -5,19 +5,19 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple, Union
 
-import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import ValidationException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 import kodosumi.service.admin
-from kodosumi.const import KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER
-from kodosumi.service.endpoint import KODOSUMI_API
+from kodosumi.const import (KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER,
+                            KODOSUMI_API)
+from kodosumi.helper import HTTPXClient
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.service.inputs.forms import Checkbox, InputFiles, Model
-from kodosumi.service.proxy import (LockNotFound,
-                                    find_lock)
+from kodosumi.service.proxy import LockNotFound, find_lock
+
 
 ANNONYMOUS_USER = "_annon_"
 
@@ -148,10 +148,9 @@ class ServeAPI(FastAPI):
                         if items and batch_id:
                             url = str(request.base_url).rstrip("/")
                             url += f"/files/complete/{fid}/{batch_id}/in"
-                            async with httpx.AsyncClient() as client:
+                            async with HTTPXClient() as client:
                                 resp = await client.post(
-                                    url, json=items, cookies=request.cookies,
-                                    timeout=60)
+                                    url, json=items, cookies=request.cookies)
                                 if resp.status_code != 201:
                                     raise HTTPException(
                                         status_code=400,
@@ -336,3 +335,4 @@ class Templates(Jinja2Templates):
         kwargs["directory"].insert(0, main_dir)
         super().__init__(*args, **kwargs)
         self.env.globals['static'] = _static
+

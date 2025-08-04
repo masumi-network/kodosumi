@@ -1,23 +1,21 @@
-from typing import List
 import asyncio
-import httpx
-from pathlib import Path
-import sys
-from subprocess import Popen, PIPE, STDOUT
-import litestar
-from typing import AsyncGenerator, Optional, List, Union, Dict, Tuple
-from litestar import get, post, put, delete, Request
-from litestar.datastructures import State
-from litestar.response import Response, Stream
-from litestar.status_codes import HTTP_200_OK, HTTP_201_CREATED, HTTP_204_NO_CONTENT, HTTP_404_NOT_FOUND
-from litestar.exceptions import NotFoundException
-import ray
-from kodosumi.service.jwt import operator_guard
-from kodosumi.ops import deploy, shutdown, status
-import kodosumi.service.endpoint
-from kodosumi.config import Settings
-import time
 import json as jsonlib
+import sys
+from pathlib import Path
+from subprocess import PIPE, STDOUT, Popen
+from typing import List
+
+import litestar
+import ray
+from litestar import Request, delete, get, post
+from litestar.datastructures import State
+from litestar.exceptions import NotFoundException
+from litestar.response import Response
+
+from kodosumi.config import Settings
+from kodosumi.helper import HTTPXClient
+from kodosumi.ops import status
+from kodosumi.service.jwt import operator_guard
 
 NEXT_ACTION_TO_STOP = "to-stop"
 NEXT_ACTION_TO_DEPLOY = "to-deploy"
@@ -65,19 +63,6 @@ class Deployer:
                       str(self.config_file())], stdout=PIPE, stderr=STDOUT)
         (stdout, _) = proc.communicate()
         return stdout.decode()
-        # url = self.settings.RAY_DASHBOARD + "/api/serve/applications/"
-        # while True:
-        #     resp = httpx.get(url, headers={"Accept": "application/json"})
-        #     apps = resp.json()["applications"]
-        #     if not apps:
-        #         break
-        #     status = {k: v["status"] for k, v in apps.items()}
-        #     total = len(status)
-        #     running = sum([1 for s in status.values() if s.lower() == "running"])
-        #     yield f"running: {running}/{total}"
-        #     if running == total:
-        #         break
-        #     time.sleep(2)
 
     def status_dict(self):
         koco = Path(sys.executable).parent / "koco"
@@ -112,10 +97,12 @@ def identify_head_node_constraint():
                 return {node[0]: 1}
     return None
 
+
 def _get_deployer(settings: Settings) -> Deployer:
     constraint = identify_head_node_constraint()
     return Deployer.options(  # type: ignore
         resources=constraint).remote(settings)
+
 
 async def _wait_for(*tasks) -> str:
     unready = list(tasks)
@@ -158,7 +145,7 @@ class DeployControl(litestar.Controller):
         deployer = _get_deployer(state["settings"])
         listing = await _wait_for(deployer.listing.remote())
         url = state["settings"].RAY_DASHBOARD + "/api/serve/applications/"
-        async with httpx.AsyncClient() as client:
+        async with HTTPXClient() as client:
             resp = await client.get(url, headers={"Accept": "application/json"})
             js = resp.json()
             apps = js["applications"]

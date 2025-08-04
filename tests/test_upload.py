@@ -126,7 +126,6 @@ async def test_simple(app_server3, spooler_server, koco_server):
     await fs.close()
 
 
-
 @ray.remote
 def process_file1(file: str, tracer: Tracer):
     # from kodosumi.helper import debug

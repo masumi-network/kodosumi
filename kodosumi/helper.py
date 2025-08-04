@@ -2,6 +2,7 @@ import logging
 import time
 from typing import Optional
 
+import httpx
 import ray
 from litestar import MediaType, Request
 from pydantic import BaseModel
@@ -76,3 +77,24 @@ def serialize(data):
             return {"TypeError": str(d)}
         
     return DynamicModel(_resolve(data)).model_dump_json()
+
+
+class HTTPXClient:
+    def __init__(self, **kwargs):
+        timeout = InternalSettings().PROXY_TIMEOUT
+        self.timeout = timeout if timeout is not None else timeout
+        self.follow_redirects = True
+        self.kwargs = kwargs
+        self.client: Optional[httpx.AsyncClient] = None
+    
+    async def __aenter__(self) -> httpx.AsyncClient:
+        self.client = httpx.AsyncClient(
+            timeout=self.timeout, 
+            follow_redirects=self.follow_redirects,
+            **self.kwargs
+        )
+        return self.client
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.client:
+            await self.client.aclose()

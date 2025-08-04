@@ -1,7 +1,7 @@
 from typing import Union
 
 import litestar
-from httpx import AsyncClient
+from kodosumi.helper import HTTPXClient
 from litestar import Request, get, post
 from litestar.datastructures import State
 from litestar.response import Redirect, Template
@@ -25,11 +25,9 @@ class InputsController(litestar.Controller):
                          request: Request) -> Template:
         schema_url = str(request.base_url).rstrip(
             "/") + f"/-/{path.lstrip('/')}"
-        timeout = state["settings"].PROXY_TIMEOUT
-        async with AsyncClient(timeout=timeout) as client:
+        async with HTTPXClient() as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
-            # request_headers[KODOSUMI_BASE] = f"/-/{path}"
             host = request.headers.get("host", None)
             response = await client.get(url=schema_url, headers=request_headers)
             response_headers = dict(response.headers)
@@ -55,8 +53,7 @@ class InputsController(litestar.Controller):
                     state: State,
                     request: Request) -> Union[Template, Redirect]:
         schema_url = str(request.base_url).rstrip("/") + f"/-/{path}"
-        timeout = state["settings"].PROXY_TIMEOUT
-        async with AsyncClient(timeout=timeout) as client:
+        async with HTTPXClient() as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
             request_headers.pop("content-length", None)
@@ -108,8 +105,7 @@ class InputsController(litestar.Controller):
             raise NotFoundException(e.message) from e
         base_url = lock['base_url']
         lock_url = f"{base_url.rstrip('/')}/_lock_/{fid}/{lid}"
-        timeout = state["settings"].PROXY_TIMEOUT
-        async with AsyncClient(timeout=timeout) as client:
+        async with HTTPXClient() as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
             host = request.headers.get("host", None)
@@ -143,8 +139,7 @@ class InputsController(litestar.Controller):
             raise NotFoundException(e.message) from e
         base_url = str(request.base_url)
         lock_url = f"{base_url.rstrip('/')}/lock/{fid}/{lid}"
-        timeout = state["settings"].PROXY_TIMEOUT
-        async with AsyncClient(timeout=timeout) as client:
+        async with HTTPXClient() as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
             request_headers.pop("content-length", None)
