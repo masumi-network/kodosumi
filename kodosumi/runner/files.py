@@ -25,11 +25,14 @@ def create_client_config(panel_url: str, jwt: str) -> Dict[str, Any]:
     }
 
 
-def build_file_path(fid: str, root: DirectoryType, path: str = "") -> str:
-    clean_path = path.lstrip("/") if path else ""
-    if clean_path:
-        return f"/files/{fid}/{root}/{clean_path}" 
-    return f"/files/{fid}/{root}"
+def build_file_path(fid: str, path: str = "") -> tuple[str, str]:
+    root, *sub_path = path.lstrip("/").split("/", 1)
+    if root not in ("in", "out"):
+        raise ValueError(f"invalid root '{root}'")
+    if sub_path:
+        file_path = "/".join(sub_path).rstrip("/")
+        return f"/files/{fid}/{root}/{file_path}", f"{root}/{file_path}"
+    return f"/files/{fid}/{root}", root
 
 
 def validate_response(resp: Response, error_path: str) -> None:
@@ -76,7 +79,7 @@ def calculate_total_chunks(file_size: int, chunk_size: int) -> int:
     return (file_size + chunk_size - 1) // chunk_size
 
 
-def get_files_to_upload(path: Union[str, Path]) -> List[Path]:
+def get_files_to_upload(path: str) -> List[Path]:
     path_obj = Path(path)
     return [f for f in path_obj.rglob("*") if f.is_file()]
 
@@ -206,26 +209,22 @@ class AsyncFileSystem:
         settings = InternalSettings()
         self.chunk_size = settings.CHUNK_SIZE
 
-    async def ls(self, root: DirectoryType = "in") -> List[dict]:
-        path = build_file_path(self.fid, root)
-        resp = await self._client.get(path)
-        validate_response(resp, root)
+    async def ls(self, path: str = "in") -> List[dict]:
+        api_path, sub_path = build_file_path(self.fid, path)
+        resp = await self._client.get(api_path)
+        validate_response(resp, sub_path)
         return resp.json()
 
-    def open(self, 
-             path: str, 
-             root: DirectoryType = "in") -> "AsyncFileStream":
-        api_path = build_file_path(self.fid, root, path)
+    def open(self, path: str) -> "AsyncFileStream":
+        api_path, sub_path = build_file_path(self.fid, path)
         stream_context = self._client.stream("GET", api_path)
-        return AsyncFileStream(self, path, stream_context)
+        return AsyncFileStream(self, sub_path, stream_context)
 
-    async def remove(self, 
-                     path: str, 
-                     root: DirectoryType = "in") -> bool:
-        api_path = build_file_path(self.fid, root, path)
+    async def remove(self, path: str) -> bool:
+        api_path, sub_path = build_file_path(self.fid, path)
         resp = await self._client.delete(api_path)
         if resp.status_code != 204:
-            raise FileNotFoundError(path)
+            raise FileNotFoundError(sub_path)
         return True
     
     async def close(self):
@@ -237,29 +236,29 @@ class AsyncFileSystem:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
 
-    async def download(self, root: DirectoryType = "in"):
-        path = build_file_path(self.fid, root)
-        resp = await self._client.get(path)
-        validate_response(resp, root)
+    async def download(self, path: str = "in"):
+        api_path, sub_path = build_file_path(self.fid, path)
+        resp = await self._client.get(api_path)
+        validate_response(resp, sub_path)
         folder = mkdtemp(prefix="kodosumi-")
         for file in resp.json():
-            if file["is_directory"]:
-                continue
+            # if file["is_directory"]:
+            #     continue
             target = Path(folder).joinpath(file["path"])
             target.parent.mkdir(parents=True, exist_ok=True)
-            async with self.open(file["path"], root=root) as src:
+            async with self.open(file["path"]) as src:
                 with open(str(target), "wb") as dst:
                     async for chunk in src.read():
                         dst.write(chunk)
                     yield str(target)
 
-    async def upload(self, path: Union[str, Path]):
+    async def upload(self, path: str):
         batch_response = await self._client.post("/files/init_batch")
         assert batch_response.status_code == 201
         batch_id = batch_response.json()["batch_id"]
         
         path_obj = Path(path)
-        files_to_upload = get_files_to_upload(path_obj)
+        files_to_upload = get_files_to_upload(path)
         upload_ids = []
         
         for file in files_to_upload:
@@ -267,7 +266,6 @@ class AsyncFileSystem:
                 file.stat().st_size, self.chunk_size)
             init_payload = create_upload_payload(
                 file, path_obj, total_chunks, batch_id)
-            
             init_response = await self._client.post(
                 "/files/init", json=init_payload)
             assert init_response.status_code == 201
@@ -278,19 +276,16 @@ class AsyncFileSystem:
                 "file": file,
                 "size": file.stat().st_size
             })
-        
         items = {}
         for upload_info in upload_ids:
             upload_id = upload_info["upload_id"]
             file = upload_info["file"]
             total_chunks = upload_info["total_chunks"]
-            
             with file.open("rb") as fh:
                 for chunk_num in range(total_chunks):
                     chunk_data = fh.read(self.chunk_size)
                     if not chunk_data:
                         break
-                    
                     form_data, files = create_chunk_payload(
                         upload_id, chunk_num, chunk_data)
                     response = await self._client.post(
@@ -300,10 +295,8 @@ class AsyncFileSystem:
                     assert data["status"] == "chunk received"
                     assert data["chunk_number"] == chunk_num
                     await asyncio.sleep(0)
-            
             items[upload_id] = create_completion_payload(
                 file, path_obj, total_chunks)
-        
         response = await self._client.post(
             f"/files/complete/{self.fid}/{batch_id}/out", json=items)
         assert response.status_code == 201
@@ -319,26 +312,24 @@ class SyncFileSystem:
         settings = InternalSettings()
         self.chunk_size = settings.CHUNK_SIZE
 
-    def ls(self, root: DirectoryType = "in") -> List[dict]:
-        path = build_file_path(self.fid, root)
-        resp = self._client.get(path)
-        validate_response(resp, root)
+    def ls(self, path: str = "in") -> List[dict]:
+        api_path, sub_path = build_file_path(self.fid, path)
+        resp = self._client.get(api_path)
+        validate_response(resp, sub_path)
         return resp.json()
 
     def open(self, 
-             path: str, 
-             root: DirectoryType = "in") -> "SyncFileStream":
-        api_path = build_file_path(self.fid, root, path)
+             path: str) -> "SyncFileStream":
+        api_path, sub_path = build_file_path(self.fid, path)
         stream_context = self._client.stream("GET", api_path)
-        return SyncFileStream(self, path, stream_context)
+        return SyncFileStream(self, sub_path, stream_context)
 
     def remove(self, 
-               path: str, 
-               root: DirectoryType = "in") -> bool:
-        api_path = build_file_path(self.fid, root, path)
+               path: str) -> bool:
+        api_path, sub_path = build_file_path(self.fid, path)
         resp = self._client.delete(api_path)
         if resp.status_code != 204:
-            raise FileNotFoundError(path)
+            raise FileNotFoundError(sub_path)
         return True
     
     def close(self):
@@ -350,29 +341,29 @@ class SyncFileSystem:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def download(self, root: DirectoryType = "in"):
-        path = build_file_path(self.fid, root)
-        resp = self._client.get(path)
-        validate_response(resp, root)
+    def download(self, path: str = "in"):
+        api_path, sub_path = build_file_path(self.fid, path)
+        resp = self._client.get(api_path)
+        validate_response(resp, sub_path)
         folder = mkdtemp(prefix="kodosumi-")
         for file in resp.json():
-            if file["is_directory"]:
-                continue
+            # if file["is_directory"]:
+            #     continue
             target = Path(folder).joinpath(file["path"])
             target.parent.mkdir(parents=True, exist_ok=True)
-            with self.open(file["path"], root=root) as src:
+            with self.open(file["path"]) as src:
                 with open(str(target), "wb") as dst:
                     for chunk in src.read():
                         dst.write(chunk)
                     yield str(target)
 
-    def upload(self, path: Union[str, Path]):
+    def upload(self, path: str):
         batch_response = self._client.post("/files/init_batch")
         assert batch_response.status_code == 201
         batch_id = batch_response.json()["batch_id"]
         
         path_obj = Path(path)
-        files_to_upload = get_files_to_upload(path_obj)
+        files_to_upload = get_files_to_upload(path)
         upload_ids = []
         
         for file in files_to_upload:
@@ -380,7 +371,6 @@ class SyncFileSystem:
                 file.stat().st_size, self.chunk_size)
             init_payload = create_upload_payload(
                 file, path_obj, total_chunks, batch_id)
-            
             init_response = self._client.post("/files/init", json=init_payload)
             assert init_response.status_code == 201
             upload_data = init_response.json()
@@ -390,19 +380,16 @@ class SyncFileSystem:
                 "file": file,
                 "size": file.stat().st_size
             })
-        
         items = {}
         for upload_info in upload_ids:
             upload_id = upload_info["upload_id"]
             file = upload_info["file"]
             total_chunks = upload_info["total_chunks"]
-            
             with file.open("rb") as fh:
                 for chunk_num in range(total_chunks):
                     chunk_data = fh.read(self.chunk_size)
                     if not chunk_data:
                         break
-                    
                     form_data, files = create_chunk_payload(
                         upload_id, chunk_num, chunk_data)
                     response = self._client.post(
@@ -411,10 +398,8 @@ class SyncFileSystem:
                     data = response.json()
                     assert data["status"] == "chunk received"
                     assert data["chunk_number"] == chunk_num
-            
             items[upload_id] = create_completion_payload(
                 file, path_obj, total_chunks)
-        
         response = self._client.post(
             f"/files/complete/{self.fid}/{batch_id}/out", json=items)
         assert response.status_code == 201

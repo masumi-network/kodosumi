@@ -84,32 +84,34 @@ async def test_simple(app_server3, spooler_server, koco_server):
     fs = AsyncFileSystem(fid, koco_server, client.cookies["kodosumi_jwt"])
     listing = await fs.ls()
     assert [f["path"] for f in listing] == [
-        "docs", "docs/document1.txt", "docs/document2.txt", "image_data.bin"]
+        "in/docs/document1.txt", 
+        "in/docs/document2.txt", 
+        "in/image_data.bin"]
     total = 0
-    async with fs.open("image_data.bin") as f:
+    async with fs.open("in/image_data.bin") as f:
         async for chunk in f.read():
             total += len(chunk)
     assert total == len(b"BINARY_IMAGE_DATA_" * 10 * 1024 * 1024)
-    fh = fs.open("docs")
+    fh = fs.open("in/docs")
     fh.close()
-    fh = fs.open("image_data.bin")
+    fh = fs.open("in/image_data.bin")
     total = 0
     async for chunk in fh.read():
         total += len(chunk)
     await fh.close()
     assert total == len(b"BINARY_IMAGE_DATA_" * 10 * 1024 * 1024)
-    fh = fs.open("image_data.bin")
+    fh = fs.open("in/image_data.bin")
     chunk = await fh.read_all()
     assert chunk == b"BINARY_IMAGE_DATA_" * 10 * 1024 * 1024
     success = await fh.remove()
     assert success
     await fh.close()
-    fh = fs.open("image_data.bin")
+    fh = fs.open("in/image_data.bin")
     with pytest.raises(FileNotFoundError):
         await fh.read_all()
     await fh.close()
     with pytest.raises(FileNotFoundError):
-        await fs.remove("image_data.bin")
-    success = await fs.remove("docs")
+        await fs.remove("in/image_data.bin")
+    success = await fs.remove("in/docs")
     assert success
     await fs.close()

@@ -3,7 +3,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any, Dict, List, Union
 
 import aiofiles
 import litestar
@@ -259,60 +259,46 @@ class FileControl(litestar.Controller):
         except Exception as e:
             raise RuntimeError(f"Error cancelling upload: {str(e)}")
 
-    @get("/{fid:str}/{dir_type:str}")
-    async def list_files(self, 
-                         fid: str, 
-                         dir_type: str,
-                         request: Request, 
-                         state: State) -> List[Dict[str, Any]]:
-        exec_dir = self._get_exec_dir(request.user, fid, dir_type, state)
-        if not exec_dir.exists():
-            return []
-        entries_list = []
-        processed_dirs = set()
-        for file_path in exec_dir.rglob("*"):
-            if file_path.is_file():
-                relative_path = file_path.relative_to(exec_dir)
-                file_size = file_path.stat().st_size
-                last_modified = file_path.stat().st_mtime
-                entries_list.append({
-                    "path": str(relative_path),
-                    "size": file_size,
-                    "last_modified": last_modified,
-                    "is_directory": False
-                })
-                current_parent = relative_path.parent
-                while current_parent != Path("."):
-                    processed_dirs.add(str(current_parent))
-                    current_parent = current_parent.parent
-        for dir_path_str in processed_dirs:
-            dir_full_path = exec_dir / dir_path_str
-            if dir_full_path.exists() and dir_full_path.is_dir():
-                last_modified = dir_full_path.stat().st_mtime
-                entries_list.append({
-                    "path": dir_path_str,
-                    "size": 0,
-                    "last_modified": last_modified,
-                    "is_directory": True
-                })
-        entries_list.sort(key=lambda x: str(x["path"]))
-        return entries_list
-
-    @get("/{fid:str}/{dir_type:str}/{path:path}")
-    async def get_file(self, 
-                       fid: str, 
-                       dir_type: str, 
-                       path: str, 
-                       request: Request, 
-                       state: State) -> Stream:
+    @get("/{fid:str}/{path:path}")
+    async def get_files(self, 
+                        fid: str, 
+                        path: str,
+                        request: Request, 
+                        state: State) -> Union[List[Dict[str, Any]], Stream]:
+        root, *sub_path = path.lstrip("/").split("/", 1)
+        if root not in self.VALID_DIR_TYPES:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid directory type. Must be one of: "
+                       f"{', '.join(self.VALID_DIR_TYPES)}"
+            )
+        _path = "/".join(sub_path).rstrip("/")
+        if not _path:
+            exec_dir = self._get_exec_dir(request.user, fid, root, state)
+            if not exec_dir.exists():
+                return []
+            entries_list = []
+            # processed_dirs = set()
+            for file_path in exec_dir.rglob("*"):
+                if file_path.is_file():
+                    relative_path = file_path.relative_to(exec_dir.parent)
+                    file_size = file_path.stat().st_size
+                    last_modified = file_path.stat().st_mtime
+                    entries_list.append({
+                        "path": str(relative_path),
+                        "size": file_size,
+                        "last_modified": last_modified
+                    })
+            entries_list.sort(key=lambda x: str(x["path"]))
+            return entries_list
         try:
-            exec_dir = self._get_exec_dir(request.user, fid, dir_type, state)
+            exec_dir = self._get_exec_dir(request.user, fid, root, state)
             if not exec_dir.exists():
                 raise NotFoundException(
-                    f"Directory '{dir_type}' not found for flow {fid}")
-            normalized_path = path.lstrip('/')
+                    f"Directory '{root}' not found for flow {fid}")
+            normalized_path = _path.lstrip('/')
             file_path = exec_dir / normalized_path
-            file_path = self._validate_file_path(file_path, exec_dir, path)
+            file_path = self._validate_file_path(file_path, exec_dir.parent, _path)
             if file_path.is_dir():
                 raise HTTPException(
                     status_code=400, detail="Cannot retrieve directories")
@@ -328,28 +314,45 @@ class FileControl(litestar.Controller):
                 headers={
                     "Content-Length": str(file_size),
                     "Content-Disposition": f'attachment; filename="{filename}"',
-                    "Cache-Control": "no-cache"
+                    "Cache-Control": "no-cache",
+                    "Content-Type": "application/octet-stream"
                 }
             )
         except (NotFoundException, HTTPException):
             raise
         except Exception as e:
             logger.error(
-                f"Error retrieving file {path} from {dir_type} directory "
+                f"Error retrieving file {path} from {root} directory "
                 f"for fid {fid}, user {request.user}: {str(e)}")
             raise HTTPException(
                 status_code=500, 
                 detail="Internal server error while retrieving file")
 
-    @delete("/{fid:str}/{dir_type:str}/{path:path}")
+    # @get(["/{fid:str}/{dir_type:str}/{path:path}",
+    #       "/{fid:str}/{dir_type:str}/"])
+    # async def get_file(self, 
+    #                    fid: str, 
+    #                    dir_type: str, 
+    #                    request: Request, 
+    #                    state: State,
+    #                    path: str = "") -> Stream:
+
+    @delete("/{fid:str}/{path:path}")
     async def delete_file(self, 
                           fid: str, 
-                          dir_type: str, 
                           path: str, 
                           request: Request, 
                           state: State) -> None:
-        base_dir = self._get_exec_dir(request.user, fid, dir_type, state)
-        target_path = (base_dir / path.strip("/")).resolve()
+        root, *sub_path = path.lstrip("/").split("/", 1)
+        if root not in self.VALID_DIR_TYPES:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid directory type. Must be one of: "
+                       f"{', '.join(self.VALID_DIR_TYPES)}"
+            )
+        _path = "/".join(sub_path).rstrip("/")
+        base_dir = self._get_exec_dir(request.user, fid, root, state)
+        target_path = (base_dir / _path.strip("/")).resolve()
         if not str(target_path).startswith(str(base_dir.resolve())):
             raise HTTPException(status_code=403, detail="Forbidden")
         if not target_path.exists():

@@ -34,7 +34,7 @@ def process_range1(num: int, tracer: Tracer):
         tracer.debug_sync(f"process {num}: {r}")
     tracer.debug_sync(f"process {num}: done")
     fs = tracer.fs_sync()
-    fh = fs.open("docs/document1.txt")
+    fh = fs.open("in/docs/document1.txt")
     for chunk in fh.read():
         tracer.debug_sync(f"got {num} line: {chunk}")
     tracer.debug_sync(f"process {num}: done")
@@ -57,7 +57,7 @@ def process_range2(num: int, tracer: Tracer):
     # debug()
     tracer.debug_sync(f"process {num}")
     fs = tracer.fs_sync()
-    fh = fs.open("docs/document1.txt")
+    fh = fs.open("in/docs/document1.txt")
     result = []
     for chunk in fh.read():
         result.append(len(chunk))
@@ -329,16 +329,16 @@ async def test_download(env):
     assert status == "finished"
 
     expected = sorted([
-        "docs",
-        "docs/document1.txt",
-        "docs/document2.txt",
-        "docs/document3.txt",
-        "docs/assets",
-        "docs/assets/asset1.txt",
-        "docs/assets/asset2.txt",
-        "text1.txt",
-        "text2.txt",
-        "text3.txt",
+        # "in/docs",
+        "in/docs/document1.txt",
+        "in/docs/document2.txt",
+        "in/docs/document3.txt",
+        # "in/docs/assets",
+        "in/docs/assets/asset1.txt",
+        "in/docs/assets/asset2.txt",
+        "in/text1.txt",
+        "in/text2.txt",
+        "in/text3.txt",
     ])
 
     fs = SyncFileSystem(
@@ -352,63 +352,63 @@ async def test_download(env):
     ret = await afs.ls("in")
     assert [f["path"] for f in ret] == expected
 
-    ret = fs.open("docs/document1.txt", "in")
+    ret = fs.open("in/docs/document1.txt")
     assert ret.read_all() == b"This is the first document content. "
     ret.close()
     ret.close()
     ret.remove()
 
-    ret = afs.open("docs/document2.txt")
+    ret = afs.open("in/docs/document2.txt")
     assert await ret.read_all() == b"This is the second document content. "
     await ret.close()
 
-    ret = fs.open("docs/document1.txt")
+    ret = fs.open("in/docs/document1.txt")
     with pytest.raises(FileNotFoundError):
         ret.read_all()
     
-    ret = afs.open("docs/document1.txt")
+    ret = afs.open("in/docs/document1.txt")
     with pytest.raises(FileNotFoundError):
         await ret.read_all()
 
-    fs.remove("text1.txt")
-    ret = fs.open("text1.txt")
+    fs.remove("in/text1.txt")
+    ret = fs.open("in/text1.txt")
     with pytest.raises(FileNotFoundError):
         for chunk in ret.read():
             print(chunk)
 
-    ret = afs.open("text1.txt")
+    ret = afs.open("in/text1.txt")
     with pytest.raises(FileNotFoundError):
         await ret.read_all()
 
-    ret = afs.open("text2.txt")
+    ret = afs.open("in/text2.txt")
     async for chunk in ret.read():
         print(chunk)
 
-    ret = afs.open("text1.txt", "in")
+    ret = afs.open("in/text1.txt")
     with pytest.raises(FileNotFoundError):
         await ret.remove()
 
     expected = sorted([
-        "docs",
-        "docs/document2.txt",
-        "docs/document3.txt",
-        "docs/assets",
-        "docs/assets/asset1.txt",
-        "docs/assets/asset2.txt",
-        "text2.txt",
-        "text3.txt",
+        # "in/docs",
+        "in/docs/document2.txt",
+        "in/docs/document3.txt",
+        # "in/docs/assets",
+        "in/docs/assets/asset1.txt",
+        "in/docs/assets/asset2.txt",
+        "in/text2.txt",
+        "in/text3.txt",
     ])
 
     ret = await afs.ls("in")
     assert [f["path"] for f in ret] == expected
 
     expected = sorted([
-        "docs/document2.txt",
-        "docs/document3.txt",
-        "docs/assets/asset1.txt",
-        "docs/assets/asset2.txt",
-        "text2.txt",
-        "text3.txt",
+        "in/docs/document2.txt",
+        "in/docs/document3.txt",
+        "in/docs/assets/asset1.txt",
+        "in/docs/assets/asset2.txt",
+        "in/text2.txt",
+        "in/text3.txt",
     ])
     listing = list(fs.download())
     ret = [_norm(f) for f in listing]
@@ -464,34 +464,34 @@ async def test_upload(env, tmp_path):
     fs.upload(upload_path)
     ret = fs.ls("out")
     assert sorted([f["path"] for f in ret]) == sorted([
-        "docs",
-        "docs/document1.txt",
-        "docs/document2.txt",
-        "docs/document3.txt",
-        "text1.txt",
-        "text2.txt",
+        # "in/docs",
+        "out/docs/document1.txt",
+        "out/docs/document2.txt",
+        "out/docs/document3.txt",
+        "out/text1.txt",
+        "out/text2.txt",
     ])
     listing = list(fs.download("out"))
     ret = [_norm(f) for f in listing]
     expected = sorted([
-        "docs/document1.txt",
-        "docs/document2.txt",
-        "docs/document3.txt",
-        "text1.txt",
-        "text2.txt",
+        "out/docs/document1.txt",
+        "out/docs/document2.txt",
+        "out/docs/document3.txt",
+        "out/text1.txt",
+        "out/text2.txt",
     ])
     assert ret == expected
     assert all([Path(p).exists() for p in listing])
 
-    fs.remove("docs/document3.txt", "out")
+    fs.remove("out/docs/document3.txt")
 
     listing = list(fs.download("out"))
     ret = [_norm(f) for f in listing]
     expected = sorted([
-        "docs/document1.txt",
-        "docs/document2.txt",
-        "text1.txt",
-        "text2.txt",
+        "out/docs/document1.txt",
+        "out/docs/document2.txt",
+        "out/text1.txt",
+        "out/text2.txt",
     ])
     assert ret == expected
     assert all([Path(p).exists() for p in listing])
@@ -536,38 +536,38 @@ async def test_async_upload(env, tmp_path):
     await fs.upload(upload_path)
     ret = await fs.ls("out")
     assert sorted([f["path"] for f in ret]) == sorted([
-        "docs",
-        "docs/document1.txt",
-        "docs/document2.txt",
-        "docs/document3.txt",
-        "text1.txt",
-        "text2.txt",
+        # "docs",
+        "out/docs/document1.txt",
+        "out/docs/document2.txt",
+        "out/docs/document3.txt",
+        "out/text1.txt",
+        "out/text2.txt",
     ])
     listing = []
     async for f in fs.download("out"):
         listing.append(f)
     ret = [_norm(f) for f in listing]
     expected = sorted([
-        "docs/document1.txt",
-        "docs/document2.txt",
-        "docs/document3.txt",
-        "text1.txt",
-        "text2.txt",
+        "out/docs/document1.txt",
+        "out/docs/document2.txt",
+        "out/docs/document3.txt",
+        "out/text1.txt",
+        "out/text2.txt",
     ])
     assert ret == expected
     assert all([Path(p).exists() for p in listing])
 
-    await fs.remove("docs/document3.txt", "out")
+    await fs.remove("out/docs/document3.txt")
 
     listing = []
     async for f in fs.download("out"):
         listing.append(f)
     ret = [_norm(f) for f in listing]
     expected = sorted([
-        "docs/document1.txt",
-        "docs/document2.txt",
-        "text1.txt",
-        "text2.txt",
+        "out/docs/document1.txt",
+        "out/docs/document2.txt",
+        "out/text1.txt",
+        "out/text2.txt",
     ])
     assert ret == expected
     assert all([Path(p).exists() for p in listing])
