@@ -36,7 +36,7 @@ class Runner:
     def __init__(self,
                  fid: str,
                  username: str,
-                 base_url: str,
+                 app_url: str,
                  entry_point: Union[Callable, str],
                  inputs: Any=None,
                  extra: Optional[dict]=None,
@@ -44,7 +44,7 @@ class Runner:
                  panel_url: Optional[str]=None):
         self.fid = fid
         self.username = username
-        self.base_url = base_url
+        self.app_url = app_url.rstrip("/")
         self.entry_point = entry_point
         self.inputs = inputs
         self.extra = extra
@@ -114,7 +114,7 @@ class Runner:
             **{
                 "fid": self.fid,
                 "username": self.username,
-                "base_url": self.base_url,
+                "app_url": self.app_url,
                 "panel_url": self.panel_url,
                 "entry_point": rep_entry_point
             }, 
@@ -221,7 +221,7 @@ class Runner:
             "name": name,
             "data": data,
             "result": None,
-            "base_url": self.base_url,
+            "app_url": self.app_url,
             "expires": expires
         }
         while True:
@@ -247,7 +247,7 @@ def kill_runner(fid: str):
 
 
 def create_runner(username: str,
-                  base_url: str,
+                  app_url: str,
                   entry_point: Union[str, Callable],
                   inputs: Union[BaseModel, dict],
                   extra: Optional[dict] = None,
@@ -263,7 +263,7 @@ def create_runner(username: str,
         lifetime="detached").remote(
             fid=fid,
             username=username,
-            base_url=base_url,
+            app_url=app_url,
             entry_point=entry_point,
             inputs=inputs,
             extra=extra,
@@ -294,7 +294,7 @@ def Launch(request: Any,
         extra["description"] = description
     fid, runner = create_runner(
         username=request.state.user, 
-        base_url=request.state.prefix, 
+        app_url=request.state.prefix, 
         entry_point=entry_point, 
         inputs=inputs, 
         extra=extra,

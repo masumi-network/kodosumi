@@ -143,11 +143,15 @@ class ServeAPI(FastAPI):
                     raise HTTPException(
                         status_code=500, detail=repr(exc)) from exc
                 # try:
+                if not hasattr(result, "headers"):
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="kodosumi endpoint must return a Launch object "
+                        "or raise an InputsError")
                 fid = result.headers.get(KODOSUMI_LAUNCH, None)
                 if fid:
                     if items and batch_id:
-                        url = request.headers[KODOSUMI_URL].rstrip("/")
-                        # url = str(request.base_url).rstrip("/")
+                        url = request.headers[KODOSUMI_URL]
                         url += f"/files/complete/{fid}/{batch_id}/in"
                         async with HTTPXClient() as client:
                             resp = await client.post(
@@ -161,13 +165,10 @@ class ServeAPI(FastAPI):
                         "result": fid,
                         "elements": elements
                     }
-                raise Exception()
-                # except Exception as exc:
-                #     raise HTTPException(
-                #         status_code=500, 
-                #         detail="kodosumi endpoint must return a Launch object "
-                #                "or raise an InputsError")
-
+                raise HTTPException(
+                    status_code=400, 
+                    detail="kodosumi endpoint must return a Launch object "
+                    "or raise an InputsError")
             return post_form_handler_internal
 
         def decorator(user_func: Callable):

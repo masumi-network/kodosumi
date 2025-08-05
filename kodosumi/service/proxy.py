@@ -113,7 +113,7 @@ class ProxyControl(litestar.Controller):
                         return Redirect(f"/exec/event/{fid1}")
             else:
                 logger.error(
-                    f"Proxy error: {response.status_code} {response.text}")
+                    f"proxy error: {response.status_code} {response.text}")
             response_content = response.content
         return Response(
                 content=response_content,
@@ -133,7 +133,7 @@ class LockController(litestar.Controller):
             lock, actor = find_lock(fid, lid)
         except LockNotFound as e:
             raise NotFoundException(e.message) from e
-        target = lock['base_url'].rstrip('/') + f"/_lock_/{fid}/{lid}"
+        target = f"{lock['app_url']}/_lock_/{fid}/{lid}"
         logger.info(f"proxy lock {target} with base "
                     f"{KODOSUMI_URL}={request.base_url}")
         async with HTTPXClient() as client:
@@ -164,7 +164,8 @@ class LockController(litestar.Controller):
                     result = response_content.get("result", None)
                     actor.lease.remote(lid, result)
             else:
-                logger.error(response.text)
+                logger.error(
+                    f"proxy error: {response.status_code} {response.text}")
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=response.text)

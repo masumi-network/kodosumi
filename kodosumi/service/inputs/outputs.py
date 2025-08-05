@@ -194,7 +194,7 @@ async def _status(conn: sqlite3.Connection) -> Dict:
         "organization": meta.get("organization"),
         "version": meta.get("version"),
         "kodosumi_version": meta.get("kodosumi_version"),
-        "base_url": meta.get("base_url"),
+        "app_url": meta.get("app_url"),
         "entry_point": meta.get("entry_point"),
         "username": meta.get("username"),
         "locks": locks
