@@ -289,6 +289,15 @@ def app_factory_3():
     async def return_response(inputs: dict, request: Request) -> Response:
         return Response(content="hi")   
 
+    @app.enter(
+        "/header",
+        model=Model(Submit("Submit")),
+        summary="Header Returns",
+        description="no launch",
+    )
+    async def wrong_headers(inputs: dict, request: Request) -> dict:
+        return {"headers": {"fid": None}}
+
     return app
 
 app4 = ServeAPI()
@@ -950,7 +959,7 @@ async def test_factory_errors(app_server3, spooler_server, koco_server):
     client, endpoints = await register_flow(app_server3, koco_server)
     assert [e["summary"] for e in endpoints] == sorted([
         'Simple Example 3', 'Error Raiser', 'Wrong Returns', 'Exception',
-        'Response Error'])
+        'Response Error', 'Header Returns'])
 
     resp = await client.post(f"{koco_server}/-/localhost/8125/-/error",
                              timeout=300)
@@ -961,7 +970,14 @@ async def test_factory_errors(app_server3, spooler_server, koco_server):
 
     resp = await client.post(f"{koco_server}/-/localhost/8125/-/wrong",
                              timeout=300)
-    assert resp.status_code == 500
+    assert resp.status_code == 400
+    assert resp.json() == {
+        'detail': 'kodosumi endpoint must return a Launch object or raise an InputsError'
+    }
+
+    resp = await client.post(f"{koco_server}/-/localhost/8125/-/header",
+                             timeout=300)
+    assert resp.status_code == 400
     assert resp.json() == {
         'detail': 'kodosumi endpoint must return a Launch object or raise an InputsError'
     }
@@ -975,7 +991,7 @@ async def test_factory_errors(app_server3, spooler_server, koco_server):
 
     resp = await client.post(f"{koco_server}/-/localhost/8125/-/response",
                              timeout=300)
-    assert resp.status_code == 500
+    assert resp.status_code == 400
     assert resp.json() == {
         'detail': 'kodosumi endpoint must return a Launch object or raise an InputsError'
     }

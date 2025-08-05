@@ -40,7 +40,8 @@ class InputsController(litestar.Controller):
                 response_content = model.render()
             else:
                 logger.error(
-                    f"Get Schema error: {response.status_code} {response.text}")
+                    f"get schema error: {response.status_code} "
+                    f"{response.text}")
                 response_content = response.text
         response_headers["content-type"] = "text/html"
         return Template(FORM_TEMPLATE, 
@@ -78,7 +79,8 @@ class InputsController(litestar.Controller):
                 html = model.render()
             else:
                 logger.error(
-                    f"Get Schema error: {response.status_code} {response.text}")
+                    f"post schema error: {response.status_code} "
+                    f"{response.text}")
                 html = f"<h1>500 Server Error</h1>"
                 try:
                     js = response.json()
@@ -103,8 +105,7 @@ class InputsController(litestar.Controller):
             lock, _ = find_lock(fid, lid)
         except LockNotFound as e:
             raise NotFoundException(e.message) from e
-        base_url = lock['base_url']
-        lock_url = f"{base_url.rstrip('/')}/_lock_/{fid}/{lid}"
+        lock_url = f"{lock['app_url']}/_lock_/{fid}/{lid}"
         async with HTTPXClient() as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
@@ -119,7 +120,7 @@ class InputsController(litestar.Controller):
                 response_content = model.render()
             else:
                 logger.error(
-                    f"Get Schema error: {response.status_code} {response.text}")
+                    f"get lock error: {response.status_code} {response.text}")
                 response_content = response.text
         response_headers["content-type"] = "text/html"
         return Template(FORM_TEMPLATE, 
@@ -137,8 +138,8 @@ class InputsController(litestar.Controller):
             lock, _ = find_lock(fid, lid)
         except LockNotFound as e:
             raise NotFoundException(e.message) from e
-        base_url = str(request.base_url)
-        lock_url = f"{base_url.rstrip('/')}/lock/{fid}/{lid}"
+        app_url = str(request.base_url)
+        lock_url = f"{app_url.rstrip('/')}/lock/{fid}/{lid}"
         async with HTTPXClient() as client:
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
@@ -162,7 +163,7 @@ class InputsController(litestar.Controller):
                 response_content = model.render()
             else:
                 logger.error(
-                    f"Get Schema error: {response.status_code} {response.text}")
+                    f"post lock error: {response.status_code} {response.text}")
                 response_content = f"<h1>500 Server Error</h1>"
                 try:
                     js = response.json()
