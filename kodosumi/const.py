@@ -5,6 +5,7 @@ from kodosumi.config import InternalSettings
 EVENT_META    = "meta"  # flow metadata and entry point information
 EVENT_INPUTS  = "inputs" # user input data
 EVENT_AGENT   = "agent" # agent information
+EVENT_UPLOAD  = "upload" # user file upload data
 
 EVENT_DEBUG   = "debug" # debug message
 EVENT_STDOUT  = "stdout" # stdout information
@@ -21,7 +22,8 @@ EVENT_FINAL   = "final" # final result information
 MAIN_EVENTS = (EVENT_META, EVENT_INPUTS, EVENT_AGENT, EVENT_STATUS, 
                EVENT_ERROR, EVENT_ACTION, EVENT_RESULT, EVENT_FINAL,
                EVENT_LOCK, EVENT_LEASE)
-STDIO_EVENTS = (EVENT_ERROR, EVENT_STDOUT, EVENT_STDERR, EVENT_DEBUG)
+STDIO_EVENTS = (EVENT_ERROR, EVENT_STDOUT, EVENT_STDERR, EVENT_DEBUG, 
+                EVENT_UPLOAD)
 # flow status and lifecycle:
 STATUS_STARTING = "starting"
 STATUS_RUNNING  = "running"

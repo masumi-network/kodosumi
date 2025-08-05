@@ -107,9 +107,9 @@ class ServeAPI(FastAPI):
                             js_upload = json.loads(upload)
                             items = js_upload["items"]
                             batch_id = js_upload["batchId"]
-                            submitted_value = [
+                            submitted_value = set([
                                 i["filename"] for i in items.values()
-                            ]
+                            ])
                     elif element_name in js_data:
                         submitted_value = js_data[element_name]
                     elif isinstance(element, Checkbox):

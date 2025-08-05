@@ -188,3 +188,12 @@ class UploadComplete:
     total_chunks: int
     batch_id: str | None = None
     fid: str | None = None
+
+class File(BaseModel):
+   path: str
+   size: int
+   last_modified: float
+
+
+class Upload(BaseModel):
+    files: List[File]

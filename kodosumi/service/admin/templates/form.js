@@ -1,7 +1,7 @@
-let activeUploads = new Map(); // upload_id -> { filename, status, progressDiv }
+let activeUploads = new Map(); 
 let currentBatchId = null;
 let allUploadsCompleted = false;
-let completedBatches = new Set(); // Track completed batch IDs
+let completedBatches = new Set(); 
 
 async function initializeBatch() {
     try {
@@ -17,13 +17,12 @@ async function initializeBatch() {
         console.log(`Initialized batch: ${currentBatchId}`);
         return currentBatchId;
     } catch (error) {
-        // console.error('ERROR: Failed to initialize batch:', error);
         currentBatchId = null;
         return null;
     }
 }
 
-async function cancelFile(upload_id) {
+async function cancelFile(name, upload_id) {
     const item = document.getElementById(upload_id);
     item.remove();
     if (!upload_id) return;
@@ -32,13 +31,14 @@ async function cancelFile(upload_id) {
             method: 'DELETE'
         });
         if (cancelRes.ok) {
-            console.log(`Upload ${upload_id} successfully cancelled`);
+            console.log(`Upload ${upload_id} of ${name} successfully cancelled`);
         } else {
             console.error(`Failed to cancel upload: ${cancelRes.status}`);
         }
         localStorage.removeItem(upload_id);
         activeUploads.delete(upload_id);
         await cancelRes.text();
+        updateForm(name);
     } catch (error) {
         console.error('Error cancelling upload:', error);
     }
@@ -62,7 +62,6 @@ async function uploadFile(file, relativePath, onProgress) {
     const parallelUploads = 4;
     const startTime = Date.now();
 
-    // console.log(`DEBUG: Starting upload for ${relativePath}, batch: ${currentBatchId}`);
     const initRes = await fetch('/files/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -76,7 +75,6 @@ async function uploadFile(file, relativePath, onProgress) {
         throw new Error(`Failed to initialize upload: ${initRes.status}`);
     }
     const { upload_id, batch_id } = await initRes.json();
-    // console.log(`DEBUG: Upload initialized - upload_id: ${upload_id}, batch_id: ${batch_id}`);
     activeUploads.set(upload_id, { 
         filename: relativePath, 
         status: 'uploading',
@@ -131,26 +129,19 @@ async function uploadFile(file, relativePath, onProgress) {
             return uploadChunk(i);
         }
     }
-
     const chunkIndices = Array.from({ length: totalChunks }, (_, i) => i);
     for (let i = 0; i < chunkIndices.length; i += parallelUploads) {
         const batch = chunkIndices.slice(i, i + parallelUploads);
         await Promise.all(batch.map(uploadChunk));
     }
-
-    // Mark as ready for completion
     const uploadInfo = activeUploads.get(upload_id);
     if (uploadInfo) {
         uploadInfo.status = 'ready';
-        // updateUploadControls();
     }
-    
-    // console.log(`DEBUG: File "${relativePath}" chunks uploaded. Ready for completion.`);
     return upload_id;
 }
 
 async function uploadMultiple(name, files) {
-    // Initialize a new batch for this upload session
     if (!currentBatchId) {
         await initializeBatch();
     }
@@ -166,7 +157,7 @@ async function uploadMultiple(name, files) {
         });
         progressDiv.id = upload_id;
         fileId.addEventListener('click', () => {
-            cancelFile(upload_id);
+            cancelFile(name, upload_id);
         });
         progressBar.remove();
     }
@@ -174,13 +165,14 @@ async function uploadMultiple(name, files) {
 }
 
 async function updateForm(name) {
+    console.log("updating", name);
     const readyUploads = Array.from(activeUploads.entries())
         .filter(([_, info]) => info.status === 'ready')
         .map(([upload_id, info]) => [upload_id, { 
             filename: info.filename, 
             totalChunks: info.totalChunks
         }]);
-    const listInput = document.getElementById(`list-${name}`);
+    const listInput = document.getElementById(`_list-${name}`);
     const data = {
         "batchId": currentBatchId,
         "items": Object.fromEntries(readyUploads),

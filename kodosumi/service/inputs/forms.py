@@ -751,7 +751,7 @@ class InputFiles(FormElement):
         ret.append(f'<div class="space"></div></span>')
         ret.append(f'<button id="button-{self.name}" class="fileInput medium circle">')
         ret.append(f'<i>attach_file</i>')
-        attrs = [f'type="{self.type}" name="_dialog-{self.name}"']
+        attrs = [f'type="{self.type}" name="_dialog-{self.name}" id="_dialog-{self.name}"']
         if self.required:
             attrs.append(f'required')
         if self.multiple:
@@ -762,7 +762,7 @@ class InputFiles(FormElement):
         if self.error:
             ret.append(f'<span class="error">{" ".join(self.error)}</span>')
         ret.append(f'</button>')
-        ret.append(f'<input type="hidden" name="{self.name}" id="list-{self.name}" value="">')
+        ret.append(f'<input type="hidden" name="{self.name}" id="_list-{self.name}" value="">')
         ret.append(f'<div class="space"></div>')
         return "\n".join(ret)
 

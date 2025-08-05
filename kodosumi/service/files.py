@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import uuid
+import urllib.parse
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Union
 
@@ -185,8 +186,6 @@ class FileControl(litestar.Controller):
             
             logger.info(f"complete upload {filename}")
             
-            
-            # Kombiniere Chunks zu finaler Datei
             async with aiofiles.open(final_path, 'wb') as final_file:
                 for i in range(total_chunks):
                     chunk_name = f"{self.CHUNK_PREFIX}{i}"
@@ -237,7 +236,11 @@ class FileControl(litestar.Controller):
                            state: State) -> List:
         result = []
         payload = await request.json()
+        unique = set()
         for upload_id, info in payload.items():
+            if info["filename"] in unique:
+                continue
+            unique.add(info["filename"])
             result.append(
                 await self._complete_file(
                     request.user,
@@ -278,12 +281,15 @@ class FileControl(litestar.Controller):
                 raise NotFoundException("Cannot retrieve directories")
             size = file.stat().st_size
             filename = file.name
+            # data/execution/c7eb70a5-0c26-407e-b785-f1ef5e7c4486/6891a3b36dd659c87951f9e5/in/Mehmet_Özyurt_dat.png
+            # URL-encode filename for Content-Disposition header to handle special characters
+            encoded_filename = urllib.parse.quote(filename)
             return Stream(
                 content=self._stream_file(file, state),
                 media_type="application/octet-stream",
                 headers={
                     "Content-Length": str(size),
-                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Content-Disposition": f'attachment; filename="{encoded_filename}"; filename*=UTF-8\'\'{encoded_filename}',
                     "Cache-Control": "no-cache",
                     "Content-Type": "application/octet-stream"
                 }

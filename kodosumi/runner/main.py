@@ -13,10 +13,10 @@ from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                             EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                             KODOSUMI_LAUNCH, NAMESPACE, STATUS_END,
                             STATUS_ERROR, STATUS_RUNNING, STATUS_STARTING,
-                            TOKEN_KEY)
+                            TOKEN_KEY, EVENT_UPLOAD)
 from kodosumi.helper import now, serialize
 from kodosumi.runner.tracer import Tracer
-
+from kodosumi import dtypes
 
 def parse_entry_point(entry_point: str) -> Callable:
     if ":" in entry_point:
@@ -138,6 +138,14 @@ class Runner:
                 bound_args.arguments['inputs'] = self.inputs
             if 'tracer' in sig.parameters:
                 bound_args.arguments['tracer'] = self.tracer
+            fs = await self.tracer.fs()
+            files = await fs.ls("in/")
+            if files:
+                data = dtypes.Upload.model_validate({
+                     "files": [dtypes.File.model_validate(f) for f in files]
+                })
+                await self._put_async(EVENT_UPLOAD, serialize(data))
+            await fs.close()
             bound_args.apply_defaults()
             if asyncio.iscoroutinefunction(obj):
                 result = await obj(*bound_args.args, **bound_args.kwargs)

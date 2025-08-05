@@ -274,6 +274,28 @@ function startSTDIO() {
                 addToStdioBuffer(js, true);
             }
         });
+        ioSource.addEventListener('upload', function(event) {
+            const [id, ts, js] = splitData(event);
+            if (js != null) {
+                document.getElementById('upload-block').style.display = 'block';
+                const uploadData = JSON.parse(js);
+                if (uploadData.Upload && uploadData.Upload.files) {
+                    const uploadElement = document.getElementById('upload');
+                    if (uploadElement) {
+                        uploadElement.innerHTML = '';
+                        uploadData.Upload.files.forEach(file => {
+                            const listItem = document.createElement('li');
+                            const link = document.createElement('a');
+                            const encodedPath = encodeURIComponent(file.path);
+                            link.href = `/files/${fid}/${encodedPath}`;
+                            link.textContent = file.path;
+                            listItem.appendChild(link);
+                            uploadElement.appendChild(listItem);
+                        });
+                    }
+                }
+            }
+        });
         ioSource.addEventListener('eof', function(event) {
             flushStdioBuffer();
             ioSource.close();

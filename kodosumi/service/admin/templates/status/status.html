@@ -57,13 +57,6 @@
         <div id="sparkline" class="no-round sparkline-container"></div>
     </article>
 </div>
-<!-- <div class="s12 m6 l1">
-    <legend>&nbsp;</legend>
-    <article class="border small-padding small-round card status-card">
-        <a href="#"><i>menu</i> &nbsp;&nbsp;
-        <span>Action</span></a>
-    </article>
-</div> -->
 {% endblock %}
 
 {% block page %}
@@ -135,10 +128,18 @@
         <div><span class="stdio" id="event"></span><a id="event-end"></a></div>
     </article>
 </div>
+
 <div class="page" id="page-stdio">
     <article id="article-stdio" class="max margin small-elevate large-padding article-container">
+
         <p class="info-l1"><span class="info-text">INPUT</span></p>
         <pre><code class="inputs monospace"></code></pre>
+
+        <div id="upload-block" style="display: none;">
+            <p class="info-l1"><span class="info-text">UPLOAD</span></p>
+            <ul id="upload">
+            </ul>
+        </div>
         <p class="info-l1"><span class="info-text">OUTPUT</span></p>
         <div><span class="stdio" id="stdio"></span><a id="stdio-end"></a></div>
     </article>
