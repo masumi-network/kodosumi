@@ -13,7 +13,7 @@ from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                             EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                             KODOSUMI_LAUNCH, NAMESPACE, STATUS_END,
                             STATUS_ERROR, STATUS_RUNNING, STATUS_STARTING,
-                            TOKEN_KEY, EVENT_UPLOAD)
+                            TOKEN_KEY, EVENT_UPLOAD, KODOSUMI_URL)
 from kodosumi.helper import now, serialize
 from kodosumi.runner.tracer import Tracer
 from kodosumi import dtypes
@@ -48,6 +48,7 @@ class Runner:
         self.entry_point = entry_point
         self.inputs = inputs
         self.extra = extra
+        self.panel_url = panel_url
         self.active = True
         self._locks: dict = {}
         self.message_queue = ray.util.queue.Queue()
@@ -113,7 +114,8 @@ class Runner:
             **{
                 "fid": self.fid,
                 "username": self.username,
-                # "base_url": self.base_url,
+                "base_url": self.base_url,
+                "panel_url": self.panel_url,
                 "entry_point": rep_entry_point
             }, 
             **origin}))
@@ -138,14 +140,18 @@ class Runner:
                 bound_args.arguments['inputs'] = self.inputs
             if 'tracer' in sig.parameters:
                 bound_args.arguments['tracer'] = self.tracer
-            fs = await self.tracer.fs()
-            files = await fs.ls("in/")
+            try:
+                fs = await self.tracer.fs()
+                files = await fs.ls("in/")
+            except FileNotFoundError:
+                files = None
+            finally:
+                await fs.close()
             if files:
                 data = dtypes.Upload.model_validate({
                      "files": [dtypes.File.model_validate(f) for f in files]
                 })
                 await self._put_async(EVENT_UPLOAD, serialize(data))
-            await fs.close()
             bound_args.apply_defaults()
             if asyncio.iscoroutinefunction(obj):
                 result = await obj(*bound_args.args, **bound_args.kwargs)
@@ -293,7 +299,7 @@ def Launch(request: Any,
         inputs=inputs, 
         extra=extra,
         jwt=request.cookies.get(TOKEN_KEY),
-        panel_url=str(request.base_url)
+        panel_url=str(request.headers.get(KODOSUMI_URL))
     )
     runner.run.remote()  # type: ignore
     return JSONResponse(content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})

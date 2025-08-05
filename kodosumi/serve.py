@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 import kodosumi.service.admin
 from kodosumi.const import (KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER,
-                            KODOSUMI_API)
+                            KODOSUMI_API, KODOSUMI_URL)
 from kodosumi.helper import HTTPXClient
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.service.inputs.forms import Checkbox, InputFiles, Model
@@ -142,30 +142,31 @@ class ServeAPI(FastAPI):
                 except Exception as exc:
                     raise HTTPException(
                         status_code=500, detail=repr(exc)) from exc
-                try:
-                    fid = result.headers.get(KODOSUMI_LAUNCH, None)
-                    if fid:
-                        if items and batch_id:
-                            url = str(request.base_url).rstrip("/")
-                            url += f"/files/complete/{fid}/{batch_id}/in"
-                            async with HTTPXClient() as client:
-                                resp = await client.post(
-                                    url, json=items, cookies=request.cookies)
-                                if resp.status_code != 201:
-                                    raise HTTPException(
-                                        status_code=400,
-                                        detail=f"Failed to upload files: "
-                                               f"{resp.text}")
-                        return {
-                            "result": fid,
-                            "elements": elements
-                        }
-                    raise Exception()
-                except Exception as exc:
-                    raise HTTPException(
-                        status_code=500, 
-                        detail="kodosumi endpoint must return a Launch object "
-                               "or raise an InputsError")
+                # try:
+                fid = result.headers.get(KODOSUMI_LAUNCH, None)
+                if fid:
+                    if items and batch_id:
+                        url = request.headers[KODOSUMI_URL].rstrip("/")
+                        # url = str(request.base_url).rstrip("/")
+                        url += f"/files/complete/{fid}/{batch_id}/in"
+                        async with HTTPXClient() as client:
+                            resp = await client.post(
+                                url, json=items, cookies=request.cookies)
+                            if resp.status_code != 201:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Failed to upload files: "
+                                            f"{resp.text}")
+                    return {
+                        "result": fid,
+                        "elements": elements
+                    }
+                raise Exception()
+                # except Exception as exc:
+                #     raise HTTPException(
+                #         status_code=500, 
+                #         detail="kodosumi endpoint must return a Launch object "
+                #                "or raise an InputsError")
 
             return post_form_handler_internal
 

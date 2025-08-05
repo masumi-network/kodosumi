@@ -10,7 +10,7 @@ from litestar.response import Redirect, Response
 import kodosumi.service.endpoint as endpoint
 from kodosumi import helper
 from kodosumi.const import (KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER,
-                            NAMESPACE)
+                            NAMESPACE, KODOSUMI_URL)
 from kodosumi.helper import HTTPXClient
 from kodosumi.log import logger
 from kodosumi.service.inputs.forms import Model
@@ -77,11 +77,15 @@ class ProxyControl(litestar.Controller):
         if target is None or base is None:
             raise NotFoundException(path)
         base = base.replace("/openapi.json", "")
+        logger.info(f"proxy forwarding {target} with base "
+                    f"{KODOSUMI_BASE}={base}, "
+                    f"{KODOSUMI_URL}={request.base_url}")
         async with HTTPXClient() as client:
             meth = request.method.lower()
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
             request_headers[KODOSUMI_BASE] = base
+            request_headers[KODOSUMI_URL] = str(request.base_url)
             host = request.headers.get("host", None)
             body = await request.body()
             request_headers.pop("content-length", None)
@@ -130,6 +134,8 @@ class LockController(litestar.Controller):
         except LockNotFound as e:
             raise NotFoundException(e.message) from e
         target = lock['base_url'].rstrip('/') + f"/_lock_/{fid}/{lid}"
+        logger.info(f"proxy lock {target} with base "
+                    f"{KODOSUMI_URL}={request.base_url}")
         async with HTTPXClient() as client:
             meth = request.method.lower()
             request_headers = dict(request.headers)

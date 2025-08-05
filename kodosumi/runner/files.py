@@ -343,6 +343,8 @@ class SyncFileSystem:
         self.chunk_size = settings.CHUNK_SIZE
 
     def ls(self, path: str = "in") -> List[dict]:
+        # from kodosumi.helper import debug
+        # debug()
         api_path, root = build_file_path(self.fid, path)
         resp = self._client.get(api_path)
         validate_response(resp, root)
