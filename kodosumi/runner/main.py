@@ -115,6 +115,7 @@ class Runner:
                 "fid": self.fid,
                 "username": self.username,
                 "app_url": self.app_url,
+                "app_url": self.app_url,
                 "panel_url": self.panel_url,
                 "entry_point": rep_entry_point
             }, 
@@ -221,6 +222,7 @@ class Runner:
             "name": name,
             "data": data,
             "result": None,
+            "app_url": self.app_url,
             "app_url": self.app_url,
             "expires": expires
         }
