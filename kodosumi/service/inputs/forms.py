@@ -42,6 +42,12 @@ class Break(HTML):
     def __init__(self):
         super().__init__('<div class="space"></div>')
 
+
+class HR(HTML):
+    def __init__(self):
+        super().__init__('<hr class="medium"/>')
+
+
 class Markdown(Element):
 
     type = "markdown"
