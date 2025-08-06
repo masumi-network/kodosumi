@@ -53,8 +53,7 @@ Create and source a Python Virtual Environment with your system Python executabl
     python3 -m venv .venv
     source .venv/bin/activate
 
-> [!NOTE]
-> You need to locate the Python system executable. Depending on your operating system and setup this location differs.
+<Note>You need to locate the Python system executable. Depending on your operating system and setup this location differs.</Note>
 
 
 ### 3. Clone the repository
@@ -75,8 +74,7 @@ Create a new directory `./company_news` inside your local working directory `./a
 mkdir ./company_news
 ```
 
-> [!NOTE]
-> Use the _flat package layout_. The _flat layout_ simplifies the deployment process as we will see later in [deployment](./deploy). In contrast to the _src layout_ the the _flat layout_ does **not** need any additional installation step to be _importable_ by Python. 
+<Note>Use the _flat package layout_. The _flat layout_ simplifies the deployment process as we will see later in [deployment](/deploy). In contrast to the _src layout_ the the _flat layout_ does **not** need any additional installation step to be _importable_ by Python.</Note>
 
 Add the basic package structure and create the usual suspects along with `query.py` to deliver the agentic service.
 
@@ -305,7 +303,7 @@ The `app` instance will be used to define the service _endpoint_ with `@app.ente
 
 ### 10. Define inputs model
 
-Define the user interface of your service with the help of the _forms_ module. Import _forms_ elements from `kodosumi.core`. See [forms overview](./forms.md) on the supported form input elements.
+Define the user interface of your service with the help of the _forms_ module. Import _forms_ elements from `kodosumi.core`. See [forms overview](/forms) on the supported form input elements.
 
 ```python
 from kodosumi.core import forms as F
@@ -490,7 +488,7 @@ Revisit the raw event stream with a given _Flow Identifier_ (`fid`) at http://lo
 * **`final`** - the final response of the service as a data model, `dict` or `list` dump
 * **`eof`** - end-of-stream message
 
-See [Lifecycle and Events](./lifecycle.md#events) for further details.
+See [Lifecycle and Events](/lifecycle#events) for further details.
 
 Use for example `curl` to POST a service requests with the panel API after successful authentication:
 
@@ -510,4 +508,5 @@ The response returns the _Flow Identifier_ (`fid`).
 
 **Where to get from here?**
 
-* continue with [Kodosumi deployment workflow](./deploy.md)
+* continue with [Kodosumi deployment workflow](/deploy)
+* continue with [Kodosumi upload example](/upload-example)

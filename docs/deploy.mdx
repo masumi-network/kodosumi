@@ -8,7 +8,7 @@ You can reproduce this deployment guide on localhost. Nevertheless this guide is
 
 As a consequence, this guide is a lot about managing YAML files. Kodosumi simplifies the management of these configuration files by splitting the configuration into a _base_ and multiple _app_ configurations. 
 
-This deployment is based on the `company_news` service built in [development workflow](./develop.md).
+This deployment is based on the `company_news` service built in [development workflow](/develop).
 
 Let's start with creating a root directory to host our runtime environment, i.e.
 
@@ -20,8 +20,7 @@ Create a Python Virtual Environment with
     python -m venv .venv  # depends on OS setup
     source .venv/bin/activate
 
-> [!NOTE]
-> The location of your system's Python executable `python` might vary. 
+<Note>The location of your system's Python executable `python` might vary.</Note>
 
 Next, install Kodosumi from the [Python package index](https://pypi.org/)
 
@@ -100,8 +99,7 @@ See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/config
 
 ## Deployment API
 
-> [!NOTE]
-> The deployment API at `/deploy` and `/serve` is experimental.
+<Note>The deployment API at `/deploy` and `/serve` is experimental.</Note>
 
 Use _kodosumi panel API_ to change your Ray _serve_ deployments at runtime. The panel API ships with a simple CRUD interfacce to create, read, update and delete deployment configurations including the _base configuration_ with `config.yaml`.
 
