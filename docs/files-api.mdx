@@ -1,0 +1,250 @@
+---
+title: Files Management ReST API
+---
+
+## Files Management ReST API
+
+### API Endpoints
+
+The Files Management API provides the following main endpoints:
+
+#### Batch Upload Initialization
+
+```python
+# POST /files/init_batch
+response = await client.post("/files/init_batch")
+batch_id = response.json()["batch_id"]
+```
+
+**Response Example:**
+```json
+{
+    "batch_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+#### Single Upload Initialization
+
+```python
+# POST /files/init
+payload = {
+    "filename": "document.txt",
+    "total_chunks": 5,
+    "batch_id": "optional-batch-id"
+}
+response = await client.post("/files/init", json=payload)
+upload_id = response.json()["upload_id"]
+```
+
+**Response Example:**
+```json
+{
+    "upload_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "batch_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+#### Chunk Upload
+
+```python
+# POST /files/chunk
+form_data = {
+    "upload_id": upload_id,
+    "chunk_number": "0"
+}
+files = {
+    "chunk": ("chunk_0", chunk_data, "application/octet-stream")
+}
+response = await client.post("/files/chunk", data=form_data, files=files)
+```
+
+**Response Example:**
+```json
+{
+    "status": "chunk received",
+    "chunk_number": 0,
+    "received_chunks": 1
+}
+```
+
+**Error Response Example:**
+```json
+{
+    "error": "Invalid upload ID - upload not initialized"
+}
+```
+
+<Note>Note that the maximum size of a single chunk is 1mB (1024 * 1024 bytes).</Note>
+
+#### Upload Completion
+
+```python
+# POST /files/complete/{dir_type}
+payload = {
+    "upload_id": upload_id,
+    "filename": "document.txt", 
+    "total_chunks": 5,
+    "batch_id": batch_id
+}
+response = await client.post("/files/complete/in", json=payload)
+```
+
+**Request Payload:**
+```json
+{
+    "upload_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "filename": "document.txt",
+    "total_chunks": 5,
+    "batch_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Response Example:**
+```json
+{
+    "status": "upload complete",
+    "completion_id": "550e8400-e29b-41d4-a716-446655440000",
+    "batch_id": "550e8400-e29b-41d4-a716-446655440000",
+    "final_file": "document.txt",
+    "final_path": "550e8400-e29b-41d4-a716-446655440000/document.txt"
+}
+```
+
+**Error Response Examples:**
+```json
+{
+    "error": "Invalid upload ID"
+}
+```
+
+```json
+{
+    "error": "Not all chunks uploaded"
+}
+```
+
+```json
+{
+    "error": "Missing chunk files: [2, 3]"
+}
+```
+
+### Automatic Upload Completion on Flow Start
+
+**Important:** Upload completion is automatically triggered when a flow is started. This happens in the following process:
+
+1. **Form Submission:** When a user submits a form with file uploads
+2. **Flow Start:** The flow is started with a unique flow ID (`fid`)
+3. **Automatic Completion:** All incomplete uploads are automatically completed with the flow ID as `completion_id`
+
+#### File Listing
+
+```python
+# GET /files/{fid}/{dir_type}
+response = await client.get("/files/flow-id/in")
+```
+
+**Response Example:**
+```json
+[
+    {
+        "path": "in/docs/readme.txt",
+        "size": 1024,
+        "is_directory": false
+    },
+    {
+        "path": "in/src/main.py", 
+        "size": 2048,
+        "is_directory": false
+    },
+    {
+        "path": "in/src/utils/",
+        "size": 0,
+        "is_directory": true
+    }
+]
+```
+
+#### File Download
+
+```python
+# GET /files/{fid}/{dir_type}/{filename}
+response = await client.get("/files/flow-id/in/document.txt")
+```
+
+**Response Headers:**
+```
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="document.txt"
+Content-Length: 1024
+```
+
+**Response Body:** Binary file content
+
+#### Upload Cancellation
+
+```python
+# POST /files/cancel
+payload = {
+    "upload_id": upload_id
+}
+response = await client.post("/files/cancel", json=payload)
+```
+
+**Request Payload:**
+```json
+{
+    "upload_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+**Response Example:**
+```json
+{
+    "status": "upload cancelled"
+}
+```
+
+## Constraints and Limitations
+
+### Directory Structure
+
+* Allowed directories
+  * `in/`      # Input files
+  * `out/`     # Output files
+
+* Not allowed directories
+  * `temp/`    # Not supported
+  * `cache/`   # Not supported
+
+### Path Validation
+
+* Path traversal and absolute paths are not allowed
+
+### File Sizes and Chunking
+
+* Chunk Size must not exceed 1024 * 1024 bytes (1mB)
+
+## Best Practices Summary
+
+### Recommended Practices
+
+1. **Use Context Managers** for automatic resource cleanup
+2. **Implement error handling** for robust applications
+3. **Use streaming for large files** instead of loading everything into memory
+4. **Implement retry logic** for network operations
+5. **Use SyncFileSystem in Ray Remote Functions**
+6. **Validate paths** before upload operations
+7. **Leverage automatic completion** when starting flows
+8. **Use batch uploads** for multiple files
+
+### Practices to Avoid
+
+1. **Manual resource management** without context managers
+2. **Loading large files completely into memory**
+3. **Using AsyncFileSystem in Ray Remote Functions**
+4. **Allowing path traversal**
+5. **Ignoring errors** without proper handling
+6. **Hardcoding JWT tokens** in production code
+7. **Manual completion** when automatic completion is available
+8. **Uploading files individually** instead of using batches

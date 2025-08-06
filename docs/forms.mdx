@@ -122,6 +122,16 @@ Input elements are used to collect user data through various input methods.
   - `value`: Whether this option is selected
 - Usage: Used within `Select` elements to define available choices
 
+### File Input (`InputFiles`)
+- Type: `file`
+- Purpose: File upload input with support for multiple files and directory uploads
+- Properties:
+  - `name`: Field identifier (required)
+  - `label`: Display label
+  - `required`: Whether the upload is mandatory
+  - `multiple`: Whether multiple files can be selected (boolean)
+  - `directory`: Whether to allow directory uploads (boolean, uses webkitdirectory)
+
 ## 2. Action Elements
 
 Action elements are used to trigger form submission or navigation.
@@ -171,7 +181,11 @@ Content elements are used to structure and display information within the form.
 - Type: `html` (specialized)
 - Purpose: Visual spacing element
 - Properties: None
-- Renders as: `<div class="space"></div>`
+
+### Horizontal Rule (`HR`)
+- Type: `html` (specialized)
+- Purpose: Visual separator line
+- Properties: None
 
 ### Errors (`Errors`)
 - Type: `errors`
@@ -182,3 +196,105 @@ Content elements are used to structure and display information within the form.
   - Global error display
   - Styled error container
   - Bold error text
+
+## Usage Examples
+
+### Basic Form with File Upload
+```python
+from kodosumi.core import forms as F
+
+model = F.Model(
+    F.Markdown("# File Processing Form"),
+    F.InputText(
+        name="title",
+        label="Document Title",
+        placeholder="Enter document title",
+        required=True
+    ),
+    F.InputFiles(
+        name="files",
+        label="Upload Documents",
+        multiple=True,
+        required=True
+    ),
+    F.Checkbox(
+        name="process_images",
+        option="Include image processing",
+        value=False
+    ),
+    F.Submit("Process Files"),
+    F.Cancel("Cancel")
+)
+```
+
+### Advanced Form with Validation
+```python
+model = F.Model(
+    F.Markdown("## Data Import Configuration"),
+    F.InputText(
+        name="email",
+        label="Email Address",
+        placeholder="user@example.com",
+        pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$",
+        required=True
+    ),
+    F.InputNumber(
+        name="batch_size",
+        label="Batch Size",
+        min_value=1,
+        max_value=1000,
+        value=100
+    ),
+    F.InputDate(
+        name="start_date",
+        label="Start Date",
+        required=True
+    ),
+    F.Select(
+        name="format",
+        label="Output Format",
+        option=[
+            F.InputOption("json", "JSON"),
+            F.InputOption("csv", "CSV"),
+            F.InputOption("xml", "XML")
+        ],
+        value="json"
+    ),
+    F.InputFiles(
+        name="data_files",
+        label="Data Files",
+        multiple=True,
+        directory=False,
+        required=True
+    ),
+    F.HR(),
+    F.Submit("Import Data"),
+    F.Cancel("Cancel")
+)
+```
+
+### Form with Error Handling
+```python
+model = F.Model(
+    F.Markdown("# User Registration"),
+    F.Errors(),  # Global error display
+    F.InputText(
+        name="username",
+        label="Username",
+        required=True
+    ),
+    F.InputPassword(
+        name="password",
+        label="Password",
+        min_length=8,
+        required=True
+    ),
+    F.InputPassword(
+        name="confirm_password",
+        label="Confirm Password",
+        required=True
+    ),
+    F.Submit("Register"),
+    F.Cancel("Cancel")
+)
+```

@@ -25,6 +25,10 @@
           {
             "group": "Deploy on Kodosumi",
             "pages": ["deploy", "panel"]
+          },
+          {
+            "group": "Details",
+            "pages": ["files", "files-api", "locks"]
           }
         ]
       },
