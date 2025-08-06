@@ -729,7 +729,7 @@ class InputFiles(FormElement):
             self,
             name: str,
             label: Optional[str] = None,
-            value: Optional[str] = None,
+            # value: Optional[str] = None,
             required: bool = False,
             multiple: bool = False,
             directory: bool = False,
@@ -860,6 +860,8 @@ class Model:
 
 
 __all__ = [
-    "Model", "Break", "InputText", "InputNumber", "Checkbox", "InputOption", 
-    "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime", "InputFiles"
+    "Model", "Break", "HR", "InputText", "InputNumber", "Checkbox", 
+    "InputOption", "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", 
+    "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime", 
+    "InputFiles"
 ]
