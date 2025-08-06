@@ -5,12 +5,10 @@ from pathlib import Path
 
 @pytest.fixture
 def sample_file_data():
-    """Create sample file data for testing."""
     return b"This is test file content for chunk upload testing. " * 100
 
 @pytest.fixture
 def large_file_data():
-    """Create larger file data that will be split into multiple chunks."""
     return b"A" * (20 * 1024 * 1024)
 
 
@@ -24,7 +22,6 @@ async def test_init(auth_client):
 
 @pytest.mark.asyncio
 async def test_init_upload_without_batch(auth_client, tmp_path):
-    """Test upload initialization without batch."""
     payload = {
         "filename": "test.txt",
         "total_chunks": 1
@@ -48,7 +45,6 @@ async def test_init_upload_without_batch(auth_client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_init_upload_with_batch(auth_client, tmp_path):
-    """Test upload initialization with existing batch."""
     batch_response = await auth_client.post("/files/init_batch")
     batch_id = batch_response.json()["batch_id"]
     payload = {
@@ -69,7 +65,6 @@ async def test_init_upload_with_batch(auth_client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_chunk_upload_success(auth_client, sample_file_data, tmp_path):
-    """Test successful chunk upload."""
     init_payload = {
         "filename": "test.txt",
         "total_chunks": 1
@@ -101,7 +96,6 @@ async def test_chunk_upload_success(auth_client, sample_file_data, tmp_path):
 
 @pytest.mark.asyncio
 async def test_chunk_upload_invalid_upload_id(auth_client, sample_file_data):
-    """Test chunk upload with invalid upload ID."""
     form_data = {
         "upload_id": "invalid-id",
         "chunk_number": "0",
@@ -117,9 +111,86 @@ async def test_chunk_upload_invalid_upload_id(auth_client, sample_file_data):
     assert "error" in data
     assert data["error"] == "Invalid upload ID - upload not initialized"
 
+
+@pytest.mark.asyncio
+async def test_chunk_upload_size_limit_exceeded(auth_client, tmp_path):
+    # Create a chunk larger than 1MB (1MB + 1KB)
+    oversized_chunk_data = b"A" * (1024 * 1024 + 1024)  # 1MB + 1KB
+    
+    # Initialize upload
+    init_payload = {
+        "filename": "oversized_test.txt",
+        "total_chunks": 1
+    }
+    init_response = await auth_client.post("/files/init", json=init_payload)
+    assert init_response.status_code == 201
+    upload_id = init_response.json()["upload_id"]
+    
+    # Try to upload oversized chunk
+    form_data = {
+        "upload_id": upload_id,
+        "chunk_number": "0",
+    }
+    files = {
+        "chunk": ("chunk_0", oversized_chunk_data, "application/octet-stream")
+    }
+    
+    response = await auth_client.post("/files/chunk", data=form_data, files=files)
+    
+    # Should return 413 Payload Too Large
+    assert response.status_code == 413
+    
+    # Verify error message contains size information
+    error_detail = response.json()["detail"]
+    assert "exceeds maximum allowed size" in error_detail
+    
+    # Verify that no chunk file was created (cleanup should have removed it)
+    upload_dir = Path(f"{tmp_path}/data/upload")
+    chunk_path = upload_dir / upload_id / "chunk_0"
+    assert not chunk_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_chunk_upload_size_limit_exact(auth_client, tmp_path):
+    # Create a chunk exactly 1MB
+    exact_size_chunk_data = b"A" * (1024 * 1024)  # Exactly 1MB
+    
+    # Initialize upload
+    init_payload = {
+        "filename": "exact_size_test.txt",
+        "total_chunks": 1
+    }
+    init_response = await auth_client.post("/files/init", json=init_payload)
+    assert init_response.status_code == 201
+    upload_id = init_response.json()["upload_id"]
+    
+    # Upload chunk at exact size limit
+    form_data = {
+        "upload_id": upload_id,
+        "chunk_number": "0",
+    }
+    files = {
+        "chunk": ("chunk_0", exact_size_chunk_data, "application/octet-stream")
+    }
+    
+    response = await auth_client.post("/files/chunk", data=form_data, files=files)
+    
+    # Should succeed
+    assert response.status_code == 201
+    
+    data = response.json()
+    assert data["status"] == "chunk received"
+    assert data["chunk_number"] == 0
+    assert data["received_chunks"] == 1
+    
+    # Verify chunk file was created with correct content
+    upload_dir = Path(f"{tmp_path}/data/upload")
+    chunk_path = upload_dir / upload_id / "chunk_0"
+    assert chunk_path.exists()
+    assert chunk_path.read_bytes() == exact_size_chunk_data
+
 @pytest.mark.asyncio
 async def test_complete_upload_success(auth_client, sample_file_data, tmp_path):
-    """Test successful upload completion."""
     filename = "complete_test.txt"
     total_chunks = 1
     init_payload = {
@@ -167,10 +238,9 @@ async def test_complete_upload_success(auth_client, sample_file_data, tmp_path):
 
 @pytest.mark.asyncio
 async def test_multi_chunk_upload_success(auth_client, large_file_data, tmp_path):
-    """Test successful multi-chunk upload with large file."""
     upload_dir = Path(f"{tmp_path}/data/upload")
     filename = "large_test_file.bin"
-    chunk_size = 5 * 1024 * 1024  # 5MB chunks (same as frontend)
+    chunk_size = 1 * 1024 * 1024  # 5MB chunks (same as frontend)
     total_chunks = (len(large_file_data) + chunk_size - 1) // chunk_size  
     init_payload = {
         "filename": filename,
@@ -234,7 +304,6 @@ async def test_multi_chunk_upload_success(auth_client, large_file_data, tmp_path
 
 @pytest.mark.asyncio
 async def test_multiple_files_upload_success(auth_client, tmp_path):
-    """Test successful upload of three distinct files in a batch."""
     upload_dir = Path(f"{tmp_path}/data/upload")
     
     # Create three different files with distinct content
@@ -335,7 +404,6 @@ async def test_multiple_files_upload_success(auth_client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_multiple_files_with_cancellation(auth_client, tmp_path):
-    """Test upload of 5 files where 2 are cancelled and 3 are completed successfully."""
     upload_dir = Path(f"{tmp_path}/data/upload")
     
     # Create five different files with distinct content
@@ -477,7 +545,6 @@ async def test_multiple_files_with_cancellation(auth_client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_multiple_files_directory_structure_complete_all(auth_client, tmp_path):
-    """Test uploading multiple files with directory structure and completing all with complete_all endpoint."""
     upload_dir = Path(f"{tmp_path}/data/upload")
     
     # Get the user ID from the login response (auth_client is already authenticated)
@@ -641,7 +708,6 @@ async def test_multiple_files_directory_structure_complete_all(auth_client, tmp_
 
 @pytest.mark.asyncio
 async def test_list_files_directory_structure(auth_client, tmp_path):
-    """Test listing files with directory structure using the list_files endpoint."""
     upload_dir = Path(f"{tmp_path}/data/upload")
     
     # Get the user ID from the login response
@@ -778,7 +844,6 @@ async def test_list_files_directory_structure(auth_client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_file_download(auth_client, tmp_path):
-    """Test downloading files using the get_file endpoint."""
     upload_dir = Path(f"{tmp_path}/data/upload")
     
     # Get the user ID from the login response
@@ -874,7 +939,6 @@ async def test_get_file_download(auth_client, tmp_path):
 
 @pytest.mark.asyncio 
 async def test_get_file_security(auth_client, tmp_path):
-    """Test security aspects of file downloading - path traversal protection."""
     upload_dir = Path(f"{tmp_path}/data/upload")
     
     # Get the user ID from the login response
@@ -952,7 +1016,6 @@ async def test_get_file_security(auth_client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_file_path_normalization(auth_client, tmp_path):
-    """Test that the server properly normalizes paths with leading slashes and handles various path formats."""
     upload_dir = Path(f"{tmp_path}/data/upload")
     
     # Get the user ID from the login response

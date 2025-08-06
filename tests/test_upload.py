@@ -27,7 +27,7 @@ async def test_simple(app_server3, spooler_server, koco_server):
     assert batch_response.status_code == 201
     batch_id = batch_response.json()["batch_id"]
     upload_ids = []
-    chunk_size = 5 * 1024 * 1024  # 5MB chunks (same as frontend)
+    chunk_size = 1 * 1024 * 1024  # 5MB chunks (same as frontend)
     for filename, file_data in files_data:
         total_chunks = (len(file_data) + chunk_size - 1) // chunk_size  
         init_payload = {
