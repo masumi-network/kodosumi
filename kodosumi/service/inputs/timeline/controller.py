@@ -11,16 +11,16 @@ from kodosumi.service.inputs.timeline.tool import load_page, MODES
 
 class TimelineController(litestar.Controller):
 
-    tags = ["Admin Panel"]
-    include_in_schema = True
+    tags = ["Execution Control"]
 
-    @get("/view")
+    @get("/view", include_in_schema=False)
     async def get_timeline(self,
                            state: State,
                            request: Request) -> Template:
         return Template("timeline/timeline.html", context={})
 
-    @get("/")
+    @get("/", summary="Get Timeline",
+          description="Retrieve the timeline of the user's executions.")
     async def get(self,
                   state: State,
                   request: Request,

@@ -21,7 +21,7 @@ from kodosumi.log import logger
 
 class FileControl(litestar.Controller):
 
-    tags = ["Files"]
+    tags = ["Files Management"]
     
     # Konstanten für bessere Wartbarkeit
     VALID_DIR_TYPES = ["in", "out"]
@@ -107,12 +107,14 @@ class FileControl(litestar.Controller):
     def generate_completion_id(self, batch_id: str | None = None) -> str:
         return batch_id if batch_id else str(uuid.uuid4())
 
-    @post("/init_batch")
+    @post("/init_batch", summary="Initialize Batch Upload",
+          description="Initialize a new batch upload session.")
     async def init_batch(self) -> dict:
         batch_id = str(uuid.uuid4())
         return {"batch_id": batch_id}
 
-    @post("/init")
+    @post("/init", summary="Initialize Single Upload",
+          description="Initialize a new single upload session.")
     async def init_upload(self, data: UploadInit, state: State) -> dict:
         upload_id = str(uuid.uuid4())
         session_dir = self.upload_dir(state) / upload_id
@@ -122,7 +124,8 @@ class FileControl(litestar.Controller):
             "batch_id": data.batch_id
         }
 
-    @post("/chunk")
+    @post("/chunk", summary="Upload File Chunk",
+          description="Upload a chunk of a file.")
     async def upload_chunk(self,
                            data: Annotated[
                                ChunkUpload, 
@@ -135,9 +138,28 @@ class FileControl(litestar.Controller):
         
         chunk_path = session_dir / f"{self.CHUNK_PREFIX}{data.chunk_number}"
         if not chunk_path.exists():
+            # Validate chunk size - maximum 1MB per chunk
+            MAX_CHUNK_SIZE = state.settings.SAVE_CHUNK_SIZE
+            total_bytes_written = 0
+            
             async with aiofiles.open(chunk_path, 'wb') as f:
                 while data_chunk := await data.chunk.read(
-                    state.settings.SAVE_CHUNK_SIZE):
+                        state.settings.SAVE_CHUNK_SIZE):
+                    chunk_size = len(data_chunk)
+                    total_bytes_written += chunk_size
+                    
+                    # Check if total chunk size exceeds maximum
+                    if total_bytes_written > MAX_CHUNK_SIZE:
+                        # Clean up the partial file
+                        await f.close()
+                        if chunk_path.exists():
+                            chunk_path.unlink()
+                        raise HTTPException(
+                            status_code=413, 
+                            detail=f"Chunk size exceeds maximum allowed size of {MAX_CHUNK_SIZE} bytes. "
+                                   f"Received chunk size: {total_bytes_written} bytes"
+                        )
+                    
                     await f.write(data_chunk)
                     await asyncio.sleep(0)
         
@@ -211,7 +233,8 @@ class FileControl(litestar.Controller):
             traceback.print_exc()
             return {"error": f"Internal server error: {str(e)}"}
 
-    @post("/complete/{dir_type:str}")
+    @post("/complete/{dir_type:str}", summary="Complete Single File Upload",
+          description="Complete the upload of a single file with `dir_type` as `in` or `out`.")
     async def complete_upload(self, 
                               request: Request,
                               data: UploadComplete, 
@@ -227,7 +250,9 @@ class FileControl(litestar.Controller):
             data.total_chunks,
             state)
 
-    @post("/complete/{fid:str}/{batch_id:str}/{dir_type:str}")
+    @post("/complete/{fid:str}/{batch_id:str}/{dir_type:str}", 
+          summary="Complete Batch Upload",
+          description="Complete the upload of a batch of files with `dir_type` as `in` or `out`.")
     async def complete_all(self, 
                            fid: str,
                            batch_id: str,
@@ -253,7 +278,8 @@ class FileControl(litestar.Controller):
                     state))
         return result
 
-    @delete("/cancel/{upload_id:str}")
+    @delete("/cancel/{upload_id:str}", summary="Cancel a single File Upload",
+            description="Cancel a single file upload session.")
     async def cancel_upload(self, upload_id: str, state: State) -> None:
         try:
             session_dir = self.upload_dir(state) / upload_id
@@ -263,7 +289,8 @@ class FileControl(litestar.Controller):
         except Exception as e:
             raise RuntimeError(f"Error cancelling upload: {str(e)}")
 
-    @get("/{fid:str}/{path:path}")
+    @get("/{fid:str}/{path:path}", summary="Retrieve a single File",
+          description="Retrieve a single file from the execution `in` or `out` directory.")
     async def get_files(self, 
                         fid: str, 
                         path: str,
@@ -281,8 +308,6 @@ class FileControl(litestar.Controller):
                 raise NotFoundException("Cannot retrieve directories")
             size = file.stat().st_size
             filename = file.name
-            # data/execution/c7eb70a5-0c26-407e-b785-f1ef5e7c4486/6891a3b36dd659c87951f9e5/in/Mehmet_Özyurt_dat.png
-            # URL-encode filename for Content-Disposition header to handle special characters
             encoded_filename = urllib.parse.quote(filename)
             return Stream(
                 content=self._stream_file(file, state),
@@ -312,7 +337,8 @@ class FileControl(litestar.Controller):
             entries_list.sort(key=lambda x: str(x["path"]))
             return entries_list
 
-    @delete("/{fid:str}/{path:path}")
+    @delete("/{fid:str}/{path:path}", summary="Delete a file or directory",
+            description="Delete a file or directory from the execution `in` or `out` directory.")
     async def delete_file(self, 
                           fid: str, 
                           path: str, 

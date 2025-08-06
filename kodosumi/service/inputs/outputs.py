@@ -204,10 +204,10 @@ async def _status(conn: sqlite3.Connection) -> Dict:
 
 class OutputsController(litestar.Controller):
 
-    tags = ["Admin Panel"]
-    include_in_schema = True
+    tags = ["Execution Control"]
 
-    @get("/status/{fid:str}")
+    @get("/status/{fid:str}", summary="Get Execution Status",
+          description="Retrieve the status of an execution including the final result if available and existing locks.")
     async def get_status(self, 
                          fid: str, 
                          state: State,
@@ -223,7 +223,7 @@ class OutputsController(litestar.Controller):
             await asyncio.sleep(SLEEP)
 
     # todo: move to admin panel
-    @get("/status/view/{fid:str}")
+    @get("/status/view/{fid:str}", include_in_schema=False)
     async def view_status(self, fid: str) -> Template:
         return Template(STATUS_TEMPLATE, context={"fid": fid})
 
@@ -254,7 +254,8 @@ class OutputsController(litestar.Controller):
         else:
             logger.warning(f"archived {fid}")
 
-    @get("/stream/{fid:str}")
+    @get("/stream/{fid:str}", summary="Stream Execution Events",
+          description="Full Event Stream of an execution.")
     async def get_stream(self, 
                          fid: str, 
                          request: Request, 
@@ -263,7 +264,8 @@ class OutputsController(litestar.Controller):
         return await self._stream(fid, state, request, filter_events=None,
                                   formatter=None, extended=extended)
 
-    @get("/main/{fid:str}")
+    @get("/main/{fid:str}", summary="Stream Main Execution Events",
+          description="Stream the main events of an execution including the meta data, user input, agent information, status, errors, action, results, final results, locks and leases.")
     async def get_main_stream(
             self, 
             fid: str, 
@@ -278,7 +280,8 @@ class OutputsController(litestar.Controller):
             fid, state, request, filter_events=MAIN_EVENTS, 
             formatter=formatter, extended=extended)
 
-    @get("/stdio/{fid:str}")
+    @get("/stdio/{fid:str}", summary="Stream Standard IO Execution Events",
+          description="Stream the standard IO events including `STDOUT`, `STDERR`, debug messages, errors and file upload information.")
     async def get_stdio_stream(
             self, 
             fid: str, 

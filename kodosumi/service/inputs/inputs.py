@@ -16,7 +16,7 @@ from kodosumi.service.proxy import find_lock, LockNotFound
 class InputsController(litestar.Controller):
 
     tags = ["Admin Panel"]
-    include_in_schema = True
+    include_in_schema = False
 
     @get("/-/{path:path}")
     async def get_scheme(self, 

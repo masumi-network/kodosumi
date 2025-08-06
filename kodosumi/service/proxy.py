@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional, Union
 
 import litestar
 import ray
-from litestar import MediaType, Request, route
+from litestar import MediaType, Request, route, get, post
 from litestar.datastructures import State
 from litestar.exceptions import HTTPException, NotFoundException
 from litestar.response import Redirect, Response
@@ -56,7 +56,7 @@ def lease(fid: str, lid: str, result: Dict[str, Any]):
 
 class ProxyControl(litestar.Controller):
 
-    tags = ["Reverse Proxy"]
+    tags = ["Proxy"]
     include_in_schema = False
 
     @route("/{path:path}", http_method=["GET", "POST"])
@@ -123,12 +123,12 @@ class ProxyControl(litestar.Controller):
 
 class LockController(litestar.Controller):
 
-    @route("/{fid:str}/{lid:str}", http_method=["GET", "POST"])
-    async def lock(self,
-                   fid: str,
-                   lid: str,
-                   state: State,
-                   request: Request) -> Response:
+    tags = ["Lock Control"]
+
+    async def _handle(self,
+                      fid: str,
+                      lid: str,
+                      request: Request) -> Response:
         try:
             lock, actor = find_lock(fid, lid)
         except LockNotFound as e:
@@ -173,3 +173,21 @@ class LockController(litestar.Controller):
                 content=response_content,
                 status_code=response.status_code,
                 headers=response_headers)
+
+    @get("/{fid:str}/{lid:str}",
+           summary="Retrieve lock",
+           description="Get lock input schema.")
+    async def get_lock(self,
+                   fid: str,
+                   lid: str,
+                   request: Request) -> Response:
+        return await self._handle(fid, lid, request)
+    
+    @post("/{fid:str}/{lid:str}",
+           summary="Provide lock input",
+           description="Post lock input and release the lock.")
+    async def post_lock(self,
+                   fid: str,
+                   lid: str,
+                   request: Request) -> Response:
+        return await self._handle(fid, lid, request)

@@ -199,7 +199,7 @@ def create_app(**kwargs) -> Litestar:
         ],
         openapi_config=OpenAPIConfig(
             title="Kodosumi API",
-            description="API documentation for the Kodosumi mesh.",
+            description="API documentation for the Kodosumi Panel API.",
             version=kodosumi.core.__version__,
             render_plugins=[SwaggerRenderPlugin(), 
                             JsonRenderPlugin()]

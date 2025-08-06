@@ -41,7 +41,7 @@ class RoleControl(litestar.Controller):
     tags = ["Access Management"]
     guards=[operator_guard]
 
-    @post("/")
+    @post("/", summary="Add Role", description="Add a new role to the system.")
     async def add_role(self, 
                        data: RoleCreate, 
                        transaction: AsyncSession) -> RoleResponse:
@@ -58,7 +58,7 @@ class RoleControl(litestar.Controller):
         logger.info(f"created role {role.name} ({role.id})")
         return RoleResponse.model_validate(role)    
         
-    @get("/")
+    @get("/", summary="List Roles", description="List all roles in the system.")
     async def list_roles(self, 
                          transaction: AsyncSession) -> list[RoleResponse]:
         query = select(Role)
@@ -67,7 +67,8 @@ class RoleControl(litestar.Controller):
         ret.sort(key=lambda x: x.name)
         return ret
     
-    @get("/{name:str}")
+    @get("/{name:str}", summary="Get Role by Name or ID", 
+         description="Get a role by name or ID.")
     async def get_role(self, 
                        name: str, 
                        transaction: AsyncSession) -> RoleResponse:
@@ -86,7 +87,8 @@ class RoleControl(litestar.Controller):
             return RoleResponse.model_validate(role)
         raise NotFoundException(detail=f"role {name} not found")
 
-    @delete("/{rid:uuid}")
+    @delete("/{rid:uuid}", summary="Delete Role by ID", 
+            description="Delete a role by ID.")
     async def delete_role(self, 
                           rid: uuid.UUID, 
                           transaction: AsyncSession) -> None:
@@ -99,7 +101,8 @@ class RoleControl(litestar.Controller):
             return None
         raise NotFoundException(detail=f"role {rid} not found")
 
-    @put("/{rid:uuid}")
+    @put("/{rid:uuid}", summary="Update Role by ID", 
+         description="Update a role by ID.")
     async def edit_role(self, 
                         rid: uuid.UUID, 
                         data: RoleEdit, 

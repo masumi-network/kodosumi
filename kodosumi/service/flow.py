@@ -65,7 +65,7 @@ class FlowControl(litestar.Controller):
     @post("/unregister", 
           status_code=200, 
           summary="Unregister Flows",
-          description="Remove a previoiusly registered flow source.", 
+          description="Remove previoiusly registered flow sources.", 
           tags=["Flow Operations"], 
           guards=[operator_guard])
     async def unregister_flow(self,
@@ -84,7 +84,7 @@ class FlowControl(litestar.Controller):
                 "registers": state["settings"].REGISTER_FLOW}
 
     @put("/register", summary="Refresh registered Flows",
-         description="Retrieve the OpenAPI specification of all registered Flow sources.", 
+         description="Reconnect to the OpenAPI specification of all registered Flow sources.", 
          status_code=200, tags=["Flow Operations"], 
          guards=[operator_guard])
     async def update_flows(self, state: State) -> dict:

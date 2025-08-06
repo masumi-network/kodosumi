@@ -19,9 +19,9 @@ from kodosumi.service.jwt import encode_jwt_token
 
 class LoginControl(litestar.Controller):
 
-    tags = ["Access"]
+    tags = ["Authorization"]
 
-    @get("/login", summary="Login",
+    @get("/login", summary="Login with query params",
          description="Login with name and password.", status_code=200, 
          opt={"no_auth": True})
     async def login_role_get(self, 
@@ -89,7 +89,7 @@ class LoginControl(litestar.Controller):
 
     @get("/", summary="Home",
          description="Admin Console Home.", opt={"no_auth": True},
-         exclude_from_schema=True)
+         include_in_schema=False)
     async def home(self, request: Request) -> Union[Redirect, Template]:
         if TOKEN_KEY in request.cookies:
             return Redirect("/admin/flow")
