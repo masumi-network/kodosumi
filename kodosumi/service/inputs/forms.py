@@ -39,12 +39,14 @@ class HTML(Element):
         return self.text or ""
 
 class Break(HTML):
-    def __init__(self):
+    type = "break"
+    def __init__(self, *args, **kwargs):
         super().__init__('<div class="space"></div>')
 
 
 class HR(HTML):
-    def __init__(self):
+    type = "hr"
+    def __init__(self, *args, **kwargs):
         super().__init__('<hr class="medium"/>')
 
 
@@ -818,7 +820,8 @@ class Model:
             Action,
             Errors,
             InputFiles,
-            HR
+            HR,
+            Break
         }
         children = []
         for elm in elms:
