@@ -729,7 +729,7 @@ class InputFiles(FormElement):
             self,
             name: str,
             label: Optional[str] = None,
-            # value: Optional[str] = None,
+            value: Optional[str] = None,
             required: bool = False,
             multiple: bool = False,
             directory: bool = False,
@@ -817,7 +817,8 @@ class Model:
             Cancel, 
             Action,
             Errors,
-            InputFiles
+            InputFiles,
+            HR
         }
         children = []
         for elm in elms:
