@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 import kodosumi.service.admin
 from kodosumi.const import (KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER,
-                            KODOSUMI_API, KODOSUMI_URL)
+                            KODOSUMI_API, KODOSUMI_URL, HEADER_KEY)
 from kodosumi.helper import HTTPXClient
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.service.inputs.forms import Checkbox, InputFiles, Model
@@ -151,11 +151,16 @@ class ServeAPI(FastAPI):
                 fid = result.headers.get(KODOSUMI_LAUNCH, None)
                 if fid:
                     if items and batch_id:
+                        headers = {
+                            kodosumi.const.HEADER_KEY: str(request.headers.get(
+                                kodosumi.const.HEADER_KEY, ""))
+                        }
                         url = request.headers[KODOSUMI_URL]
                         url += f"/files/complete/{fid}/{batch_id}/in"
                         async with HTTPXClient() as client:
                             resp = await client.post(
-                                url, json=items, cookies=request.cookies)
+                                url, json=items, cookies=request.cookies,
+                                headers=headers)
                             if resp.status_code != 201:
                                 raise HTTPException(
                                     status_code=400,

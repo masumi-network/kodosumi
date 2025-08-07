@@ -13,7 +13,7 @@ from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                             EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                             KODOSUMI_LAUNCH, NAMESPACE, STATUS_END,
                             STATUS_ERROR, STATUS_RUNNING, STATUS_STARTING,
-                            TOKEN_KEY, EVENT_UPLOAD, KODOSUMI_URL)
+                            TOKEN_KEY, EVENT_UPLOAD, KODOSUMI_URL, HEADER_KEY)
 from kodosumi.helper import now, serialize
 from kodosumi.runner.tracer import Tracer
 from kodosumi import dtypes
@@ -300,7 +300,7 @@ def Launch(request: Any,
         entry_point=entry_point, 
         inputs=inputs, 
         extra=extra,
-        jwt=request.cookies.get(TOKEN_KEY),
+        jwt=request.cookies.get(TOKEN_KEY) or request.headers.get(HEADER_KEY),
         panel_url=str(request.headers.get(KODOSUMI_URL))
     )
     runner.run.remote()  # type: ignore
