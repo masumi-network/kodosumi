@@ -754,10 +754,10 @@ class InputFiles(FormElement):
     def render(self) -> str:
         ret = []
         ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
-        ret.append(f'<span style="" id="{self.name}-files">')
-        ret.append(f'<div id="{self.name}-items"></div>')
+        ret.append(f'<span id="_files-{self.name}">')
+        ret.append(f'<div id="_items-{self.name}"></div>')
         ret.append(f'<div class="space"></div></span>')
-        ret.append(f'<button id="button-{self.name}" class="fileInput medium circle">')
+        ret.append(f'<button id="_button-{self.name}" class="fileInput medium circle">')
         ret.append(f'<i>attach_file</i>')
         attrs = [f'type="{self.type}" name="_dialog-{self.name}" id="_dialog-{self.name}"']
         if self.required:

@@ -1,7 +1,5 @@
 let activeUploads = new Map(); 
 let currentBatchId = null;
-let allUploadsCompleted = false;
-let completedBatches = new Set(); 
 
 async function initializeBatch() {
     try {
@@ -45,7 +43,7 @@ async function cancelFile(name, upload_id) {
 }
 
 function addProgressBar(name, relPath) {
-    const container = document.getElementById(`${name}-items`);
+    const container = document.getElementById(`_items-${name}`);
     const div = document.createElement('div');
     div.className = 'file-item';
     div.innerHTML = `
@@ -57,7 +55,7 @@ function addProgressBar(name, relPath) {
 }
 
 async function uploadFile(file, relativePath, onProgress) {
-    const chunkSize = 5 * 1024 * 1024; // 5 MB
+    const chunkSize = 1 * 1024 * 1024; // 5 MB
     const totalChunks = Math.ceil(file.size / chunkSize);
     const parallelUploads = 4;
     const startTime = Date.now();
@@ -86,7 +84,10 @@ async function uploadFile(file, relativePath, onProgress) {
     let completedChunks = JSON.parse(localStorage.getItem(upload_id)) || [];
     let uploadedBytes = completedChunks.length * chunkSize;
 
-    async function uploadChunk(i) {
+    async function uploadChunk(i, trial) {
+        if (trial > 5) {
+            throw(`Stop retrying chunk ${i}:`);
+        }
         if (completedChunks.includes(i)) return;
 
         const start = i * chunkSize;
@@ -126,13 +127,13 @@ async function uploadFile(file, relativePath, onProgress) {
             }
         } catch (error) {
             console.warn(`Retrying chunk ${i}:`, error);
-            return uploadChunk(i);
+            return uploadChunk(i, trial + 1);
         }
     }
     const chunkIndices = Array.from({ length: totalChunks }, (_, i) => i);
     for (let i = 0; i < chunkIndices.length; i += parallelUploads) {
         const batch = chunkIndices.slice(i, i + parallelUploads);
-        await Promise.all(batch.map(uploadChunk));
+        await Promise.all(batch.map(uploadChunk, 0));
     }
     const uploadInfo = activeUploads.get(upload_id);
     if (uploadInfo) {
@@ -145,12 +146,11 @@ async function uploadMultiple(name, files) {
     if (!currentBatchId) {
         await initializeBatch();
     }
-    document.getElementById(`${name}-files`).style.display = 'block';
+    document.getElementById(`_files-${name}`).style.display = 'block';
     for (const file of files) {
         const relativePath = file.webkitRelativePath || file.name;
         const progressDiv = addProgressBar(name, relativePath);
         const progressBar = progressDiv.querySelector('progress');
-        // const progressText = progressDiv.querySelector('span');
         const fileId = progressDiv.querySelector('i');
         const upload_id = await uploadFile(file, relativePath, (progress) => {
             progressBar.value = progress.percent;
@@ -165,7 +165,7 @@ async function uploadMultiple(name, files) {
 }
 
 async function updateForm(name) {
-    console.log("updating", name);
+    // console.log("updating", name);
     const readyUploads = Array.from(activeUploads.entries())
         .filter(([_, info]) => info.status === 'ready')
         .map(([upload_id, info]) => [upload_id, { 
@@ -184,7 +184,7 @@ async function updateForm(name) {
 document.addEventListener('DOMContentLoaded', () => {
     Array.from(document.getElementsByClassName('fileInput')).forEach(input => {
         input.addEventListener('change', (e) => {
-            const name = input.id.match(/^([^-]+-)(.*)/)[2];
+            const name = input.id.match(/^(_[^-]+-)(.+)/)[2];
             uploadMultiple(name, e.target.files);
         });
     });
