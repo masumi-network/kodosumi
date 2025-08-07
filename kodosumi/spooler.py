@@ -4,7 +4,7 @@ import sqlite3
 import sys
 from pathlib import Path
 from typing import Dict, List, Union
-
+import shutil
 import psutil
 import ray
 from ray.actor import ActorHandle
@@ -184,7 +184,14 @@ class Spooler:
         await asyncio.gather(*self.monitor.values())
 
 
+def cleanup(settings: kodosumi.config.Settings):
+    for upload in Path(settings.UPLOAD_DIR).iterdir():
+        if upload.is_dir():
+            logger.info(f"cleanup {upload}")
+            shutil.rmtree(upload)
+
 def main(settings: kodosumi.config.Settings):
+    cleanup(settings)
     spooler = Spooler(
         exec_dir=settings.EXEC_DIR, 
         interval=settings.SPOOLER_INTERVAL, 
