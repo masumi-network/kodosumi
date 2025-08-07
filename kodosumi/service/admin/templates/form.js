@@ -84,7 +84,7 @@ async function uploadFile(file, relativePath, onProgress) {
     let completedChunks = JSON.parse(localStorage.getItem(upload_id)) || [];
     let uploadedBytes = completedChunks.length * chunkSize;
 
-    async function uploadChunk(i, trial) {
+    async function uploadChunk(i, trial=1) {
         if (trial > 5) {
             throw(`Stop retrying chunk ${i}:`);
         }
@@ -133,7 +133,7 @@ async function uploadFile(file, relativePath, onProgress) {
     const chunkIndices = Array.from({ length: totalChunks }, (_, i) => i);
     for (let i = 0; i < chunkIndices.length; i += parallelUploads) {
         const batch = chunkIndices.slice(i, i + parallelUploads);
-        await Promise.all(batch.map(uploadChunk, 0));
+        await Promise.all(batch.map(uploadChunk));
     }
     const uploadInfo = activeUploads.get(upload_id);
     if (uploadInfo) {
