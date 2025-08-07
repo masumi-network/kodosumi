@@ -185,7 +185,9 @@ class Spooler:
 
 
 def cleanup(settings: kodosumi.config.Settings):
-    for upload in Path(settings.UPLOAD_DIR).iterdir():
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    for upload in upload_dir.iterdir():
         if upload.is_dir():
             logger.info(f"cleanup {upload}")
             shutil.rmtree(upload)
