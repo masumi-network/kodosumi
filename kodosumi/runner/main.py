@@ -8,7 +8,7 @@ from bson.objectid import ObjectId
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-import kodosumi.core
+import kodosumi
 from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                             EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                             KODOSUMI_LAUNCH, NAMESPACE, STATUS_END,
@@ -103,7 +103,7 @@ class Runner:
             obj = parse_entry_point(self.entry_point)
         else:
             obj = self.entry_point
-        origin = {"kodosumi": kodosumi.core.__version__}
+        origin = {"kodosumi": kodosumi.__version__}
         if isinstance(self.extra, dict):
             for field in ("tags", "summary", "description", "deprecated"):
                 origin[field] = self.extra.get(field, None)

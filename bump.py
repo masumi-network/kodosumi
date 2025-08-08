@@ -13,7 +13,7 @@ def get_current_version() -> Tuple[str, str]:
     pyproject_data = toml.load(pyproject_path)
     pyproject_version = pyproject_data["project"]["version"]
     
-    core_path = Path("kodosumi/core.py")
+    core_path = Path("kodosumi/__init__.py")
     with open(core_path, "r") as f:
         core_content = f.read()
         match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', core_content)

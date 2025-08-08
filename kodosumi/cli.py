@@ -5,7 +5,7 @@ import click
 import psutil
 import ray
 from pathlib import Path
-from kodosumi.core import __version__
+from kodosumi import __version__
 import kodosumi.service.server
 import kodosumi.spooler
 from kodosumi import helper
