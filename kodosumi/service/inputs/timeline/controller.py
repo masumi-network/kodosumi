@@ -20,7 +20,7 @@ class TimelineController(litestar.Controller):
         return Template("timeline/timeline.html", context={})
 
     @get("/", summary="Get Timeline",
-          description="Retrieve the timeline of the user's executions.")
+          description="Retrieve the timeline of the user's executions.", operation_id="60_get_timeline")
     async def get(self,
                   state: State,
                   request: Request,

@@ -41,7 +41,7 @@ class RoleControl(litestar.Controller):
     tags = ["Access Management"]
     guards=[operator_guard]
 
-    @post("/", summary="Add Role", description="Add a new role to the system.")
+    @post("/", summary="Add Role", description="Add a new role to the system.", operation_id="20_add_role")
     async def add_role(self, 
                        data: RoleCreate, 
                        transaction: AsyncSession) -> RoleResponse:
@@ -58,7 +58,7 @@ class RoleControl(litestar.Controller):
         logger.info(f"created role {role.name} ({role.id})")
         return RoleResponse.model_validate(role)    
         
-    @get("/", summary="List Roles", description="List all roles in the system.")
+    @get("/", summary="List Roles", description="List all roles in the system.", operation_id="21_list_roles")
     async def list_roles(self, 
                          transaction: AsyncSession) -> list[RoleResponse]:
         query = select(Role)
@@ -68,7 +68,7 @@ class RoleControl(litestar.Controller):
         return ret
     
     @get("/{name:str}", summary="Get Role by Name or ID", 
-         description="Get a role by name or ID.")
+         description="Get a role by name or ID.", operation_id="22_get_role")
     async def get_role(self, 
                        name: str, 
                        transaction: AsyncSession) -> RoleResponse:
@@ -88,7 +88,7 @@ class RoleControl(litestar.Controller):
         raise NotFoundException(detail=f"role {name} not found")
 
     @delete("/{rid:uuid}", summary="Delete Role by ID", 
-            description="Delete a role by ID.")
+            description="Delete a role by ID.", operation_id="23_delete_role")
     async def delete_role(self, 
                           rid: uuid.UUID, 
                           transaction: AsyncSession) -> None:
@@ -102,7 +102,7 @@ class RoleControl(litestar.Controller):
         raise NotFoundException(detail=f"role {rid} not found")
 
     @put("/{rid:uuid}", summary="Update Role by ID", 
-         description="Update a role by ID.")
+         description="Update a role by ID.", operation_id="24_edit_role")
     async def edit_role(self, 
                         rid: uuid.UUID, 
                         data: RoleEdit, 

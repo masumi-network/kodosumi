@@ -121,7 +121,7 @@ class DeployControl(litestar.Controller):
 
 
     @post("/{name:str}", summary="Create deployment",
-          description="Creates a new YAML configuration")
+          description="Creates a new YAML configuration", operation_id="30_create_deployment")
     async def create_deployment(self, name: str, state: State, request: Request) -> Response:
         content = await request.body()
         deployer = _get_deployer(state["settings"])
@@ -130,7 +130,7 @@ class DeployControl(litestar.Controller):
         return Response(content=str(out), media_type="text/plain")
 
     @get("/{name:str}", summary="Read a deployment",
-         description="Reads the content of a YAML configuration")
+         description="Reads the content of a YAML configuration", operation_id="31_read_deployment")
     async def read_deployment(self, name: str, state: State) -> Response:
         deployer = _get_deployer(state["settings"])
         try:
@@ -140,7 +140,7 @@ class DeployControl(litestar.Controller):
         return Response(content=out, media_type="application/x-yaml")
     
     @get("/", summary="List all deployments",
-         description="Returns a list of all YAML configurations")
+         description="Returns a list of all YAML configurations", operation_id="32_list_deployments")
     async def list_deployments(self, state: State) -> dict:
         deployer = _get_deployer(state["settings"])
         listing = await _wait_for(deployer.listing.remote())
@@ -165,7 +165,7 @@ class DeployControl(litestar.Controller):
         return ret
     
     @delete("/{name:str}", summary="Delete a deployment",
-            description="Removes a YAML configuration")
+            description="Removes a YAML configuration", operation_id="33_delete_deployment")
     async def delete_deployment(self, name: str, state: State) -> None:
         deployer = _get_deployer(state["settings"])
         await _wait_for(deployer.delete.remote(name))
@@ -175,14 +175,14 @@ class ServeControl(litestar.Controller):
     guards=[operator_guard]
     
     @post("/", summary="Re-deploy all",
-         description="Redeploys all active deployment configurations")
+         description="Redeploys all active deployment configurations", operation_id="34_deploy_all")
     async def deploy(self, state: State) -> Response:
         deployer = _get_deployer(state["settings"])
         out = await _wait_for(deployer.deploy.remote())
         return Response(content=str(out), media_type="text/plain")
 
     @delete("/", summary="Shutdown all",
-         description="Shutdown all active deployments")
+         description="Shutdown all active deployments", operation_id="35_shutdown_all")
     async def shutdown(self, state: State) -> None:
         deployer = _get_deployer(state["settings"])
         await _wait_for(deployer.shutdown.remote())

@@ -16,7 +16,7 @@ class FlowControl(litestar.Controller):
           summary="Register Flows",
           description="Register one or multiple flow.", 
           tags=["Flow Operations"], 
-          guards=[operator_guard])
+          guards=[operator_guard], operation_id="10_register_flow")
     async def register_flow(
             self,
             state: State,
@@ -29,7 +29,7 @@ class FlowControl(litestar.Controller):
     @get("/", 
          summary="Retrieve registered Flows",
          description="Paginated list of Flows which did register.", 
-         tags=["Flow Control"])
+         tags=["Flow Control"], operation_id="11_list_flows")
     async def list_flows(
             self,
             state: State, 
@@ -54,7 +54,7 @@ class FlowControl(litestar.Controller):
     @get("/tags", 
          summary="Retrieve Tag List",
          description="Retrieve Tag List of registered Flows.", 
-         tags = ["Flow Control"])
+         tags = ["Flow Control"], operation_id="12_list_tags")
     async def list_tags(self, state: State) -> dict[str, int]:
         tags = [
             tag for nest in [ep.tags for ep in endpoint.find(state)] 
@@ -67,7 +67,7 @@ class FlowControl(litestar.Controller):
           summary="Unregister Flows",
           description="Remove previoiusly registered flow sources.", 
           tags=["Flow Operations"], 
-          guards=[operator_guard])
+          guards=[operator_guard], operation_id="13_unregister_flow")
     async def unregister_flow(self,
                               data: RegisterFlow,
                               state: State) -> dict:
@@ -76,7 +76,7 @@ class FlowControl(litestar.Controller):
         return {"deletes": data.url}
 
     @get("/register", summary="Retrieve Flow Register",
-         description="Retrieve list of Flow sources.", tags=["Flow Control"])
+         description="Retrieve list of Flow sources.", tags=["Flow Control"], operation_id="14_list_register")
     async def list_register(self,
                          state: State) -> dict:
         keys = endpoint.keys(state)
@@ -86,7 +86,7 @@ class FlowControl(litestar.Controller):
     @put("/register", summary="Refresh registered Flows",
          description="Reconnect to the OpenAPI specification of all registered Flow sources.", 
          status_code=200, tags=["Flow Operations"], 
-         guards=[operator_guard])
+         guards=[operator_guard], operation_id="15_update_flows")
     async def update_flows(self, state: State) -> dict:
         urls = set()
         sums = set()

@@ -10,6 +10,9 @@ A flow launched with `Launch` response runs through the following states:
         [*] --> starting
         starting --> running
         running --> finished
+        running --> awaiting
+        awaiting --> running
+        awaiting --> error
         running --> error
         finished --> [*]
         error --> [*]

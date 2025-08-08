@@ -176,7 +176,7 @@ class LockController(litestar.Controller):
 
     @get("/{fid:str}/{lid:str}",
            summary="Retrieve lock",
-           description="Get lock input schema.")
+           description="Get lock input schema.", operation_id="40_get_lock")
     async def get_lock(self,
                    fid: str,
                    lid: str,
@@ -185,7 +185,7 @@ class LockController(litestar.Controller):
     
     @post("/{fid:str}/{lid:str}",
            summary="Provide lock input",
-           description="Post lock input and release the lock.")
+           description="Post lock input and release the lock.", operation_id="41_post_lock")
     async def post_lock(self,
                    fid: str,
                    lid: str,

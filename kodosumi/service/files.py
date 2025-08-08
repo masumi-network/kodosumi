@@ -108,13 +108,13 @@ class FileControl(litestar.Controller):
         return batch_id if batch_id else str(uuid.uuid4())
 
     @post("/init_batch", summary="Initialize Batch Upload",
-          description="Initialize a new batch upload session.")
+          description="Initialize a new batch upload session.", operation_id="70_init_batch")
     async def init_batch(self) -> dict:
         batch_id = str(uuid.uuid4())
         return {"batch_id": batch_id}
 
     @post("/init", summary="Initialize Single Upload",
-          description="Initialize a new single upload session.")
+          description="Initialize a new single upload session.", operation_id="71_init_upload")
     async def init_upload(self, data: UploadInit, state: State) -> dict:
         upload_id = str(uuid.uuid4())
         session_dir = self.upload_dir(state) / upload_id
@@ -125,7 +125,7 @@ class FileControl(litestar.Controller):
         }
 
     @post("/chunk", summary="Upload File Chunk",
-          description="Upload a chunk of a file.")
+          description="Upload a chunk of a file.", operation_id="72_upload_chunk")
     async def upload_chunk(self,
                            data: Annotated[
                                ChunkUpload, 
@@ -234,7 +234,7 @@ class FileControl(litestar.Controller):
             return {"error": f"Internal server error: {str(e)}"}
 
     @post("/complete/{dir_type:str}", summary="Complete Single File Upload",
-          description="Complete the upload of a single file with `dir_type` as `in` or `out`.")
+          description="Complete the upload of a single file with `dir_type` as `in` or `out`.", operation_id="73_complete_upload")
     async def complete_upload(self, 
                               request: Request,
                               data: UploadComplete, 
@@ -252,7 +252,7 @@ class FileControl(litestar.Controller):
 
     @post("/complete/{fid:str}/{batch_id:str}/{dir_type:str}", 
           summary="Complete Batch Upload",
-          description="Complete the upload of a batch of files with `dir_type` as `in` or `out`.")
+          description="Complete the upload of a batch of files with `dir_type` as `in` or `out`.", operation_id="74_complete_batch")
     async def complete_all(self, 
                            fid: str,
                            batch_id: str,
@@ -279,7 +279,7 @@ class FileControl(litestar.Controller):
         return result
 
     @delete("/cancel/{upload_id:str}", summary="Cancel a single File Upload",
-            description="Cancel a single file upload session.")
+            description="Cancel a single file upload session.", operation_id="75_cancel_upload")
     async def cancel_upload(self, upload_id: str, state: State) -> None:
         try:
             session_dir = self.upload_dir(state) / upload_id
@@ -290,7 +290,7 @@ class FileControl(litestar.Controller):
             raise RuntimeError(f"Error cancelling upload: {str(e)}")
 
     @get("/{fid:str}/{path:path}", summary="Retrieve a single File",
-          description="Retrieve a single file from the execution `in` or `out` directory.")
+          description="Retrieve a single file from the execution `in` or `out` directory.", operation_id="76_get_files")
     async def get_files(self, 
                         fid: str, 
                         path: str,
@@ -338,7 +338,7 @@ class FileControl(litestar.Controller):
             return entries_list
 
     @delete("/{fid:str}/{path:path}", summary="Delete a file or directory",
-            description="Delete a file or directory from the execution `in` or `out` directory.")
+            description="Delete a file or directory from the execution `in` or `out` directory.", operation_id="77_delete_file")
     async def delete_file(self, 
                           fid: str, 
                           path: str, 

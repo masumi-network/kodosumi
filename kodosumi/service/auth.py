@@ -23,7 +23,7 @@ class LoginControl(litestar.Controller):
 
     @get("/login", summary="Login with query params",
          description="Login with name and password.", status_code=200, 
-         opt={"no_auth": True})
+         opt={"no_auth": True}, operation_id="01_login_get")
     async def login_role_get(self, 
                              name: str, 
                              password: str, 
@@ -32,7 +32,7 @@ class LoginControl(litestar.Controller):
 
     @post("/login", summary="Login with form",
          description="Login with name and password using form data.", status_code=200, 
-         opt={"no_auth": True})
+         opt={"no_auth": True}, operation_id="02_login_post")
     async def login_role_post(
             self, 
             data: Annotated[
@@ -43,7 +43,7 @@ class LoginControl(litestar.Controller):
 
     @post("/api/login", summary="Login with JSON",
          description="Login with name and password using JSON body.", status_code=200, 
-         opt={"no_auth": True})
+         opt={"no_auth": True}, operation_id="03_login_json")
     async def login_role_json(
             self, 
             data: Annotated[
@@ -52,14 +52,22 @@ class LoginControl(litestar.Controller):
         return await self._get_role(
             transaction, data.name, data.password, data.redirect)
 
-    @route("/logout", summary="Logout",
-         description="Logout and remove session cookie..", status_code=200, http_method=["GET", "POST"])
-    async def get_logout(self, request: Request) -> Response:
+    async def _logout(self, request):
         if request.user:
             response = Response(content="")
             response.delete_cookie(key=TOKEN_KEY)
             return response
         raise NotAuthorizedException(detail="Invalid name or password")
+
+    @get("/logout", summary="Logout (GET)",
+         description="Logout and remove session cookie via GET.", status_code=200, operation_id="04_logout_get")
+    async def logout_get(self, request: Request) -> Response:
+        return await self._logout(request)
+    
+    @post("/logout", summary="Logout (POST)",
+         description="Logout and remove session cookie via POST.", status_code=200, operation_id="04_logout_post")
+    async def logout_post(self, request: Request) -> Response:
+        return await self._logout(request)
 
     async def _get_role(self, 
                         transaction: AsyncSession,
@@ -89,7 +97,7 @@ class LoginControl(litestar.Controller):
 
     @get("/", summary="Home",
          description="Admin Console Home.", opt={"no_auth": True},
-         include_in_schema=False)
+         include_in_schema=False, operation_id="00_home")
     async def home(self, request: Request) -> Union[Redirect, Template]:
         if TOKEN_KEY in request.cookies:
             return Redirect("/admin/flow")

@@ -207,7 +207,7 @@ class OutputsController(litestar.Controller):
     tags = ["Execution Control"]
 
     @get("/status/{fid:str}", summary="Get Execution Status",
-          description="Retrieve the status of an execution including the final result if available and existing locks.")
+          description="Retrieve the status of an execution including the final result if available and existing locks.", operation_id="50_get_status")
     async def get_status(self, 
                          fid: str, 
                          state: State,
@@ -228,7 +228,7 @@ class OutputsController(litestar.Controller):
         return Template(STATUS_TEMPLATE, context={"fid": fid})
 
     @delete("/{fid:str}", summary="Delete or Kill Execution",
-         description="Kills an active deletes a completed execution.")
+         description="Kills an active deletes a completed execution.", operation_id="51_delete_execution")
     async def delete_execution(
             self, 
             fid: str, 
@@ -255,7 +255,7 @@ class OutputsController(litestar.Controller):
             logger.warning(f"archived {fid}")
 
     @get("/stream/{fid:str}", summary="Stream Execution Events",
-          description="Full Event Stream of an execution.")
+          description="Full Event Stream of an execution.", operation_id="52_get_stream")
     async def get_stream(self, 
                          fid: str, 
                          request: Request, 
@@ -265,7 +265,7 @@ class OutputsController(litestar.Controller):
                                   formatter=None, extended=extended)
 
     @get("/main/{fid:str}", summary="Stream Main Execution Events",
-          description="Stream the main events of an execution including the meta data, user input, agent information, status, errors, action, results, final results, locks and leases.")
+          description="Stream the main events of an execution including the meta data, user input, agent information, status, errors, action, results, final results, locks and leases.", operation_id="53_get_main_stream")
     async def get_main_stream(
             self, 
             fid: str, 
@@ -281,7 +281,7 @@ class OutputsController(litestar.Controller):
             formatter=formatter, extended=extended)
 
     @get("/stdio/{fid:str}", summary="Stream Standard IO Execution Events",
-          description="Stream the standard IO events including `STDOUT`, `STDERR`, debug messages, errors and file upload information.")
+          description="Stream the standard IO events including `STDOUT`, `STDERR`, debug messages, errors and file upload information.", operation_id="54_get_stdio_stream")
     async def get_stdio_stream(
             self, 
             fid: str, 
@@ -307,7 +307,7 @@ class OutputsController(litestar.Controller):
         return ServerSentEvent(_event(fid, conn, filter_events, formatter))
  
     @delete("/", summary="Delete or Kill list of Executions",
-         description="Kills active and deletes selected executions.")
+         description="Kills active and deletes selected executions.", operation_id="55_delete_list")
     async def delete_list(
             self, 
             request: Request, 
@@ -387,7 +387,7 @@ class OutputsController(litestar.Controller):
         }
 
     @get("/html/{fid:str}", summary="Render HTML of Final Result",
-         description="Render Final Result in HTML.")
+         description="Render Final Result in HTML.", operation_id="56_final_html")
     async def final_html(
             self, 
             fid: str,
@@ -399,7 +399,7 @@ class OutputsController(litestar.Controller):
         return Template("final.html", context=ret)
 
     @get("/raw/{fid:str}", summary="Render Raw of Final Result",
-         description="Render Final Result in raw format.")
+         description="Render Final Result in raw format.", operation_id="57_final_raw")
     async def final_raw(
             self, 
             fid: str,
