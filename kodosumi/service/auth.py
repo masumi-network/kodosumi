@@ -52,9 +52,14 @@ class LoginControl(litestar.Controller):
         return await self._get_role(
             transaction, data.name, data.password, data.redirect)
 
-    async def _logout(self, request):
+    async def _logout(self, request: Request):
         if request.user:
-            response = Response(content="")
+            redirect = request.query_params.get("redirect")
+            response: Any = None
+            if redirect:
+                response = Redirect(redirect)
+            else:
+                response = Response(content="")
             response.delete_cookie(key=TOKEN_KEY)
             return response
         raise NotAuthorizedException(detail="Invalid name or password")
@@ -90,7 +95,7 @@ class LoginControl(litestar.Controller):
                             "name": role.name, 
                             "id": role.id, 
                             HEADER_KEY: token
-                    })
+                        })
                     response.set_cookie(key=TOKEN_KEY, value=token)
                     return response
         raise NotAuthorizedException(detail="Invalid name or password")
