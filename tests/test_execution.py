@@ -436,6 +436,12 @@ async def test_lock_lease(app_server, spooler_server, koco_server):
                 if resp.json() == {"dict": {'lock-result': {'hello': 'world'}}}:
                     break
             await asyncio.sleep(0.25)
+        while True:
+            resp = await client.get(f"{koco_server}/outputs/status/{fid}")
+            if resp.status_code == 200:
+                if resp.json().get("status") == "finished":
+                    break
+            await asyncio.sleep(0.25)
 
 
 async def _prep_flow_register(app_server, spooler_server, koco_server):
@@ -490,6 +496,12 @@ async def test_lock_result(app_server, spooler_server, koco_server):
             if resp.json() == {"dict": {'lock-result': {'hello': 'world'}}}:
                 break
         await asyncio.sleep(0.25)
+    while True:
+        resp = await client.get(f"{koco_server}/outputs/status/{fid}")
+        if resp.status_code == 200:
+            if resp.json().get("status") == "finished":
+                break
+        await asyncio.sleep(0.25)
     await client.aclose()
 
 
@@ -532,6 +544,13 @@ async def test_get_lock(app_server, spooler_server, koco_server):
     assert resp.json() == expected
     resp = await client.get(f"{koco_server}/inputs/lock/{fid}/{lid}")
     assert resp.status_code == 200
+    resp = await client.delete(f"{koco_server}/outputs/{fid}")
+    assert resp.status_code == 204
+    while True:
+        resp = await client.get(f"{koco_server}/outputs/status/{fid}")
+        if resp.status_code == 404:
+            break
+        await asyncio.sleep(0.25)
     await client.aclose()
 
 
@@ -603,6 +622,15 @@ async def test_get_lock_deep(app_server, spooler_server, koco_server):
     assert """<button type="submit">yes</button>""" in html
     assert """<a class="button" href="javascript:history.back()">no</a>""" in html
     #assert """<a class="button" href="/">no</a>""" in html
+
+    resp = await client.delete(f"{koco_server}/outputs/{fid}")
+    assert resp.status_code == 204
+    while True:
+        resp = await client.get(f"{koco_server}/outputs/status/{fid}")
+        if resp.status_code == 404:
+            break
+        await asyncio.sleep(0.25)
+
     await client.aclose()
 
 
@@ -850,6 +878,13 @@ async def test_lock_timeout(app_server2, spooler_server, koco_server):
     assert "event: lock" in resp.text
     assert f"data: TimeoutError: Lock {lid} expired" in resp.text
     assert re.search(r"event: status\s+data: [\d.]+:error", resp.text)
+
+    while True:
+        resp = await client.get(f"{koco_server}/outputs/status/{fid}")
+        if resp.json().get("status") == "error":
+            break
+        await asyncio.sleep(0.25)
+
     await client.aclose()
 
 
@@ -874,6 +909,11 @@ async def test_lock_stream(app_server2, spooler_server, koco_server):
             elif line.strip() == "event: lease":
                 if not lock:
                     raise Exception("Lock event before lease event")
+    while True:
+        resp = await client.get(f"{koco_server}/outputs/status/{fid}")
+        if resp.json().get("status") == "finished":
+            break
+        await asyncio.sleep(0.25)
     await client.aclose()
 
 @pytest.mark.asyncio
@@ -910,6 +950,12 @@ async def test_lease_failed(app_server2, spooler_server, koco_server):
             elif line.strip() == "event: lease":
                 if not lock:
                     raise Exception("Lock event before lease event")
+    while True:
+        resp = await client.get(f"{koco_server}/outputs/status/{fid}")
+        if resp.json().get("status") == "finished":
+            break
+        await asyncio.sleep(0.25)
+
     await client.aclose()
 
 async def register_flow(app_server, koco_server):
