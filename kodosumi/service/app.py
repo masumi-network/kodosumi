@@ -24,28 +24,29 @@ from litestar.template.config import TemplateConfig
 from litestar.types import ASGIApp, Receive, Scope, Send
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker, 
+from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
                                     create_async_engine)
 
-from kodosumi.const import TOKEN_KEY
 import kodosumi.core
 import kodosumi.service.endpoint as endpoint
 from kodosumi import helper
 from kodosumi.config import InternalSettings
+from kodosumi.const import TOKEN_KEY
 from kodosumi.dtypes import Role, RoleCreate
 from kodosumi.log import app_logger, logger
-from kodosumi.service.admin.controller import AdminControl
+from kodosumi.service.admin.panel import AdminControl
 from kodosumi.service.auth import LoginControl
 from kodosumi.service.deploy import DeployControl, ServeControl
+from kodosumi.service.files import FileControl
 from kodosumi.service.flow import FlowControl
+from kodosumi.service.health import HealthControl
 from kodosumi.service.inputs.inputs import InputsController
 from kodosumi.service.inputs.outputs import OutputsController
 from kodosumi.service.inputs.timeline.controller import TimelineController
 from kodosumi.service.jwt import JWTAuthenticationMiddleware
-from kodosumi.service.proxy import ProxyControl
+from kodosumi.service.proxy import LockController, ProxyControl
 from kodosumi.service.role import RoleControl
-from kodosumi.service.proxy import LockController
-from kodosumi.service.files import FileControl
+
 
 def app_exception_handler(request: Request, 
                           exc: Exception) -> Union[Template, Response]:
@@ -180,6 +181,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/deploy", route_handlers=[DeployControl]),
             Router(path="/serve", route_handlers=[ServeControl]),
             Router(path="/files", route_handlers=[FileControl]),
+            Router(path="/health", route_handlers=[HealthControl]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],

@@ -86,6 +86,42 @@
             <li><a target="_blank" href="/schema/swagger">Swagger UI</a></li>
             <li><a target="_blank" href="/schema/openapi.json">OpenAPI Schema</a></li>
         </ul>
+        <div class="space"></div>
+        <div class="large-divider"></div>
+        <h5>Status Information</h5>
+        <ul>
+            <li>Kodosumi Version: {{ kodosumi_version }}</li>
+            <li>Ray Version: {{ ray_version }}</li>
+            <li>Python Version: {{ python_version }}</li>
+            <li>Ray Status: 
+                <ul>
+                    {% for node in ray_status %}
+                    <li>
+                        {{ node["NodeName"]}} ({{ node["NodeID"]}}) - {% if node["Alive"] %}Alive{% else %}Dead{% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </li>
+            <li>
+                Spooler Status: 
+                <ul>
+                    {% if spooler_status["error"] %}
+                    <li>
+                        <b>error:</b> {{ spooler_status["error"] }}
+                    </li>
+                    {% else %}
+                    <li>
+                        <b>pid:</b> {{ spooler_status["pid"] }}
+                    </li>
+                    <li>
+                        <b>active executions:</b> {{ spooler_status["active"] }}
+                    </li>
+                    <li>
+                        <b>done executions:</b> {{ spooler_status["total"] }}
+                    </li>
+                    {% endif %}
+                </ul>
+        </ul>
         <div class="large-divider"></div>
     </article>
 </div>

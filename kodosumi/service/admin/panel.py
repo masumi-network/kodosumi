@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import litestar
 from litestar import Request, get, post
@@ -7,10 +7,10 @@ from litestar.exceptions import NotAuthorizedException
 from litestar.response import Redirect, Template
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from kodosumi.const import TOKEN_KEY
-import kodosumi.core
 import kodosumi.service.endpoint as endpoint
+from kodosumi.const import TOKEN_KEY
 from kodosumi.dtypes import RoleEdit
+from kodosumi.helper import get_health_status
 from kodosumi.service.auth import get_user_details
 from kodosumi.service.jwt import operator_guard
 from kodosumi.service.role import update_role
@@ -53,9 +53,9 @@ class AdminControl(litestar.Controller):
                     "registers": data.get("registers"),
                     "items": data.get("items"),
                     "user": user,
-                    "version": kodosumi.core.__version__
                 }, 
-                **kwargs
+                **kwargs,
+                **get_health_status()
             }
         )
 
@@ -83,7 +83,6 @@ class AdminControl(litestar.Controller):
                     for line in routes_text.split("\n") 
                     if line.strip()]
             endpoint.reset(state)
-            result: Dict[str, Any] = {}
             for url in routes:
                 try:
                     ret = await endpoint.register(state, url)
