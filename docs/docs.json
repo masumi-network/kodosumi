@@ -20,7 +20,7 @@
           },
           {
             "group": "Getting Started",
-            "pages": ["installation", "execute", "develop", "config", "forms", "lifecycle"]
+            "pages": ["installation", "develop", "config", "forms", "lifecycle"]
           },
           {
             "group": "Deploy on Kodosumi",

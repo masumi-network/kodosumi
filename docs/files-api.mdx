@@ -248,3 +248,131 @@ response = await client.post("/files/cancel", json=payload)
 6. **Hardcoding JWT tokens** in production code
 7. **Manual completion** when automatic completion is available
 8. **Uploading files individually** instead of using batches
+
+## Example
+
+Below is a step-by-step guide using the synchronous `httpx.Client` to upload a real file in chunks. Each step includes a short explanation and the corresponding code. The upload will be automatically completed with the launch of flow execution.
+
+### Step 0: Setup imports and constants
+
+Define the API base URL, the path to a real file in your working directory, and the chunk size (1 MiB as constrained above).
+
+```python
+import os
+import math
+import httpx
+
+BASE_URL = "http://localhost:3370"
+FILE_PATH = "./assets/architecture.png"
+CHUNK_SIZE = 1024 * 1024  # 1 MiB
+```
+
+### Step 1: Create a synchronous HTTP client
+
+Manage connections and authenticate.
+
+```python
+resp = httpx.post(
+    f"{BASE_URL}/api/login", 
+    json={"name": "admin", "password": "admin"})
+api_key = resp.json().get("KODOSUMI_API_KEY")
+client = httpx.Client(
+    base_url=BASE_URL,
+    headers={"KODOSUMI_API_KEY": api_key})
+```
+
+### Step 2: Initialize a batch
+
+Group this upload under a single batch identifier.
+
+```python
+resp = client.post("/files/init_batch")
+resp.raise_for_status()
+batch_id = resp.json()["batch_id"]
+```
+
+### Step 3: Calculate file size and total chunks
+
+Compute how many chunks are required for the chosen file.
+
+```python
+file_size = os.path.getsize(FILE_PATH)
+total_chunks = math.ceil(file_size / CHUNK_SIZE)
+filename = os.path.basename(FILE_PATH)
+```
+
+### Step 4: Initialize the upload
+
+Inform the server about the filename, expected chunk count, and the batch to associate with.
+
+```python
+init_payload = {
+    "filename": filename,
+    "total_chunks": total_chunks,
+    "batch_id": batch_id,
+}
+resp = client.post("/files/init", json=init_payload)
+resp.raise_for_status()
+upload_id = resp.json()["upload_id"]
+```
+
+### Step 5: Upload chunks (0-based)
+
+Purpose: Read the file in `CHUNK_SIZE` slices and upload each as a separate chunk.
+
+```python
+with open(FILE_PATH, "rb") as fh:
+    for i in range(total_chunks):
+        chunk_bytes = fh.read(CHUNK_SIZE)
+        assert chunk_bytes, "Unexpected end of file"
+        form_data = {"upload_id": upload_id, "chunk_number": str(i)}
+        files = {
+            "chunk": (f"chunk_{i}", 
+            chunk_bytes, "application/octet-stream")
+        }
+        resp = client.post("/files/chunk", data=form_data, files=files)
+        resp.raise_for_status()
+```
+
+### Step 6: Launch Flow Execution
+
+The upload will be automatically completed and assembled to the flow's execution ID on `POST`. Assuming the flow`s input scheme elements are:
+
+```json
+"elements": [
+    {
+      "type": "file",
+      "name": "my_upload",
+      ...
+    },
+]
+```
+
+The `POST` to launch this flow with
+
+```python
+import json
+
+complete_payload = {
+    "name": "no",
+    "my_upload": json.dumps({
+        "batchId": batch_id,
+        "items": {
+            upload_id: {
+                "filename": filename,
+                "totalChunks": total_chunks
+            }
+        }
+    })
+}
+resp = client.post("/-/127.0.0.1/8125/-/", json=complete_payload)
+resp.raise_for_status()
+```
+
+<Note>THe form file upload form element (`my_upload`) requires a json stringified value with keys `batchId` and `items`. The `items` represent key/value pairs with the individual files' `upload_id` as the key and `filename` and `totalChunks` as _values_.</Note>
+
+### Close the client when done
+
+```
+client.close()
+```
