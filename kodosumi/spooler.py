@@ -1,10 +1,11 @@
 import asyncio
 import os
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
 from typing import Dict, List, Union
-import shutil
+
 import psutil
 import ray
 from ray.actor import ActorHandle
@@ -13,8 +14,8 @@ from ray.util.state.common import ActorState
 
 import kodosumi.config
 from kodosumi import helper
+from kodosumi.const import DB_FILE, NAMESPACE, SPOOLER_NAME
 from kodosumi.log import logger, spooler_logger
-from kodosumi.const import DB_FILE, NAMESPACE
 
 
 @ray.remote
@@ -211,7 +212,7 @@ def terminate(settings: kodosumi.config.Settings):
     spooler_logger(settings)
     helper.ray_init(settings)
     try:
-        state = ray.get_actor("Spooler", namespace=NAMESPACE)
+        state = ray.get_actor(SPOOLER_NAME, namespace=NAMESPACE)
         objref = state.get_pid.remote()
         pid = ray.get(objref)
         proc = psutil.Process(pid)

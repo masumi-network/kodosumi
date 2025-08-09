@@ -11,7 +11,7 @@ from litestar.exceptions import NotFoundException
 from litestar.response import Response, ServerSentEvent, Template
 from litestar.types import SSEData
 
-import kodosumi.core
+import kodosumi
 from kodosumi import dtypes
 from kodosumi.const import *
 from kodosumi.helper import now, serialize
@@ -383,7 +383,7 @@ class OutputsController(litestar.Controller):
             "runtime": runtime,
             "meta": dtypes.DynamicModel.model_validate_json(
                 meta).model_dump().get("dict", {}),
-            "version": kodosumi.core.__version__
+            "version": kodosumi.__version__
         }
 
     @get("/html/{fid:str}", summary="Render HTML of Final Result",

@@ -33,6 +33,7 @@ STATUS_ERROR    = "error"
 STATUS_FINAL    = (STATUS_END, STATUS_ERROR)
 
 NAMESPACE = "kodosumi"
+SPOOLER_NAME = "Spooler"
 KODOSUMI_LAUNCH = "kodosumi_launch"
 DB_FILE = "sqlite3.db"
 DB_FILE_WAL = "sqlite3.db-wal"

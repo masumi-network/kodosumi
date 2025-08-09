@@ -7,9 +7,13 @@ import ray
 from litestar import MediaType, Request
 from pydantic import BaseModel
 
+import kodosumi
 from kodosumi.config import InternalSettings, Settings
+from kodosumi.const import NAMESPACE, SPOOLER_NAME
 from kodosumi.dtypes import DynamicModel
 from kodosumi.log import LOG_FORMAT, get_log_level
+import sys
+
 
 format_map = {"html": MediaType.HTML, "json": MediaType.JSON}
 
@@ -98,3 +102,28 @@ class HTTPXClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.client:
             await self.client.aclose()
+
+
+def get_health_status() -> dict:
+    try:
+        actor = ray.get_actor(SPOOLER_NAME, namespace=NAMESPACE)
+        oref = actor.get_meta.remote()
+        spooler_status = ray.get(oref)
+    except:
+        spooler_status = {
+            "error": "Spooler not found"
+        }
+    return {
+        "kodosumi_version": kodosumi.__version__,
+        "python_version": sys.version,
+        "ray_version": ray.__version__,
+        "ray_status": ray.nodes(),
+        "spooler_status": spooler_status
+    }
+    # return {
+    #     "kodosumi_version": None,
+    #     "python_version": None,
+    #     "ray_version": None,
+    #     "ray_status": [],
+    #     "spooler_status": None
+    # }

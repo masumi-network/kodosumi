@@ -39,6 +39,24 @@ def app_factory():
     async def post(inputs: dict, request: Request) -> dict:
         return Launch(request, "tests.test_inputs:runner", inputs=inputs)
 
+    @app.enter(
+        "/simple",
+        model=Model(
+            Markdown("""# Simple Example"""),
+            InputText(label="Name", name="name", placeholder="Enter a name"),
+            InputFiles(label="Upload Files", name="files", multiple=True, 
+                    directory=False, required=False),
+            Submit("GO"),
+            Cancel("Cancel"),
+        ),
+        summary="Simple Example",
+        organization="Factory Organization",
+        author="Factory Author",
+        description="Factory Description",
+    )
+    async def simple(inputs: dict, request: Request) -> dict:
+        return Launch(request, "tests.test_inputs:runner", inputs=inputs)
+
     return app
 
 
