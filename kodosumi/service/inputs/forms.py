@@ -1,8 +1,9 @@
 from textwrap import dedent
 from typing import Any, Dict, List, Optional
-
+import html
 import markdown
 from pydantic import BaseModel
+import json
 
 from kodosumi.log import logger
 
@@ -676,15 +677,15 @@ class Cancel(ActionElement):
         super().__init__(text=text, error=error)
 
     def render(self) -> str:
-        # ret = []
-        # attrs = [f'name="__cancel__"']
-        # attrs.append(f'value="__cancel__"')
-        # ret.append(f'<button {" ".join(attrs)}>')
-        # ret.append(self.text or "")
-        # ret.append(f'</button>')
-        # return "\n".join(ret)
-        return "\n".join([
-            "<a class=\"button\" href=\"javascript:history.back()\">", self.text or "", '</a>'])
+        ret = []
+        attrs = [f'name="__cancel__"']
+        attrs.append(f'value="__cancel__"')
+        ret.append(f'<button {" ".join(attrs)}>')
+        ret.append(self.text or "")
+        ret.append(f'</button>')
+        return "\n".join(ret)
+        # return "\n".join([
+        #     "<a class=\"button\" href=\"javascript:history.back()\">", self.text or "", '</a>'])
 
 
 class Action(FormElement):
@@ -736,7 +737,7 @@ class InputFiles(FormElement):
             multiple: bool = False,
             directory: bool = False,
             error: Optional[List[str]] = None):
-        super().__init__(name, label, None, required, error=error)
+        super().__init__(name, label, value, required, error=error)
         self.multiple = multiple
         self.directory = directory
 
@@ -766,11 +767,17 @@ class InputFiles(FormElement):
             attrs.append(f'multiple')
         if self.directory:
             attrs.append(f'webkitdirectory')
+        files = None
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+            files = [f["filename"] for f in json.loads(
+                self.value).get("items").values()]            
         ret.append(f'<input {" ".join(attrs)}>')
-        if self.error:
-            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
         ret.append(f'</button>')
-        ret.append(f'<input type="hidden" name="{self.name}" id="_list-{self.name}" value="">')
+        value = html.escape(self.value) if self.value else ""
+        ret.append(f'<input type="hidden" name="{self.name}" id="_list-{self.name}" value="{value}">')
+        if files:
+            ret.append(f'<span class="primary">{len(files)} files have been uploaded</span>')
         ret.append(f'<div class="space"></div>')
         return "\n".join(ret)
 
@@ -846,18 +853,15 @@ class Model:
     
     def set_data(self, data: Dict[str, Any]) -> None:
         """Setzt die Werte der Formularelemente"""
-        # Wenn keine Daten vorhanden sind, setze alle Checkboxen auf False
         if not data:
             for child in self.children:
                 if isinstance(child, Checkbox):
                     child.value = False
             return
 
-        # Verarbeite vorhandene Daten
         for child in self.children:
             if hasattr(child, "name"):
                 if isinstance(child, Checkbox):
-                    # Für Checkboxen: Setze auf False wenn nicht in Daten vorhanden
                     child.value = child.parse_value(data.get(child.name, "off"))
                 elif child.name in data:
                     child.value = child.parse_value(data[child.name])
