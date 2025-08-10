@@ -228,7 +228,7 @@ class OutputsController(litestar.Controller):
         return Template(STATUS_TEMPLATE, context={"fid": fid})
 
     @delete("/{fid:str}", summary="Delete or Kill Execution",
-         description="Kills an active deletes a completed execution.", operation_id="51_delete_execution")
+         description="Kills an active and deletes a completed execution.", operation_id="51_delete_execution")
     async def delete_execution(
             self, 
             fid: str, 
