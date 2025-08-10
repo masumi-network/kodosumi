@@ -116,3 +116,10 @@ class AdminControl(litestar.Controller):
     @get("/status/view/{fid:str}")
     async def view_status(self, fid: str) -> Template:
         return Template(STATUS_TEMPLATE, context={"fid": fid})
+
+    @get("/timeline/view", include_in_schema=False)
+    async def view_timeline(self,
+                           state: State,
+                           request: Request) -> Template:
+        return Template("timeline/timeline.html", context={})
+
