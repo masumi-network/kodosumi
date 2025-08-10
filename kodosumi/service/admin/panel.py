@@ -8,7 +8,7 @@ from litestar.response import Redirect, Template
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import kodosumi.service.endpoint as endpoint
-from kodosumi.const import TOKEN_KEY
+from kodosumi.const import TOKEN_KEY, STATUS_TEMPLATE
 from kodosumi.dtypes import RoleEdit
 from kodosumi.helper import get_health_status
 from kodosumi.service.auth import get_user_details
@@ -112,3 +112,7 @@ class AdminControl(litestar.Controller):
             response.delete_cookie(key=TOKEN_KEY)
             return response
         raise NotAuthorizedException(detail="Invalid name or password")
+
+    @get("/status/view/{fid:str}")
+    async def view_status(self, fid: str) -> Template:
+        return Template(STATUS_TEMPLATE, context={"fid": fid})

@@ -330,12 +330,12 @@ function addClickHandlers(element, fid) {
             if (clickTimer === null) {
                 clickTimer = setTimeout(() => {
                     clickTimer = null;
-                    window.location.href = `/outputs/status/view/${fid}`;
+                    window.location.href = `/admin/status/view/${fid}`;
                 }, 300);
             } else {
                 clearTimeout(clickTimer);
                 clickTimer = null;
-                window.open(`/outputs/status/view/${fid}`, '_blank');
+                window.open(`/admin/status/view/${fid}`, '_blank');
             }
         };
     });

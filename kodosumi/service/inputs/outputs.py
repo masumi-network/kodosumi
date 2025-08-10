@@ -222,11 +222,6 @@ class OutputsController(litestar.Controller):
                 return ret
             await asyncio.sleep(SLEEP)
 
-    # todo: move to admin panel
-    @get("/status/view/{fid:str}", include_in_schema=False)
-    async def view_status(self, fid: str) -> Template:
-        return Template(STATUS_TEMPLATE, context={"fid": fid})
-
     @delete("/{fid:str}", summary="Delete or Kill Execution",
          description="Kills an active and deletes a completed execution.", operation_id="51_delete_execution")
     async def delete_execution(
