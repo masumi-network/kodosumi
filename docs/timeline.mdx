@@ -1,0 +1,163 @@
+---
+title: Timeline API
+---
+
+# Timeline API
+
+The Timeline API provides endpoints to retrieve and manage execution timeline data. It supports pagination, real-time updates, and change tracking for execution records.
+
+## Overview
+
+The timeline system tracks executions with the following key features:
+- **Pagination**: Load results in configurable page sizes
+- **Real-time updates**: Track changes since a specific timestamp
+- **Search filtering**: Filter results by various criteria
+- **Change detection**: Identify new, modified, and deleted executions
+
+## Endpoints
+
+### GET `/timeline/list`
+
+Retrieves paginated timeline results sorted from the specified offset. This endpoint is optimized for traditional pagination workflows.
+
+**Query Parameters:**
+- `pp` (optional): Page size, defaults to 10
+- `q` (optional): Search query string for filtering results
+- `offset` (optional): Execution ID to start pagination from
+
+**Response:**
+```json
+{
+  "items": [
+    {
+      "fid": "20241201T120000Z",
+      "tags": ["production", "batch"],
+      "summary": "Data processing job",
+      "inputs": {...},
+      "status": "completed",
+      "startup": "2024-12-01T12:00:00",
+      "finish": "2024-12-01T12:15:30",
+      "runtime": 930.5,
+      "locks": []
+    }
+  ],
+  "query": "search term",
+  "offset": "20241130T150000Z"
+}
+```
+
+### GET `/timeline/changes`
+
+Retrieves changes to timeline items since a given timestamp. This endpoint is designed for real-time updates and change tracking.
+
+**Query Parameters:**
+- `since` (optional): Unix timestamp to check for changes since
+- `q` (optional): Search query string for filtering results
+
+**Response:**
+```json
+{
+  "update": [
+    {
+      "fid": "20241201T120000Z",
+      "tags": ["production", "batch"],
+      "summary": "Data processing job",
+      "inputs": {...},
+      "status": "running",
+      "startup": "2024-12-01T12:00:00",
+      "finish": null,
+      "runtime": null,
+      "locks": ["lock_123"]
+    }
+  ],
+  "delete": ["20241130T150000Z"],
+  "timestamp": 1701432000.0,
+  "query": "search term"
+}
+```
+
+**Special Behavior:**
+- If no `since` parameter is provided, returns only the current maximum modification timestamp
+- This allows clients to establish a baseline timestamp for future change requests
+
+## Data Model
+
+### Execution Record Fields
+
+Each execution record contains the following fields:
+
+| Field     | Type     | Description                        |
+| --------- | -------- | ---------------------------------- |
+| `fid`     | string   | Execution ID (timestamp-based)     |
+| `tags`    | array    | Array of execution tags            |
+| `summary` | string   | Brief description of the execution |
+| `inputs`  | object   | Input data and configuration       |
+| `status`  | string   | Current execution status           |
+| `startup` | datetime | Execution start time               |
+| `finish`  | datetime | Execution completion time          |
+| `runtime` | float    | Total execution time in seconds    |
+| `locks`   | array    | Active lock identifiers            |
+
+### Search Fields
+
+The search functionality supports filtering by:
+- `author`: Execution author
+- `organization`: Organization name
+- `summary`: Execution summary text
+- `description`: Detailed description
+- `fid`: Execution ID
+- `status`: Execution status
+- `tags`: Individual tag values
+- `startup`: Start time
+- `inputs`: Input data
+- `final`: Final results
+
+## Usage Examples
+
+### Basic Pagination
+
+```javascript
+// Get first page of executions
+const response = await fetch('/timeline/list?pp=20');
+const data = await response.json();
+
+// Get next page using offset
+const nextPage = await fetch(`/timeline/list?pp=20&offset=${data.offset}`);
+```
+
+### Real-time Updates
+
+```javascript
+// Get initial timestamp
+const baseline = await fetch('/timeline/changes');
+const timestamp = baseline.timestamp;
+
+// Poll for changes
+setInterval(async () => {
+  const changes = await fetch(`/timeline/changes?since=${timestamp}`);
+  const data = await changes.json();
+  
+  if (data.update.length > 0 || data.delete.length > 0) {
+    // Handle updates
+    console.log('New changes:', data);
+  }
+}, 5000);
+```
+
+### Search and Filter
+
+```javascript
+// Search for production jobs
+const results = await fetch('/timeline/list?q=production&pp=50');
+
+// Search for specific author
+const authorResults = await fetch('/timeline/list?q=author:john.doe');
+```
+
+## Error Handling
+
+The API returns appropriate HTTP status codes:
+- `200`: Successful response
+- `400`: Invalid parameters
+- `401`: Unauthorized (user not authenticated)
+- `500`: Internal server error

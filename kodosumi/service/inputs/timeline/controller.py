@@ -13,13 +13,7 @@ from kodosumi.service.inputs.timeline.tool import (load_page, MODES,
 
 class TimelineController(litestar.Controller):
 
-    tags = ["Execution Control"]
-
-    @get("/view", include_in_schema=False)
-    async def view_timeline(self,
-                           state: State,
-                           request: Request) -> Template:
-        return Template("timeline/timeline.html", context={})
+    tags = ["Execution Timeline"]
 
     @get("/", summary="Get Timeline",
          description="Retrieve the timeline of the user's executions.", operation_id="60_get_timeline", include_in_schema=False)
