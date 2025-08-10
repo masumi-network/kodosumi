@@ -677,15 +677,15 @@ class Cancel(ActionElement):
         super().__init__(text=text, error=error)
 
     def render(self) -> str:
-        ret = []
-        attrs = [f'name="__cancel__"']
-        attrs.append(f'value="__cancel__"')
-        ret.append(f'<button {" ".join(attrs)}>')
-        ret.append(self.text or "")
-        ret.append(f'</button>')
-        return "\n".join(ret)
-        # return "\n".join([
-        #     "<a class=\"button\" href=\"javascript:history.back()\">", self.text or "", '</a>'])
+        # ret = []
+        # attrs = [f'name="__cancel__"']
+        # attrs.append(f'value="__cancel__"')
+        # ret.append(f'<button {" ".join(attrs)}>')
+        # ret.append(self.text or "")
+        # ret.append(f'</button>')
+        # return "\n".join(ret)
+        return "\n".join([
+            "<a class=\"button\" href=\"javascript:history.back()\">", self.text or "", '</a>'])
 
 
 class Action(FormElement):
