@@ -50,5 +50,12 @@ The documentation will be available at `http://localhost:3000`.
   - [Deployment](./docs/deploy.mdx)
   - [Admin Panel](./docs/panel.mdx)
 
+- **Details**
+
+  - [Timeline](./docs/timeline.mdx)
+  - [Files](./docs/files.mdx)
+  - [Files API](./docs/files-api.mdx)
+  - [Locks](./docs/locks.mdx)
+
 - **CLI Reference**
   - [koco CLI](./docs/cli.mdx)
