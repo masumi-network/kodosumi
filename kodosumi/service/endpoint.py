@@ -1,13 +1,16 @@
-from hashlib import md5
-from typing import List, Optional, Union, List
-from urllib.parse import urlparse
 import asyncio
+from hashlib import md5
+from typing import Dict, List, Optional
+from urllib.parse import urlparse
+
+import ray
 from httpx import AsyncClient
 from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
 
 from kodosumi.dtypes import EndpointResponse
 from kodosumi.log import logger
+from kodosumi.runner.const import NAMESPACE
 
 KODOSUMI_API = "x-kodosumi"
 KODOSUMI_AUTHOR = "x-author"
@@ -46,6 +49,7 @@ def _extract(openapi_url, js) -> dict:
                 details["url"] = "/-" + root + ext
                 details["uid"] = md5(details["url"].encode()).hexdigest()
                 details["source"] = openapi_url
+                details["deprecated"] = details.get("deprecated") or False
                 ep = EndpointResponse.model_validate(details)
                 if meth == "get":
                     lookback[path] = ep
@@ -61,32 +65,47 @@ def _extract(openapi_url, js) -> dict:
         "register": register
     }
 
+
+async def init(state: State) -> None:
+    """creates or retrieves an existing register actor"""
+    try:
+        actor = Register.options(  # type: ignore
+            namespace=NAMESPACE,
+            name="register",
+            enable_task_events=False,
+            lifetime="detached").remote()
+        logger.info(f"created register actor: {actor}")
+    except ValueError:
+        actor = ray.get_actor("register", namespace=NAMESPACE)
+        logger.info(f"retrieved register actor: {actor}")
+    state["register"] = actor
+    await load(state["settings"].REGISTER_FLOW, state)
+
+
 async def register(state: State, source: str) -> List[EndpointResponse]:
+    register = state["register"]
     js = await _get_openapi(source)
     if "paths" not in js:
         if source.endswith("/-/routes"):
             # we have a /-/routes endpoint
             root = "/".join(source.split("/")[:-2])
-            state["endpoints"][source] = []
+            ray.get(register.reset.remote(source))
             for specs in js.keys():
                 prefix = specs if specs != "/" else ""
                 url2 = root + prefix + "/openapi.json"
                 js2 = await _get_openapi(url2)
                 ret = _extract(url2, js2)
-                state["endpoints"][source] += ret["register"]
-                state["routing"][ret["root"]] = ret["base_url"]
+                ray.get(register.add.remote(source, ret["register"]))
     else:
         ret = _extract(source, js)
-        state["endpoints"][source] = ret["register"]
-        state["routing"][ret["root"]] = ret["base_url"]
-    logger.info(f'registered {len(state["endpoints"][source])} from {source}')
-    return sorted(
-        state["endpoints"][source], key=lambda ep: ep.summary or "None")
+        ray.get(register.put.remote(source, ret["register"]))
+    it = ray.get(register.get.remote(source))
+    logger.info(f'registered {len(it)} from {source}')
+    return sorted(it, key=lambda ep: ep.summary or "None")
 
 
-def get_endpoints(state: State, 
-                  query: Optional[str]=None) -> List[EndpointResponse]:
-    def find(item):
+def find(state: State, query: Optional[str]=None) -> List[EndpointResponse]:
+    def _query(item):
         if query is None:
             return True
         return query.lower() in "".join([
@@ -97,28 +116,42 @@ def get_endpoints(state: State,
                 item.organization, 
                 "".join(item.tags)
             ] if i]).lower()  
-
-    scope = [item for nest in state["endpoints"].values() 
-             for item in nest if find(item)]
+    it = items(state)
+    scope = [item for nest in it for item in nest if _query(item)]
     scope = sorted(scope, key=lambda ep: (ep.summary or "", ep.url))
     return scope
 
 
-def find_endpoint(state: State, base: str) -> Union[EndpointResponse, None]:
-    found = [ep for ep in get_endpoints(state) if ep.url == base]
-    if not found:
-        return None
-    return found[0]
+def keys(state: State) -> List[str]:
+    ret = ray.get(state["register"].get_keys.remote())
+    return sorted(ret)
 
 
-def unregister(state: State, openapi_url: str) -> None:
-    if openapi_url in state["endpoints"]:
+def items(state: State) -> List:
+    ret = ray.get(state["register"].get_items.remote())
+    return ret
+
+
+def reset(state: State, source: Optional[str]=None) -> None:
+    ray.get(state["register"].reset.remote(source))
+
+
+def raw(state: State) -> Dict[str, List[EndpointResponse]]:
+    ret = ray.get(state["register"].get_endpoints.remote())
+    return ret
+
+
+async def unregister(state: State, openapi_url: str) -> None:
+    actor = state["register"]
+    keys = ray.get(actor.get_keys.remote())
+    if openapi_url in keys:
         logger.info(f"unregistering from {openapi_url}")
-        del state["endpoints"][openapi_url]
+        ray.get(state["register"].remove.remote(openapi_url))
     else:
         raise NotFoundException(openapi_url)
     
-async def reload(scope: List[str], state: State) -> None:
+
+async def load(scope: List[str], state: State) -> None:
     for source in scope:
         trial = 3
         success = False
@@ -132,3 +165,38 @@ async def reload(scope: List[str], state: State) -> None:
                 await asyncio.sleep(1)
         if not success:
             logger.critical(f"failed to connect {source}")
+
+
+@ray.remote
+class Register:
+
+    def __init__(self):
+        self.endpoints = {}
+
+    def reset(self, source: Optional[str]=None) -> None:
+        if source is None:
+            self.endpoints = {}
+        else:
+            if source in self.endpoints:
+                del self.endpoints[source]
+
+    def add(self, source: str, endpoint: EndpointResponse) -> None:
+        self.endpoints.setdefault(source, []).extend(endpoint)
+    
+    def put(self, source: str, endpoints: List[EndpointResponse]) -> None:
+        self.endpoints[source] = endpoints
+
+    def get_endpoints(self) -> Dict[str, List[EndpointResponse]]:
+        return self.endpoints
+
+    def get(self, source: str) -> List[EndpointResponse]:
+        return self.endpoints.get(source, [])
+
+    def remove(self, source: str) -> None:
+        del self.endpoints[source]
+
+    def get_keys(self) -> List[str]:
+        return list(self.endpoints.keys())
+    
+    def get_items(self) -> List[EndpointResponse]:
+        return list(self.endpoints.values())

@@ -11,6 +11,7 @@ from litestar.response import Redirect, Response
 from kodosumi import helper
 from kodosumi.log import logger
 from kodosumi.runner.const import KODOSUMI_LAUNCH
+import kodosumi.service.endpoint as endpoint
 
 KODOSUMI_USER = "x-kodosumi_user"
 KODOSUMI_BASE = "x-kodosumi_base"
@@ -53,17 +54,23 @@ class ProxyControl(litestar.Controller):
             state: State,
             request: Request,
             path: Optional[str] = None) -> Union[Response, Redirect]:
-        if path is None:
-            path = "/-"
-        path += "/"
-        if "/-/" not in path:
-            raise NotFoundException(path)
-        base, relpath = path.split("/-/", 1)
+        path_ = path
+        if path_ is None:
+            path_ = "/-"
+        path_ = path_.rstrip("/") + "/"
+        source = None
+        base, relpath = path_.split("/-/", 1)
         base += "/-/"
         relpath = relpath.rstrip("/")
-        target = state["routing"].get(base)
-        if not target:
+        for endpoints in endpoint.items(state):
+            for ep in endpoints:
+                if ep.url == "/-" + base + relpath:
+                    source = ep.source
+                    break
+        if source is None:
             raise NotFoundException(path)
+        source = source.replace("/openapi.json", "")
+        target = source.rstrip("/") + "/" + relpath
         timeout = state["settings"].PROXY_TIMEOUT
         async with AsyncClient(timeout=timeout) as client:
             meth = request.method.lower()
@@ -71,12 +78,9 @@ class ProxyControl(litestar.Controller):
             request_headers[KODOSUMI_USER] = request.user
             request_headers[KODOSUMI_BASE] = base
             host = request.headers.get("host", None)
-            contact = target + "/"
-            if relpath:
-                contact += relpath
             response = await client.request(
                 method=meth,
-                url=contact,
+                url=target,
                 headers=request_headers,
                 content=await request.body(),
                 params=request.query_params,
