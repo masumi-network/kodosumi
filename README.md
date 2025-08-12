@@ -56,6 +56,7 @@ The documentation will be available at `http://localhost:3000`.
   - [Files](./docs/files.mdx)
   - [Files API](./docs/files-api.mdx)
   - [Locks](./docs/locks.mdx)
-
+  - [Documentation Build](./docs/make.mdx)
+  
 - **CLI Reference**
   - [koco CLI](./docs/cli.mdx)
