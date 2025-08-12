@@ -9,15 +9,9 @@ from litestar.middleware import (AbstractAuthenticationMiddleware,
 from sqlalchemy import select
 
 from kodosumi import helper
-from kodosumi.config import InternalSettings
+from kodosumi.const import (TOKEN_KEY, HEADER_KEY, DEFAULT_TIME_DELTA,
+                            ALGORITHM, JWT_SECRET)
 from kodosumi.dtypes import Role, Token
-
-TOKEN_KEY = "kodosumi_jwt"
-HEADER_KEY = "KODOSUMI_API_KEY"
-DEFAULT_TIME_DELTA = 86400  # 1 day in seconds
-ALGORITHM = "HS256"
-JWT_SECRET = InternalSettings().SECRET_KEY
-
 
 def decode_jwt_token(encoded_token: str) -> Token:
     try:

@@ -2,9 +2,11 @@ import uuid
 from typing import Union
 import litestar
 from litestar import delete, get, post, put
-from litestar.exceptions import NotFoundException
+from litestar.exceptions import NotFoundException, HTTPException
+from litestar.status_codes import HTTP_409_CONFLICT
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from kodosumi.dtypes import Role, RoleCreate, RoleEdit, RoleResponse
 from kodosumi.log import logger
@@ -39,17 +41,24 @@ class RoleControl(litestar.Controller):
     tags = ["Access Management"]
     guards=[operator_guard]
 
-    @post("/")
+    @post("/", summary="Add Role", description="Add a new role to the system.", operation_id="20_add_role")
     async def add_role(self, 
                        data: RoleCreate, 
                        transaction: AsyncSession) -> RoleResponse:
         role = Role(**data.model_dump())
         transaction.add(role)
-        await transaction.flush()
+        try:
+            await transaction.flush()
+        except IntegrityError as exc:
+            logger.error(f"error creating role {role.name} ({role.id}): {exc}")
+            raise HTTPException(
+                status_code=HTTP_409_CONFLICT,
+                detail=f"Role {role.name} ({role.id}) already exists"
+            ) from exc
         logger.info(f"created role {role.name} ({role.id})")
         return RoleResponse.model_validate(role)    
         
-    @get("/")
+    @get("/", summary="List Roles", description="List all roles in the system.", operation_id="21_list_roles")
     async def list_roles(self, 
                          transaction: AsyncSession) -> list[RoleResponse]:
         query = select(Role)
@@ -58,7 +67,8 @@ class RoleControl(litestar.Controller):
         ret.sort(key=lambda x: x.name)
         return ret
     
-    @get("/{name:str}")
+    @get("/{name:str}", summary="Get Role by Name or ID", 
+         description="Get a role by name or ID.", operation_id="22_get_role")
     async def get_role(self, 
                        name: str, 
                        transaction: AsyncSession) -> RoleResponse:
@@ -77,7 +87,8 @@ class RoleControl(litestar.Controller):
             return RoleResponse.model_validate(role)
         raise NotFoundException(detail=f"role {name} not found")
 
-    @delete("/{rid:uuid}")
+    @delete("/{rid:uuid}", summary="Delete Role by ID", 
+            description="Delete a role by ID.", operation_id="23_delete_role")
     async def delete_role(self, 
                           rid: uuid.UUID, 
                           transaction: AsyncSession) -> None:
@@ -90,7 +101,8 @@ class RoleControl(litestar.Controller):
             return None
         raise NotFoundException(detail=f"role {rid} not found")
 
-    @put("/{rid:uuid}")
+    @put("/{rid:uuid}", summary="Update Role by ID", 
+         description="Update a role by ID.", operation_id="24_edit_role")
     async def edit_role(self, 
                         rid: uuid.UUID, 
                         data: RoleEdit, 

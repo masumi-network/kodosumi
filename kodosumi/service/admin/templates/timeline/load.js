@@ -241,7 +241,7 @@ function createTimelineItem(item) {
     li.classList.add('top-align');
     li.setAttribute('name', item.fid);
     
-    const { statusIcon, format, progressClass, progressValue } = createProgressElement(item);
+    let { statusIcon, format, progressClass, progressValue } = createProgressElement(item);
     if (item.inputs) {
         let validInputs = Object.fromEntries(
             Object.entries(Object.values(item.inputs)[0])
@@ -252,6 +252,12 @@ function createTimelineItem(item) {
     else {
         inputs = "";
     }
+    let status = item.status;
+    if (item.locks.length > 0) {
+        status = "awaiting";
+        format = "awaiting primary";
+        statusIcon = "pause_circle";
+    }
     li.innerHTML = `
     <label class="checkbox large">
     <input type="checkbox"/>
@@ -259,7 +265,7 @@ function createTimelineItem(item) {
     </label>
     <div class="follow small-round "> 
     <p class="left-align chip ${format}" style="width: 110px;">
-    <i>${statusIcon}</i>${item.status}
+    <i>${statusIcon}</i>${status}
     </p>
     </div>
     <div class="follow">
@@ -324,12 +330,12 @@ function addClickHandlers(element, fid) {
             if (clickTimer === null) {
                 clickTimer = setTimeout(() => {
                     clickTimer = null;
-                    window.location.href = `/outputs/status/view/${fid}`;
+                    window.location.href = `/admin/status/view/${fid}`;
                 }, 300);
             } else {
                 clearTimeout(clickTimer);
                 clickTimer = null;
-                window.open(`/outputs/status/view/${fid}`, '_blank');
+                window.open(`/admin/status/view/${fid}`, '_blank');
             }
         };
     });

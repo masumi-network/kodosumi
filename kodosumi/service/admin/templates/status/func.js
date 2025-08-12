@@ -102,7 +102,7 @@ function applyToAll(els, func) {
 }
 
 function splitData(event) {
-    if (event.lastEventId > 0) {
+    if (event.lastEventId >= 0) {
         const parts = event.data.split(":");
         const ts = parts[0];
         let js = parts.slice(1).join(":");

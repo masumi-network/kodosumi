@@ -2,13 +2,18 @@ import logging
 import time
 from typing import Optional
 
+import httpx
 import ray
 from litestar import MediaType, Request
 from pydantic import BaseModel
 
+import kodosumi
 from kodosumi.config import InternalSettings, Settings
+from kodosumi.const import NAMESPACE, SPOOLER_NAME
 from kodosumi.dtypes import DynamicModel
 from kodosumi.log import LOG_FORMAT, get_log_level
+import sys
+
 
 format_map = {"html": MediaType.HTML, "json": MediaType.JSON}
 
@@ -44,11 +49,11 @@ def ray_shutdown():
     ray.shutdown()
 
 
-def debug():
+def debug(port: int=63256):
     import debugpy
     try:
         if not debugpy.is_client_connected():
-            debugpy.listen(("localhost", 63256))
+            debugpy.listen(("localhost", port))
             debugpy.wait_for_client()
     except:
         print("error in kodosumi.helper.debug()")
@@ -76,3 +81,49 @@ def serialize(data):
             return {"TypeError": str(d)}
         
     return DynamicModel(_resolve(data)).model_dump_json()
+
+
+class HTTPXClient:
+    def __init__(self, **kwargs):
+        timeout = InternalSettings().PROXY_TIMEOUT
+        self.timeout = timeout if timeout is not None else timeout
+        self.follow_redirects = True
+        self.kwargs = kwargs
+        self.client: Optional[httpx.AsyncClient] = None
+    
+    async def __aenter__(self) -> httpx.AsyncClient:
+        self.client = httpx.AsyncClient(
+            timeout=self.timeout, 
+            follow_redirects=self.follow_redirects,
+            **self.kwargs
+        )
+        return self.client
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.client:
+            await self.client.aclose()
+
+
+def get_health_status() -> dict:
+    try:
+        actor = ray.get_actor(SPOOLER_NAME, namespace=NAMESPACE)
+        oref = actor.get_meta.remote()
+        spooler_status = ray.get(oref)
+    except:
+        spooler_status = {
+            "error": "Spooler not found"
+        }
+    return {
+        "kodosumi_version": kodosumi.__version__,
+        "python_version": sys.version,
+        "ray_version": ray.__version__,
+        "ray_status": ray.nodes(),
+        "spooler_status": spooler_status
+    }
+    # return {
+    #     "kodosumi_version": None,
+    #     "python_version": None,
+    #     "ray_version": None,
+    #     "ray_status": [],
+    #     "spooler_status": None
+    # }

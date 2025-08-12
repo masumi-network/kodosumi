@@ -4,7 +4,6 @@ from kodosumi.service.app import create_app
 from kodosumi import helper
 from typing import AsyncGenerator
 import ray
-# from tests.test_runner import init_ray
 
 @pytest.fixture
 async def http_client(tmp_path) -> AsyncGenerator:
@@ -13,18 +12,12 @@ async def http_client(tmp_path) -> AsyncGenerator:
     async with AsyncTestClient(app=app) as client:
         yield client
 
-@pytest.fixture(autouse=True)
-def start_ray():
-    ray.init()
-    yield
-    ray.shutdown()
-
-
 @pytest.fixture
 async def auth_client(tmp_path) -> AsyncGenerator:
     url = f"sqlite+aiosqlite:///{tmp_path}/admin.db"
     app = create_app(ADMIN_DATABASE=url,
-                     EXEC_DIR=str(tmp_path.joinpath("data")))
+                     EXEC_DIR=str(tmp_path.joinpath("data", "execution")),
+                     UPLOAD_DIR=str(tmp_path.joinpath("data", "upload")))
     base_url = "http://kodosumi"
     async with AsyncTestClient(app=app, base_url=base_url) as client:
         response = await client.get(
@@ -136,14 +129,14 @@ async def test_dup_role(auth_client):
                        "email": "user1@email.com","password": "user1"})
     assert response.status_code == 409
     js = response.json()
-    assert js["error"] == "ClientException"
+    assert js["error"] == "HTTPException"
 
     response = await auth_client.post(
         "/role", json={"name": "user2", 
                        "email": "user1@email.com","password": "user2"})
     assert response.status_code == 409
     js = response.json()
-    assert js["error"] == "ClientException"
+    assert js["error"] == "HTTPException"
 
 async def test_list_roles(auth_client):
     response = await auth_client.post(

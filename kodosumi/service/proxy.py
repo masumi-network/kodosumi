@@ -1,86 +1,102 @@
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import litestar
-from bs4 import BeautifulSoup
-from httpx import AsyncClient
-from litestar import MediaType, Request, route
+import ray
+from litestar import MediaType, Request, route, get, post
 from litestar.datastructures import State
-from litestar.exceptions import NotFoundException
+from litestar.exceptions import HTTPException, NotFoundException
 from litestar.response import Redirect, Response
 
+import kodosumi.service.endpoint as endpoint
 from kodosumi import helper
+from kodosumi.const import (KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER,
+                            NAMESPACE, KODOSUMI_URL)
+from kodosumi.helper import HTTPXClient
 from kodosumi.log import logger
-from kodosumi.runner.const import KODOSUMI_LAUNCH
-
-KODOSUMI_USER = "x-kodosumi_user"
-KODOSUMI_BASE = "x-kodosumi_base"
+from kodosumi.service.inputs.forms import Model
 
 
-def update_links(base_url, html_content) -> str:
-    soup = BeautifulSoup(html_content, 'html.parser')
-    for tag in soup.find_all(['a', 'link', 'script', 'img', 'form']):
-        if tag.name == 'a' or tag.name == 'link':
-            href = tag.get('href')
-            if href and not href.startswith(('http://', 'https://')):
-                if href.startswith(":"):
-                    tag['href'] = href.lstrip(':')
-                elif href.startswith("/"):
-                    tag['href'] = base_url + href.lstrip('/')
-        elif tag.name == 'form':
-            action = tag.get('action')
-            if action and not action.startswith(('http://', 'https://')):
-                if action.startswith("/"):
-                    tag['action'] = base_url + action.lstrip('/')
+class LockNotFound(Exception):
+    
+    def __init__(self, 
+                 fid: str, 
+                 lid: Optional[str] = None):
+        self.fid = fid
+        self.lid = lid
+        if lid:
+            self.message = f"Lock {lid} for {fid} not found."
         else:
-            src = tag.get('src')
-            if src and not src.startswith(('http://', 'https://')):
-                if src.startswith(":"):
-                    tag['src'] = src.lstrip(':')
-                elif src.startswith("/"):
-                    tag['src'] = base_url + src.lstrip('/')
-    return str(soup)
+            self.message = f"Execution {fid} not found."
+        super().__init__()
+    
+
+def find_lock(fid: str, lid: str):
+    try:
+        actor = ray.get_actor(fid, namespace=NAMESPACE)
+    except:
+        raise LockNotFound(fid, None)
+    oref = actor.get_locks.remote()
+    locks = ray.get(oref)
+    if lid not in locks:
+        raise LockNotFound(fid, lid)
+    return locks.get(lid), actor
+
+
+def lease(fid: str, lid: str, result: Dict[str, Any]):
+    try:
+        actor = ray.get_actor(fid, namespace=NAMESPACE)
+    except:
+        raise LockNotFound(fid, None)
+    oref = actor.lease.remote(lid, result)
+    locks = ray.get(oref)
+    if lid not in locks:
+        raise LockNotFound(fid, lid)
+    return locks.get(lid)
 
 
 class ProxyControl(litestar.Controller):
 
-    tags = ["Reverse Proxy"]
+    tags = ["Proxy"]
     include_in_schema = False
 
-    @route("/{path:path}",
-           http_method=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    @route("/{path:path}", http_method=["GET", "POST"])
     async def forward(
             self,
             state: State,
             request: Request,
             path: Optional[str] = None) -> Union[Response, Redirect]:
-        if path is None:
-            path = "/-"
-        path += "/"
-        if "/-/" not in path:
+        lookup = f"/-{path}".rstrip("/")
+        target = None
+        base = None
+        for endpoints in endpoint.items(state):
+            for ep in endpoints:
+                if ep.url == lookup or ep.url == lookup + "/":
+                    target = ep.base_url
+                    base = ep.source
+                    break
+        if target is None or base is None:
             raise NotFoundException(path)
-        base, relpath = path.split("/-/", 1)
-        base += "/-/"
-        relpath = relpath.rstrip("/")
-        target = state["routing"].get(base)
-        if not target:
-            raise NotFoundException(path)
-        timeout = state["settings"].PROXY_TIMEOUT
-        async with AsyncClient(timeout=timeout) as client:
+        base = base.replace("/openapi.json", "")
+        logger.info(f"proxy forwarding {target} with base "
+                    f"{KODOSUMI_BASE}={base}, "
+                    f"{KODOSUMI_URL}={request.base_url}")
+        async with HTTPXClient() as client:
             meth = request.method.lower()
             request_headers = dict(request.headers)
             request_headers[KODOSUMI_USER] = request.user
             request_headers[KODOSUMI_BASE] = base
+            request_headers[KODOSUMI_URL] = str(request.base_url)
             host = request.headers.get("host", None)
-            contact = target + "/"
-            if relpath:
-                contact += relpath
+            body = await request.body()
+            request_headers.pop("content-length", None)
             response = await client.request(
                 method=meth,
-                url=contact,
+                url=target,
                 headers=request_headers,
-                content=await request.body(),
+                content=body,
                 params=request.query_params,
-                follow_redirects=True)
+                follow_redirects=True,
+                timeout=60)
             response_headers = dict(response.headers)
             if host:
                 response_headers["host"] = host
@@ -97,13 +113,81 @@ class ProxyControl(litestar.Controller):
                         return Redirect(f"/exec/event/{fid1}")
             else:
                 logger.error(
-                    f"Proxy error: {response.status_code} {response.text}")
+                    f"proxy error: {response.status_code} {response.text}")
             response_content = response.content
-            if response.headers.get("content-type", "").startswith("text/html"):
-                response_content = update_links(
-                    "/-" + base, response.content.decode("utf-8")).encode(
-                        "utf-8")
         return Response(
                 content=response_content,
                 status_code=response.status_code,
                 headers=response_headers)
+
+
+class LockController(litestar.Controller):
+
+    tags = ["Lock Control"]
+
+    async def _handle(self,
+                      fid: str,
+                      lid: str,
+                      request: Request) -> Response:
+        try:
+            lock, actor = find_lock(fid, lid)
+        except LockNotFound as e:
+            raise NotFoundException(e.message) from e
+        target = f"{lock['app_url']}/_lock_/{fid}/{lid}"
+        logger.info(f"proxy lock {target} with base "
+                    f"{KODOSUMI_URL}={request.base_url}")
+        async with HTTPXClient() as client:
+            meth = request.method.lower()
+            request_headers = dict(request.headers)
+            request_headers[KODOSUMI_USER] = request.user
+            # request_headers[KODOSUMI_BASE] = base
+            host = request.headers.get("host", None)
+            body = await request.body()
+            request_headers.pop("content-length", None)
+            response = await client.request(
+                method=meth,
+                url=target,
+                headers=request_headers,
+                content=body,
+                params=request.query_params,
+                follow_redirects=True)
+            response_headers = dict(response.headers)
+            if host:
+                response_headers["host"] = host
+            response_headers.pop("content-length", None)
+            if response.status_code == 200:
+                if request.method == "GET":
+                    model = Model.model_validate(response.json())
+                    response_content = model.get_model()
+                else:
+                    response_content = response.json()
+                    result = response_content.get("result", None)
+                    actor.lease.remote(lid, result)
+            else:
+                logger.error(
+                    f"proxy error: {response.status_code} {response.text}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text)
+        return Response(
+                content=response_content,
+                status_code=response.status_code,
+                headers=response_headers)
+
+    @get("/{fid:str}/{lid:str}",
+           summary="Retrieve lock",
+           description="Get lock input schema.", operation_id="40_get_lock")
+    async def get_lock(self,
+                   fid: str,
+                   lid: str,
+                   request: Request) -> Response:
+        return await self._handle(fid, lid, request)
+    
+    @post("/{fid:str}/{lid:str}",
+           summary="Provide lock input",
+           description="Post lock input and release the lock.", operation_id="41_post_lock")
+    async def post_lock(self,
+                   fid: str,
+                   lid: str,
+                   request: Request) -> Response:
+        return await self._handle(fid, lid, request)

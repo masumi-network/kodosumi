@@ -5,18 +5,18 @@ from typing import Any, Callable, Optional, Tuple, Union
 
 import ray.util.queue
 from bson.objectid import ObjectId
-from pydantic import BaseModel
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
-import kodosumi.core
+import kodosumi
+from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
+                            EVENT_INPUTS, EVENT_META, EVENT_STATUS,
+                            KODOSUMI_LAUNCH, NAMESPACE, STATUS_END,
+                            STATUS_ERROR, STATUS_RUNNING, STATUS_STARTING,
+                            TOKEN_KEY, EVENT_UPLOAD, KODOSUMI_URL, HEADER_KEY)
 from kodosumi.helper import now, serialize
-from kodosumi.runner.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
-                                   EVENT_INPUTS, EVENT_META, EVENT_STATUS,
-                                   NAMESPACE, STATUS_END, STATUS_ERROR,
-                                   STATUS_RUNNING, STATUS_STARTING,
-                                   KODOSUMI_LAUNCH)
 from kodosumi.runner.tracer import Tracer
-
+from kodosumi import dtypes
 
 def parse_entry_point(entry_point: str) -> Callable:
     if ":" in entry_point:
@@ -36,19 +36,23 @@ class Runner:
     def __init__(self,
                  fid: str,
                  username: str,
-                 base_url: str,
+                 app_url: str,
                  entry_point: Union[Callable, str],
+                 jwt: str,
+                 panel_url: str,
                  inputs: Any=None,
                  extra: Optional[dict]=None):
         self.fid = fid
         self.username = username
-        self.base_url = base_url
+        self.app_url = app_url.rstrip("/")
+        self.panel_url = panel_url.rstrip("/")
         self.entry_point = entry_point
         self.inputs = inputs
         self.extra = extra
         self.active = True
+        self._locks: dict = {}
         self.message_queue = ray.util.queue.Queue()
-        self.tracer = Tracer(self.message_queue)
+        self.tracer = Tracer(self.fid, self.message_queue, self.panel_url, jwt)
         self.tracer.init()
 
     async def get_username(self):
@@ -99,7 +103,7 @@ class Runner:
             obj = parse_entry_point(self.entry_point)
         else:
             obj = self.entry_point
-        origin = {"kodosumi": kodosumi.core.__version__}
+        origin = {"kodosumi": kodosumi.__version__}
         if isinstance(self.extra, dict):
             for field in ("tags", "summary", "description", "deprecated"):
                 origin[field] = self.extra.get(field, None)
@@ -110,7 +114,9 @@ class Runner:
             **{
                 "fid": self.fid,
                 "username": self.username,
-                "base_url": self.base_url,
+                "app_url": self.app_url,
+                "app_url": self.app_url,
+                "panel_url": self.panel_url,
                 "entry_point": rep_entry_point
             }, 
             **origin}))
@@ -135,6 +141,18 @@ class Runner:
                 bound_args.arguments['inputs'] = self.inputs
             if 'tracer' in sig.parameters:
                 bound_args.arguments['tracer'] = self.tracer
+            try:
+                fs = await self.tracer.fs()
+                files = await fs.ls("in/")
+            except FileNotFoundError:
+                files = None
+            finally:
+                await fs.close()
+            if files:
+                data = dtypes.Upload.model_validate({
+                     "files": [dtypes.File.model_validate(f) for f in files]
+                })
+                await self._put_async(EVENT_UPLOAD, serialize(data))
             bound_args.apply_defaults()
             if asyncio.iscoroutinefunction(obj):
                 result = await obj(*bound_args.args, **bound_args.kwargs)
@@ -191,6 +209,38 @@ class Runner:
             pass
         self.active = False
         return "Runner shutdown complete."
+    
+    def get_locks(self):
+        return self._locks
+    
+    async def lock(self, 
+                   name: str, 
+                   lid: str, 
+                   expires: float,
+                   data: Optional[dict]=None):
+        self._locks[lid] = {
+            "name": name,
+            "data": data,
+            "result": None,
+            "app_url": self.app_url,
+            "app_url": self.app_url,
+            "expires": expires
+        }
+        while True:
+            if self._locks.get(lid, {}).get("result", None) is not None:
+                break
+            if now() > expires:
+                self._locks.pop(lid) 
+                raise TimeoutError(f"Lock {lid} expired at{expires}")
+            await asyncio.sleep(1)
+        return self._locks.pop(lid)["result"]
+
+    async def lease(self, lid: str, result: Any):
+        if lid in self._locks:
+            if self._locks[lid]["result"] is None:
+                self._locks[lid]["result"] = result
+                return True
+        return False
 
 
 def kill_runner(fid: str):
@@ -199,10 +249,12 @@ def kill_runner(fid: str):
 
 
 def create_runner(username: str,
-                  base_url: str,
+                  app_url: str,
                   entry_point: Union[str, Callable],
                   inputs: Union[BaseModel, dict],
                   extra: Optional[dict] = None,
+                  jwt: Optional[str] = None,
+                  panel_url: Optional[str] = None,
                   fid: Optional[str]= None) -> Tuple[str, Runner]:
     if fid is None:
         fid = str(ObjectId())
@@ -213,10 +265,12 @@ def create_runner(username: str,
         lifetime="detached").remote(
             fid=fid,
             username=username,
-            base_url="/-" + base_url,
+            app_url=app_url,
             entry_point=entry_point,
             inputs=inputs,
-            extra=extra
+            extra=extra,
+            jwt=jwt,
+            panel_url=panel_url
     )
     return fid, actor
 
@@ -227,10 +281,11 @@ def Launch(request: Any,
            summary: Optional[str] = None,
            description: Optional[str] = None) -> Any:
     if reference is None:
-        for sf in inspect.stack():
-            if getattr(sf.frame.f_globals.get(sf.function), "_kodosumi_", None):
-                reference = sf.frame.f_globals.get(sf.function)
-                break
+        if hasattr(request.app, "_code_lookup"):
+            for sf in inspect.stack():
+                reference = request.app._code_lookup.get(sf.frame.f_code)
+                if reference is not None:
+                    break
     if reference is None:
         extra = {}
     else:
@@ -240,7 +295,13 @@ def Launch(request: Any,
     if description is not None:
         extra["description"] = description
     fid, runner = create_runner(
-        username=request.state.user, base_url=request.state.prefix, 
-        entry_point=entry_point, inputs=inputs, extra=extra)
+        username=request.state.user, 
+        app_url=request.state.prefix, 
+        entry_point=entry_point, 
+        inputs=inputs, 
+        extra=extra,
+        jwt=request.cookies.get(TOKEN_KEY) or request.headers.get(HEADER_KEY),
+        panel_url=str(request.headers.get(KODOSUMI_URL))
+    )
     runner.run.remote()  # type: ignore
     return JSONResponse(content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})

@@ -1,0 +1,15 @@
+{
+  "name": "kodosumi-docs",
+  "version": "1.0.0",
+  "description": "Kodosumi Documentation",
+  "scripts": {
+    "dev": "mint dev",
+    "start": "mint dev"
+  },
+  "dependencies": {
+    "mintlify": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=19"
+  }
+}

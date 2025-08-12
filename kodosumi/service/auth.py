@@ -11,18 +11,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from kodosumi import helper
+from kodosumi.const import HEADER_KEY, TOKEN_KEY
 from kodosumi.dtypes import Role, RoleLogin
 from kodosumi.log import logger
-from kodosumi.service.jwt import HEADER_KEY, TOKEN_KEY, encode_jwt_token
+from kodosumi.service.jwt import encode_jwt_token
 
 
 class LoginControl(litestar.Controller):
 
-    tags = ["Access"]
+    tags = ["Authorization"]
 
-    @get("/login", summary="Login",
+    @get("/login", summary="Login with query params",
          description="Login with name and password.", status_code=200, 
-         opt={"no_auth": True})
+         opt={"no_auth": True}, operation_id="01_login_get")
     async def login_role_get(self, 
                              name: str, 
                              password: str, 
@@ -31,7 +32,7 @@ class LoginControl(litestar.Controller):
 
     @post("/login", summary="Login with form",
          description="Login with name and password using form data.", status_code=200, 
-         opt={"no_auth": True})
+         opt={"no_auth": True}, operation_id="02_login_post")
     async def login_role_post(
             self, 
             data: Annotated[
@@ -42,7 +43,7 @@ class LoginControl(litestar.Controller):
 
     @post("/api/login", summary="Login with JSON",
          description="Login with name and password using JSON body.", status_code=200, 
-         opt={"no_auth": True})
+         opt={"no_auth": True}, operation_id="03_login_json")
     async def login_role_json(
             self, 
             data: Annotated[
@@ -51,14 +52,27 @@ class LoginControl(litestar.Controller):
         return await self._get_role(
             transaction, data.name, data.password, data.redirect)
 
-    @route("/logout", summary="Logout",
-         description="Logout and remove session cookie..", status_code=200, http_method=["GET", "POST"])
-    async def get_logout(self, request: Request) -> Response:
+    async def _logout(self, request: Request):
         if request.user:
-            response = Response(content="")
+            redirect = request.query_params.get("redirect")
+            response: Any = None
+            if redirect:
+                response = Redirect(redirect)
+            else:
+                response = Response(content="")
             response.delete_cookie(key=TOKEN_KEY)
             return response
         raise NotAuthorizedException(detail="Invalid name or password")
+
+    @get("/logout", summary="Logout (GET)",
+         description="Logout and remove session cookie via GET.", status_code=200, operation_id="04_logout_get")
+    async def logout_get(self, request: Request) -> Response:
+        return await self._logout(request)
+    
+    @post("/logout", summary="Logout (POST)",
+         description="Logout and remove session cookie via POST.", status_code=200, operation_id="04_logout_post")
+    async def logout_post(self, request: Request) -> Response:
+        return await self._logout(request)
 
     async def _get_role(self, 
                         transaction: AsyncSession,
@@ -81,13 +95,14 @@ class LoginControl(litestar.Controller):
                             "name": role.name, 
                             "id": role.id, 
                             HEADER_KEY: token
-                    })
+                        })
                     response.set_cookie(key=TOKEN_KEY, value=token)
                     return response
         raise NotAuthorizedException(detail="Invalid name or password")
 
     @get("/", summary="Home",
-         description="Admin Console Home.", opt={"no_auth": True})
+         description="Admin Console Home.", opt={"no_auth": True},
+         include_in_schema=False, operation_id="00_home")
     async def home(self, request: Request) -> Union[Redirect, Template]:
         if TOKEN_KEY in request.cookies:
             return Redirect("/admin/flow")
@@ -95,8 +110,12 @@ class LoginControl(litestar.Controller):
             return Template("login.html")
         raise NotAuthorizedException(detail="Login requited")
 
-async def get_user_details(user_id: str, transaction: AsyncSession) -> Role:
+
+async def get_user_details(user_id: str, 
+                           transaction: AsyncSession) -> Optional[Role]:
     query = select(Role).where(Role.id == uuid.UUID(user_id))
     result = await transaction.execute(query)
     role = result.scalar_one_or_none()
+    if role is None:
+        raise NotAuthorizedException(detail="User not found")
     return role

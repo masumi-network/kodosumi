@@ -7,7 +7,7 @@
     <a class="tab-mode active" data-ui="#page-output"><span>Result</span> <i id="page-output-follow" class="tiny fill">expand_circle_down</i></a>
     <a class="tab-mode" data-ui="#page-stdio">I-O <i id="page-stdio-follow" class="tiny fill">expand_circle_down</i></a>
     <a class="tab-mode" data-ui="#page-event">Events <i id="page-event-follow" class="tiny fill">expand_circle_down</i></a>
-    <a href="/exec/html/{{fid}}" target="_blank"><i>download</i></a>
+    <a href="/outputs/html/{{fid}}" target="_blank"><i>download</i></a>
 </div>
 {% endblock %}
 
@@ -57,13 +57,6 @@
         <div id="sparkline" class="no-round sparkline-container"></div>
     </article>
 </div>
-<!-- <div class="s12 m6 l1">
-    <legend>&nbsp;</legend>
-    <article class="border small-padding small-round card status-card">
-        <a href="#"><i>menu</i> &nbsp;&nbsp;
-        <span>Action</span></a>
-    </article>
-</div> -->
 {% endblock %}
 
 {% block page %}
@@ -73,6 +66,11 @@
         <p style="display: none;" class="final-result info-l1"><span class="info-text">RESULT</span></p>
         <div><span id="output" class="output"></span><a id="output-end"></a></div>
         <a name="final-result"></a>
+        <div id="awaiting-block" style="display: none;">
+            <div class="medium-space"></div>
+            <p class="info-l1"><span class="info-text">AWAITING INPUT</span></p>
+            <span id="awaiting" class=""></span>
+        </div>
         <div class="medium-space"></div>
         <div class="final-result" style="display: none;">
             <p class="info-l1"><span class="info-text">FINAL</span></p>
@@ -130,10 +128,18 @@
         <div><span class="stdio" id="event"></span><a id="event-end"></a></div>
     </article>
 </div>
+
 <div class="page" id="page-stdio">
     <article id="article-stdio" class="max margin small-elevate large-padding article-container">
+
         <p class="info-l1"><span class="info-text">INPUT</span></p>
         <pre><code class="inputs monospace"></code></pre>
+
+        <div id="upload-block" style="display: none;">
+            <p class="info-l1"><span class="info-text">UPLOAD</span></p>
+            <ul id="upload">
+            </ul>
+        </div>
         <p class="info-l1"><span class="info-text">OUTPUT</span></p>
         <div><span class="stdio" id="stdio"></span><a id="stdio-end"></a></div>
     </article>

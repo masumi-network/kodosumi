@@ -1,9 +1,11 @@
+from dataclasses import dataclass
 import uuid
 from enum import Enum
 from typing import Any, Dict, Generic, List, Literal, Optional, Self, TypeVar
 
 import bcrypt
 from bcrypt import checkpw
+from litestar.datastructures import UploadFile
 from pydantic import (BaseModel, EmailStr, RootModel, field_validator,
                       model_validator)
 from sqlalchemy.ext.asyncio import AsyncAttrs
@@ -80,11 +82,11 @@ class EndpointResponse(BaseModel):
     source: str
     summary: Optional[str]
     description: Optional[str]
-    deprecated: Optional[bool]
+    deprecated: bool = False
     author: Optional[str]
     organization: Optional[str]
     tags: List[str]
-
+    base_url: str
     class Config:
         from_attributes = True
 
@@ -163,3 +165,35 @@ format_map = {
     "html": HTML,
     "markdown": Markdown
 }
+
+
+@dataclass
+class ChunkUpload:
+    upload_id: str
+    chunk_number: int
+    chunk: UploadFile
+
+
+@dataclass
+class UploadInit:
+    filename: str
+    total_chunks: int
+    batch_id: str | None = None
+
+
+@dataclass
+class UploadComplete:
+    upload_id: str
+    filename: str
+    total_chunks: int
+    batch_id: str | None = None
+    fid: str | None = None
+
+class File(BaseModel):
+   path: str
+   size: int
+   last_modified: float
+
+
+class Upload(BaseModel):
+    files: List[File]

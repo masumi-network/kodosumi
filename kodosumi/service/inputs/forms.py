@@ -1,10 +1,12 @@
-from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 from textwrap import dedent
-from pydantic import BaseModel
-import re
-from kodosumi import dtypes
-from kodosumi.log import logger
+from typing import Any, Dict, List, Optional
+import html
 import markdown
+from pydantic import BaseModel
+import json
+
+from kodosumi.log import logger
+
 
 class Element:
 
@@ -38,8 +40,16 @@ class HTML(Element):
         return self.text or ""
 
 class Break(HTML):
-    def __init__(self):
+    type = "break"
+    def __init__(self, *args, **kwargs):
         super().__init__('<div class="space"></div>')
+
+
+class HR(HTML):
+    type = "hr"
+    def __init__(self, *args, **kwargs):
+        super().__init__('<hr class="medium"/>')
+
 
 class Markdown(Element):
 
@@ -515,10 +525,12 @@ class Checkbox(FormElement):
     def __init__(
         self,
         name: str,
-        option: str,
+        option: Optional[str] = None,
         label: Optional[str] = None,
         value: bool = False,
         error: Optional[List[str]] = None):
+        if option is None:
+            option = "on"
         super().__init__(name, label, value, required=False, text=option, 
                          error=error)
 
@@ -665,7 +677,15 @@ class Cancel(ActionElement):
         super().__init__(text=text, error=error)
 
     def render(self) -> str:
-        return "\n".join(["<a class=\"button\" href=\"/\">", self.text, '</a>'])
+        # ret = []
+        # attrs = [f'name="__cancel__"']
+        # attrs.append(f'value="__cancel__"')
+        # ret.append(f'<button {" ".join(attrs)}>')
+        # ret.append(self.text or "")
+        # ret.append(f'</button>')
+        # return "\n".join(ret)
+        return "\n".join([
+            "<a class=\"button\" href=\"javascript:history.back()\">", self.text or "", '</a>'])
 
 
 class Action(FormElement):
@@ -690,18 +710,76 @@ class Action(FormElement):
 
     def render(self) -> str:
         ret = []
+        attrs = []
         if self.name:
             attrs = [f'name="{self.name}"']
         if self.value is not None:
             if self.value:
                 attrs.append(f'value="{self.value}"')
         ret.append(f'<button {" ".join(attrs)}>')
-        ret.append(self.text)
+        ret.append(self.text or "")
         ret.append(f'</button>')
         return "\n".join(ret)
 
     def parse_value(self, value: Any) -> Any:
         return value
+
+
+class InputFiles(FormElement):
+    type = "file"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            multiple: bool = False,
+            directory: bool = False,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.multiple = multiple
+        self.directory = directory
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "multiple": self.multiple,
+            "directory": self.directory
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<span id="_files-{self.name}">')
+        ret.append(f'<div id="_items-{self.name}"></div>')
+        ret.append(f'<div class="space"></div></span>')
+        ret.append(f'<button id="_button-{self.name}" class="fileInput medium circle">')
+        ret.append(f'<i>attach_file</i>')
+        attrs = [f'type="{self.type}" name="_dialog-{self.name}" id="_dialog-{self.name}"']
+        if self.required:
+            attrs.append(f'required')
+        if self.multiple:
+            attrs.append(f'multiple')
+        if self.directory:
+            attrs.append(f'webkitdirectory')
+        files = None
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+            files = [f["filename"] for f in json.loads(
+                self.value).get("items").values()]            
+        ret.append(f'<input {" ".join(attrs)}>')
+        ret.append(f'</button>')
+        value = html.escape(self.value) if self.value else ""
+        ret.append(f'<input type="hidden" name="{self.name}" id="_list-{self.name}" value="{value}">')
+        if files:
+            ret.append(f'<span class="primary">{len(files)} files have been uploaded</span>')
+        ret.append(f'<div class="space"></div>')
+        return "\n".join(ret)
 
 
 class JsonModel(BaseModel):
@@ -747,7 +825,10 @@ class Model:
             Submit, 
             Cancel, 
             Action,
-            Errors
+            Errors,
+            InputFiles,
+            HR,
+            Break
         }
         children = []
         for elm in elms:
@@ -772,24 +853,23 @@ class Model:
     
     def set_data(self, data: Dict[str, Any]) -> None:
         """Setzt die Werte der Formularelemente"""
-        # Wenn keine Daten vorhanden sind, setze alle Checkboxen auf False
         if not data:
             for child in self.children:
                 if isinstance(child, Checkbox):
                     child.value = False
             return
 
-        # Verarbeite vorhandene Daten
         for child in self.children:
             if hasattr(child, "name"):
                 if isinstance(child, Checkbox):
-                    # Für Checkboxen: Setze auf False wenn nicht in Daten vorhanden
                     child.value = child.parse_value(data.get(child.name, "off"))
                 elif child.name in data:
                     child.value = child.parse_value(data[child.name])
 
 
 __all__ = [
-    "Model", "Break", "InputText", "InputNumber", "Checkbox", "InputOption", 
-    "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime"
+    "Model", "Break", "HR", "InputText", "InputNumber", "Checkbox", 
+    "InputOption", "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", 
+    "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime", 
+    "InputFiles"
 ]

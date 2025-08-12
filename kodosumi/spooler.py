@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
@@ -13,8 +14,8 @@ from ray.util.state.common import ActorState
 
 import kodosumi.config
 from kodosumi import helper
+from kodosumi.const import DB_FILE, NAMESPACE, SPOOLER_NAME
 from kodosumi.log import logger, spooler_logger
-from kodosumi.runner.const import DB_FILE, NAMESPACE
 
 
 @ray.remote
@@ -121,7 +122,9 @@ class Spooler:
             ray.kill(runner)
             logger.info(f"finished {fid} with {n} records")
         except Exception as e:
-            logger.critical(f"failed to retrieve from {fid}", exc_info=True)
+            logger.critical(
+                f"failed to retrieve from {fid} after {n} records",
+                exc_info=True)
         finally:
             conn.close()
 
@@ -182,7 +185,16 @@ class Spooler:
         await asyncio.gather(*self.monitor.values())
 
 
+def cleanup(settings: kodosumi.config.Settings):
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    for upload in upload_dir.iterdir():
+        if upload.is_dir():
+            logger.info(f"cleanup {upload}")
+            shutil.rmtree(upload)
+
 def main(settings: kodosumi.config.Settings):
+    cleanup(settings)
     spooler = Spooler(
         exec_dir=settings.EXEC_DIR, 
         interval=settings.SPOOLER_INTERVAL, 
@@ -200,7 +212,7 @@ def terminate(settings: kodosumi.config.Settings):
     spooler_logger(settings)
     helper.ray_init(settings)
     try:
-        state = ray.get_actor("Spooler", namespace=NAMESPACE)
+        state = ray.get_actor(SPOOLER_NAME, namespace=NAMESPACE)
         objref = state.get_pid.remote()
         pid = ray.get(objref)
         proc = psutil.Process(pid)
@@ -212,5 +224,9 @@ def terminate(settings: kodosumi.config.Settings):
         logger.warning("no spooler found")
 
 
-if __name__ == "__main__":
+def run():
     main(kodosumi.config.Settings())
+
+
+if __name__ == "__main__":
+    run()

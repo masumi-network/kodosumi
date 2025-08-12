@@ -174,3 +174,4 @@ db/
 *.zip
 stats/
 apps/config.yaml
+node_modules/*
