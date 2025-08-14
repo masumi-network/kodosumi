@@ -66,7 +66,7 @@ def update_files(new_version: str):
     with open(pyproject_path, "w") as f:
         toml.dump(pyproject_data, f)
     
-    core_path = Path("kodosumi/core.py")
+    core_path = Path("kodosumi/__init__.py")
     with open(core_path, "r") as f:
         content = f.read()
     new_content = re.sub(
