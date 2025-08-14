@@ -8,7 +8,7 @@ from typing import Tuple
 import toml
 
 def get_current_version() -> Tuple[str, str]:
-    """Reads the current version from pyproject.toml and core.py."""
+    """Reads the current version from pyproject.toml and __init__.py."""
     pyproject_path = Path("pyproject.toml")
     pyproject_data = toml.load(pyproject_path)
     pyproject_version = pyproject_data["project"]["version"]
@@ -22,7 +22,7 @@ def get_current_version() -> Tuple[str, str]:
     if pyproject_version != core_version:
         print(f"Warning: Version numbers do not match!")
         print(f"pyproject.toml: {pyproject_version}")
-        print(f"core.py: {core_version}")
+        print(f"__init__.py: {core_version}")
         sys.exit(1)
     
     return pyproject_version, core_version
@@ -66,7 +66,7 @@ def update_files(new_version: str):
     with open(pyproject_path, "w") as f:
         toml.dump(pyproject_data, f)
     
-    core_path = Path("kodosumi/core.py")
+    core_path = Path("kodosumi/__init__.py")
     with open(core_path, "r") as f:
         content = f.read()
     new_content = re.sub(
@@ -97,7 +97,7 @@ def update_requirements():
 def git_commit_and_push(version: str):
     """Commits the version changes and pushes them to remote."""
     try:
-        subprocess.run(["git", "add", "pyproject.toml", "kodosumi/core.py"], check=True)
+        subprocess.run(["git", "add", "pyproject.toml", "kodosumi/__init__.py"], check=True)
         subprocess.run(["git", "commit", "-m", f"chore: bump version to {version}"], check=True)
         subprocess.run(["git", "push", "origin", "main"], check=True)
         print(f"Changes have been committed and pushed to remote.")

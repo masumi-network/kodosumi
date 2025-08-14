@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kodosumi"
-version = "1.0.1"
+version = "1.0.0"
 description = "kodosumi framework to execute and orchestrate agentic services safe and at scale"
 readme = "README.md"
 license = "Apache-2.0"
