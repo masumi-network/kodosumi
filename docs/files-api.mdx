@@ -2,13 +2,11 @@
 title: Files Management ReST API
 ---
 
-## Files Management ReST API
-
-### API Endpoints
+## API Endpoints
 
 The Files Management API provides the following main endpoints:
 
-#### Batch Upload Initialization
+### Batch Upload Initialization
 
 ```python
 # POST /files/init_batch
@@ -23,7 +21,7 @@ batch_id = response.json()["batch_id"]
 }
 ```
 
-#### Single Upload Initialization
+### Single Upload Initialization
 
 ```python
 # POST /files/init
@@ -44,7 +42,7 @@ upload_id = response.json()["upload_id"]
 }
 ```
 
-#### Chunk Upload
+### Chunk Upload
 
 ```python
 # POST /files/chunk
@@ -76,7 +74,7 @@ response = await client.post("/files/chunk", data=form_data, files=files)
 
 <Note>Note that the maximum size of a single chunk is 1mB (1024 * 1024 bytes).</Note>
 
-#### Upload Completion
+### Upload Completion
 
 ```python
 # POST /files/complete/{dir_type}
@@ -129,7 +127,7 @@ response = await client.post("/files/complete/in", json=payload)
 }
 ```
 
-### Automatic Upload Completion on Flow Start
+## Automatic Upload Completion on Flow Start
 
 **Important:** Upload completion is automatically triggered when a flow is started. This happens in the following process:
 
@@ -137,7 +135,7 @@ response = await client.post("/files/complete/in", json=payload)
 2. **Flow Start:** The flow is started with a unique flow ID (`fid`)
 3. **Automatic Completion:** All incomplete uploads are automatically completed with the flow ID as `completion_id`
 
-#### File Listing
+### File Listing
 
 ```python
 # GET /files/{fid}/{dir_type}
@@ -165,7 +163,7 @@ response = await client.get("/files/flow-id/in")
 ]
 ```
 
-#### File Download
+### File Download
 
 ```python
 # GET /files/{fid}/{dir_type}/{filename}
@@ -181,7 +179,7 @@ Content-Length: 1024
 
 **Response Body:** Binary file content
 
-#### Upload Cancellation
+### Upload Cancellation
 
 ```python
 # POST /files/cancel
