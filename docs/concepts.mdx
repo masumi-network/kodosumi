@@ -66,6 +66,10 @@ Endpoints are the defined interfaces of an Agentic Service that expose its funct
 
 Entrypoints are the internal entry locations within an Agentic Service where Flows can be initiated or connected. They serve as the bridge between [Endpoints](#endpoint) and [Flow implementations](#flows), defining how external requests are transformed into Flow executions.
 
+### Input Models
+
+Input Models define the structure and validation rules for user inputs. They support various input types including text fields, checkboxes, file uploads, and custom components. Inputs Models are used both for initial service entry points and for lock interfaces.
+
 ### Serve API
 
 Serve API is Kodosumi's specialized wrapper around FastAPI, providing enhanced functionality for building HTTP [endpoints](#endpoint) for [agentic services](#agentic-service). It integrates seamlessly with Ray Serve and offers standardized patterns for API development.
@@ -81,3 +85,18 @@ The Spooler is a specialized component in Kodosumi that handles [event stream](#
 ### Event Stream
 
 The Event Stream is a real-time communication channel that enables asynchronous event-driven interactions between different components of the Kodosumi system.
+The Event Stream captures various types of events during flow execution, see [Events](lifecycle#events)
+
+## Human-in-the-Loop (HTIL) System
+
+### Locks
+
+Locks are mechanisms that pause flow execution and request human intervention. When a flow encounters a lock, it enters the `awaiting` status and waits for human input before continuing. Locks are essential for implementing approval workflows, content reviews, and other scenarios requiring human decision-making.
+
+### Leases
+
+Leases are the handlers that process human input and release locks. When a human submits input through a lock interface, the lease handler validates the input and returns data that allows the flow to continue execution. Leases can include validation logic and error handling.
+
+### Lock Timeouts
+
+Locks have configurable timeouts to prevent indefinite waiting. If a lock expires without human intervention, the flow execution fails with a timeout error. The default timeout is 3 hours, but this can be customized per lock.
