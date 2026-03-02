@@ -4,7 +4,7 @@ Pydantic models for Sumi Protocol (MIP-002/MIP-003 compliant).
 
 from typing import List, Literal, Optional, Dict
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field
 
 
 # =============================================================================
@@ -244,13 +244,6 @@ class JobStatusResponse(BaseModel):
     """MIP-003 status response."""
 
     job_id: str
-
-    @computed_field
-    @property
-    def id(self) -> str:
-        """MIP-003 mandatory field (alias for job_id)."""
-        return self.job_id
-
     status: Literal[
         "awaiting_payment",  # Payment initialized, awaiting funds
         "awaiting_input",  # Maps to Kodosumi "awaiting" (lock pending)
