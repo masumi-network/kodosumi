@@ -256,7 +256,7 @@ class JobStatusResponse(BaseModel):
     input_schema: Optional[List[LockInputSchema]] = Field(
         default=None, description='List of pending lock schemas when status="awaiting", sorted by lock_id'
     )
-    result: Optional[dict] = Field(default=None, description='When status="completed"')
+    result: Optional[str] = Field(default=None, description='When status="completed" (MIP-003: string)')
     error: Optional[str] = Field(default=None, description='When status="failed"')
     input_hash: Optional[str] = Field(
         default=None, description="MIP-004 hash of input_data"

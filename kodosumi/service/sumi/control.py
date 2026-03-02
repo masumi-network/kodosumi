@@ -5,6 +5,7 @@ Provides discovery, availability, and job management for external systems.
 """
 
 import asyncio
+import json
 import re
 import sqlite3
 import time
@@ -53,6 +54,48 @@ def _parse_meta_data(data_yaml: Optional[str]) -> dict:
         return yaml.safe_load(data_yaml) or {}
     except yaml.YAMLError:
         return {}
+
+
+def _extract_result_string(result_dict) -> Optional[str]:
+    """
+    Extract string result from various response formats.
+
+    MIP-003 requires result to be a string. This function handles all possible
+    formats from the monitor database and always returns a string or None.
+
+    Handles:
+    - {"Markdown": {"body": "..."}} → "..."
+    - {"HTML": {"body": "..."}} → "..."
+    - {"Text": {"body": "..."}} → "..."
+    - {"dict": {...}} → JSON string
+    - Any other dict → JSON string
+    - Plain string → as-is
+    - None → None
+    """
+    if result_dict is None:
+        return None
+
+    if isinstance(result_dict, str):
+        return result_dict
+
+    if isinstance(result_dict, dict):
+        # Handle DynamicModel wrapper: {"dict": {...}} or {"type": "dict", "dict": {...}}
+        if "dict" in result_dict and isinstance(result_dict.get("dict"), dict):
+            result_dict = result_dict["dict"]
+
+        # Try known response types (Markdown, HTML, Text)
+        for response_type in ("Markdown", "HTML", "Text"):
+            if response_type in result_dict:
+                body = result_dict[response_type]
+                if isinstance(body, dict):
+                    return body.get("body", json.dumps(body))
+                return str(body)
+
+        # Fallback: serialize entire dict as JSON string
+        return json.dumps(result_dict)
+
+    # Any other type: convert to string
+    return str(result_dict)
 
 
 # Regex pattern for valid path parameter names
@@ -1109,7 +1152,7 @@ async def _get_job_status_from_db(
     row = cursor.fetchone()
     kodo_status = row[0] if row else None
 
-    # Get final result
+    # Get final result (MIP-003 requires string)
     cursor.execute("""
         SELECT message FROM monitor WHERE kind = 'final'
         ORDER BY timestamp DESC, id DESC
@@ -1120,9 +1163,10 @@ async def _get_job_status_from_db(
     if row:
         try:
             parsed = dtypes.DynamicModel.model_validate_json(row[0])
-            final_result = parsed.model_dump()
+            final_result = _extract_result_string(parsed.model_dump())
         except Exception:
-            final_result = {"raw": row[0]}
+            # Fallback: return raw string on parse failure
+            final_result = row[0] if isinstance(row[0], str) else str(row[0])
 
     # Get error if any
     cursor.execute("""
