@@ -682,6 +682,10 @@ async def _submit_job(
     meta_data_dict = _parse_meta_data(meta.data)
     agent_identifier = meta_data_dict.get("agentIdentifier")
     endpoint_url = ray_serve_address.rstrip("/") + meta.url
+    # Extract application root URL (without entry path) for KODOSUMI_BASE header.
+    # Lock routes (/_lock_/) are registered on ServeAPI root, not under entry paths.
+    # This mirrors the old behavior: "X-Kodosumi-Base": f"/-/{expose_name}"
+    app_root_url = ray_serve_address.rstrip("/") + "/" + expose_name
     started_at = time.time()
 
     # Extra metadata stored with the job
@@ -703,13 +707,13 @@ async def _submit_job(
         user = ANNONYMOUS
     try:
         # Use shared proxy utility with consistent header handling
-        # base follows the pattern from ProxyControl: source URL without /openapi.json
-        # For sumi, we construct it as the expose's route prefix
+        # base is the application root URL (without entry path) - lock routes
+        # are registered on ServeAPI root, not under entry paths
         proxy_config = ProxyRequest(
             target_url=endpoint_url,
             method="POST",
             user=user,
-            base=endpoint_url,
+            base=app_root_url,
             app_url=app_server,
             json_body=data.input_data or {},
             headers=dict(request.headers),
