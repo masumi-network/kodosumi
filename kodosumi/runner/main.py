@@ -88,17 +88,23 @@ class Runner:
             Dict with payment config if this is a paid flow, None otherwise.
             Config contains: agentIdentifier, network, identifier_from_purchaser, input_hash
         """
+        import os
+        from traceback import format_exc
+
         if not self.extra:
+            await self._put_async(EVENT_DEBUG, "get_payment_config: no extra")
             return None
 
         sumi_endpoint = self.extra.get("sumi_endpoint")
         if not sumi_endpoint:
+            await self._put_async(EVENT_DEBUG, "get_payment_config: no sumi_endpoint")
             return None
 
         identifier_from_purchaser = self.extra.get("identifier_from_purchaser")
         input_hash = self.extra.get("input_hash")
 
         if not identifier_from_purchaser or not input_hash:
+            await self._put_async(EVENT_DEBUG, f"get_payment_config: missing id/hash: {identifier_from_purchaser=}, {input_hash=}")
             return None
 
         # Parse sumi_endpoint: "expose_name" or "expose_name/meta_name"
@@ -109,20 +115,29 @@ class Runner:
         # Import here to avoid circular imports and ensure Ray worker can access
         from kodosumi.service.expose import db
 
+        # Debug: log working directory and db path
+        cwd = os.getcwd()
+        db_path = db.EXPOSE_DATABASE
+        db_exists = os.path.exists(db_path)
+        await self._put_async(EVENT_DEBUG, f"get_payment_config: cwd={cwd}, db_path={db_path}, exists={db_exists}")
+
         try:
             row = await db.get_expose(expose_name)
             if not row:
+                await self._put_async(EVENT_DEBUG, f"get_payment_config: no row for expose={expose_name}")
                 return None
 
             network = row.get("network") or "Preprod"
             meta_yaml = row.get("meta")
 
             if not meta_yaml:
+                await self._put_async(EVENT_DEBUG, f"get_payment_config: no meta_yaml for expose={expose_name}")
                 return None
 
             # Parse meta entries to find the matching one
             meta_list = yaml.safe_load(meta_yaml)
             if not meta_list:
+                await self._put_async(EVENT_DEBUG, f"get_payment_config: empty meta_list")
                 return None
 
             for m in meta_list:
@@ -137,14 +152,17 @@ class Runner:
                     # Found matching meta entry, check for agentIdentifier
                     data_yaml = m.get("data")
                     if not data_yaml:
+                        await self._put_async(EVENT_DEBUG, f"get_payment_config: no data_yaml for {url_endpoint}")
                         return None
 
                     data = yaml.safe_load(data_yaml)
                     if not data or not isinstance(data, dict):
+                        await self._put_async(EVENT_DEBUG, f"get_payment_config: invalid data for {url_endpoint}")
                         return None
 
                     agent_identifier = data.get("agentIdentifier")
                     if not agent_identifier:
+                        await self._put_async(EVENT_DEBUG, f"get_payment_config: no agentIdentifier in data")
                         return None
 
                     # This is a paid flow
@@ -155,10 +173,12 @@ class Runner:
                         "input_hash": input_hash,
                     }
 
+            await self._put_async(EVENT_DEBUG, f"get_payment_config: no matching meta entry for {meta_name=}")
             return None
 
         except Exception:
             # Database access failed, treat as non-payment flow
+            await self._put_async(EVENT_DEBUG, f"get_payment_config: exception: {format_exc()}")
             return None
 
     async def prepare(self) -> Optional[dict]:
