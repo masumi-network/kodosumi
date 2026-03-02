@@ -1109,7 +1109,7 @@ class SumiControl(Controller):
         return status_data
 
     @get(
-        "/status/{job_id:str}",
+        "/{expose_name:str}/status/{job_id:str}",
         summary="Get job status (path parameter)",
         description="Job status retrieval using path parameter. Returns current "
         "status and result if completed.",
@@ -1120,13 +1120,14 @@ class SumiControl(Controller):
     async def get_job_status(
         self,
         state: State,
+        expose_name: str,
         job_id: str,
     ) -> JobStatusResponse:
         """Get job status using path parameter."""
         return await self._get_job_status_impl(state, job_id)
 
     @get(
-        "/status",
+        "/{expose_name:str}/status",
         summary="Get job status (MIP-003)",
         description="MIP-003 compliant job status retrieval using query parameter. "
         "Returns current status and result if completed.",
@@ -1136,6 +1137,7 @@ class SumiControl(Controller):
     async def get_job_status_query(
         self,
         state: State,
+        expose_name: str,
         job_id: str,
     ) -> JobStatusResponse:
         """Get job status using query parameter (MIP-003 compliant)."""
