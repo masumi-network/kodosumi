@@ -1111,6 +1111,41 @@ class SumiControl(Controller):
 
     @get(
         "/{expose_name:str}/status/{job_id:str}",
+        summary="Get root job status (path parameter)",
+        description="Job status retrieval using path parameter for root service. "
+        "Returns current status and result if completed.",
+        operation_id="sumi_root_job_status_path",
+        opt={"no_auth": True},
+        guards=[sumi_job_network_guard],
+    )
+    async def get_root_job_status(
+        self,
+        state: State,
+        expose_name: str,
+        job_id: str,
+    ) -> JobStatusResponse:
+        """Get job status using path parameter for root service."""
+        return await self._get_job_status_impl(state, job_id)
+
+    @get(
+        "/{expose_name:str}/status",
+        summary="Get root job status (MIP-003)",
+        description="MIP-003 compliant job status retrieval using query parameter. "
+        "Returns current status and result if completed.",
+        operation_id="sumi_root_job_status",
+        opt={"no_auth": True},
+    )
+    async def get_root_job_status_query(
+        self,
+        state: State,
+        expose_name: str,
+        job_id: str,
+    ) -> JobStatusResponse:
+        """Get job status using query parameter (MIP-003 compliant) for root service."""
+        return await self._get_job_status_impl(state, job_id)
+
+    @get(
+        "/{expose_name:str}/{meta_name:str}/status/{job_id:str}",
         summary="Get job status (path parameter)",
         description="Job status retrieval using path parameter. Returns current "
         "status and result if completed.",
@@ -1122,13 +1157,14 @@ class SumiControl(Controller):
         self,
         state: State,
         expose_name: str,
+        meta_name: str,
         job_id: str,
     ) -> JobStatusResponse:
         """Get job status using path parameter."""
         return await self._get_job_status_impl(state, job_id)
 
     @get(
-        "/{expose_name:str}/status",
+        "/{expose_name:str}/{meta_name:str}/status",
         summary="Get job status (MIP-003)",
         description="MIP-003 compliant job status retrieval using query parameter. "
         "Returns current status and result if completed.",
@@ -1139,6 +1175,7 @@ class SumiControl(Controller):
         self,
         state: State,
         expose_name: str,
+        meta_name: str,
         job_id: str,
     ) -> JobStatusResponse:
         """Get job status using query parameter (MIP-003 compliant)."""
