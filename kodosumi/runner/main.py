@@ -61,6 +61,7 @@ class Runner:
         self.extra = extra  # User-provided extra data (e.g., identifier_from_purchaser)
         self.active = True
         self._payment: Optional[dict] = None
+        self._payment_lock = asyncio.Lock()  # Prevents race condition in prepare()
         self._locks: dict = {}
         self.message_queue = ray.util.queue.Queue()
         self.tracer = Tracer(self.fid, self.message_queue, self.panel_url, jwt)
@@ -168,54 +169,59 @@ class Runner:
         Can be called externally (e.g., by sumi endpoint) to retrieve
         payment init data, or internally by start() as fallback.
 
+        IMPORTANT: Uses _payment_lock to prevent race condition.
+        Without the lock, concurrent calls from control.py (runner.prepare.remote())
+        and from run() -> start() -> prepare() can both pass the idempotency check
+        before either sets self._payment, causing duplicate payment initialization
+        on the Masumi network. See: https://github.com/user/kodosumi/issues/XXX
+
         Returns:
             Dict with payment context if payment is required, None otherwise.
             Contains: pay_conf, blockchain_identifier, pay_data
         """
-        if self._payment is not None:
-            await self._put_async(EVENT_DEBUG, f"self._payment = {self._payment}")
-            return self._payment
+        async with self._payment_lock:
+            # Double-check after acquiring lock (another call may have completed)
+            if self._payment is not None:
+                await self._put_async(EVENT_DEBUG, f"self._payment = {self._payment}")
+                return self._payment
 
-        pay_conf = await self.get_payment_config()
-        await self._put_async(EVENT_DEBUG, f"pay_conf = {pay_conf}")
-        if not pay_conf:
-            return None
+            pay_conf = await self.get_payment_config()
+            await self._put_async(EVENT_DEBUG, f"pay_conf = {pay_conf}")
+            if not pay_conf:
+                return None
 
-        # from kodosumi.helper import debug
-        # debug()
-
-        settings = Settings()
-        masumi_cfg = settings.get_masumi(pay_conf["network"])
-        masumi = MasumiClient(masumi_cfg)
-        pay_resp = await masumi.init_payment(
-            agent_identifier=pay_conf["agentIdentifier"],
-            network=pay_conf["network"],
-            input_hash=pay_conf["input_hash"],
-            identifier_from_purchaser=pay_conf["identifier_from_purchaser"],
-        )
-        blockchain_identifier = pay_resp.get("data", {}).get(
-            "blockchainIdentifier")
-        if not blockchain_identifier:
-            raise PaymentError(
-                f"Payment init did not return blockchainIdentifier: {pay_resp}"
+            settings = Settings()
+            masumi_cfg = settings.get_masumi(pay_conf["network"])
+            masumi = MasumiClient(masumi_cfg)
+            pay_resp = await masumi.init_payment(
+                agent_identifier=pay_conf["agentIdentifier"],
+                network=pay_conf["network"],
+                input_hash=pay_conf["input_hash"],
+                identifier_from_purchaser=pay_conf["identifier_from_purchaser"],
             )
-        pay_data = pay_resp.get("data", {})
+            blockchain_identifier = pay_resp.get("data", {}).get(
+                "blockchainIdentifier")
+            if not blockchain_identifier:
+                raise PaymentError(
+                    f"Payment init did not return blockchainIdentifier: {pay_resp}"
+                )
+            pay_data = pay_resp.get("data", {})
 
-        await self._put_async(EVENT_PAYMENT, serialize({
-            "step": "initialized",
-            "agentIdentifier": pay_conf["agentIdentifier"],
-            "network": pay_conf["network"],
-            "inputHash": pay_conf["input_hash"],
-            "blockchainIdentifier": blockchain_identifier,
-            "pay_data": pay_data,
-        }))
+            await self._put_async(EVENT_PAYMENT, serialize({
+                "step": "initialized",
+                "agentIdentifier": pay_conf["agentIdentifier"],
+                "network": pay_conf["network"],
+                "inputHash": pay_conf["input_hash"],
+                "blockchainIdentifier": blockchain_identifier,
+                "pay_data": pay_data,
+            }))
 
-        self._payment = {
-            "pay_conf": pay_conf,
-            "blockchain_identifier": blockchain_identifier,
-            "pay_data": pay_data,
-        }
-        return self._payment
+            self._payment = {
+                "pay_conf": pay_conf,
+                "blockchain_identifier": blockchain_identifier,
+                "pay_data": pay_data,
+            }
+            return self._payment
 
     async def run(self):
         final_kind = STATUS_END
