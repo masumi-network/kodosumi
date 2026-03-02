@@ -1046,26 +1046,12 @@ class SumiControl(Controller):
         meta_name = _validate_path_param(meta_name, "meta_name")
         return await self._start_job(state, expose_name, meta_name, data, request)
 
-    @get(
-        "/status/{job_id:str}",
-        summary="Get job status",
-        description="MIP-003 compliant job status retrieval. Returns current "
-        "status and result if completed.",
-        operation_id="sumi_job_status",
-        opt={"no_auth": True},
-        guards=[sumi_job_network_guard],
-    )
-    async def get_job_status(
+    async def _get_job_status_impl(
         self,
         state: State,
         job_id: str,
     ) -> JobStatusResponse:
-        """
-        Get job status.
-
-        Args:
-            job_id: The job ID (fid) returned from start_job
-        """
+        """Internal implementation for job status retrieval."""
         exec_dir = Path(state["settings"].EXEC_DIR)
 
         # Search for the job across all user directories
@@ -1121,6 +1107,39 @@ class SumiControl(Controller):
             )
 
         return status_data
+
+    @get(
+        "/status/{job_id:str}",
+        summary="Get job status (path parameter)",
+        description="Job status retrieval using path parameter. Returns current "
+        "status and result if completed.",
+        operation_id="sumi_job_status_path",
+        opt={"no_auth": True},
+        guards=[sumi_job_network_guard],
+    )
+    async def get_job_status(
+        self,
+        state: State,
+        job_id: str,
+    ) -> JobStatusResponse:
+        """Get job status using path parameter."""
+        return await self._get_job_status_impl(state, job_id)
+
+    @get(
+        "/status",
+        summary="Get job status (MIP-003)",
+        description="MIP-003 compliant job status retrieval using query parameter. "
+        "Returns current status and result if completed.",
+        operation_id="sumi_job_status",
+        opt={"no_auth": True},
+    )
+    async def get_job_status_query(
+        self,
+        state: State,
+        job_id: str,
+    ) -> JobStatusResponse:
+        """Get job status using query parameter (MIP-003 compliant)."""
+        return await self._get_job_status_impl(state, job_id)
 
 
 async def _get_job_status_from_db(
