@@ -609,6 +609,7 @@ async def _submit_job(
     expose_name: str,
     meta_name: str,
     meta: ExposeMeta,
+    network: str,
     data: StartJobRequest,
     app_server: str,
     ray_serve_address: str,
@@ -624,6 +625,7 @@ async def _submit_job(
         expose_name: Name of the expose
         meta_name: Name of the meta entry (empty for root)
         meta: ExposeMeta with endpoint URL
+        network: Blockchain network (e.g., "Preprod", "Mainnet")
         data: StartJobRequest with input data
         app_server: App server URL
         ray_serve_address: Ray Serve HTTP address
@@ -640,11 +642,13 @@ async def _submit_job(
     started_at = time.time()
 
     # Extra metadata stored with the job
+    # Include network so Runner can initialize payment without DB access
     extra = {
         "identifier_from_purchaser": data.identifier_from_purchaser,
         "input_hash": input_hash,
         "sumi_endpoint": service_id,
         "agentIdentifier": agent_identifier,
+        "network": network,
     }
 
     def _error_response(error_msg: str) -> StartJobErrorResponse:
@@ -934,10 +938,11 @@ class SumiControl(Controller):
                          request: Request
     ) -> Union[JobStatusResponse, StartJobErrorResponse]:
         expose_name = _validate_path_param(expose_name, "expose_name")
-        _, meta = await _get_meta_entry(expose_name, meta_name)
+        row, meta = await _get_meta_entry(expose_name, meta_name)
+        network = row.get("network") or "Preprod"
         app_server = state["settings"].APP_SERVER
         ray_serve_address = state["settings"].RAY_SERVE_ADDRESS
-        return await _submit_job(expose_name, meta_name, meta, data, app_server, ray_serve_address, request)
+        return await _submit_job(expose_name, meta_name, meta, network, data, app_server, ray_serve_address, request)
 
     @post(
         "/{expose_name:str}/start_job",

@@ -78,108 +78,58 @@ class Runner:
 
     async def get_payment_config(self) -> Optional[dict]:
         """
-        Look up payment configuration for this job from expose.db.
+        Get payment configuration from the extra dict passed by control.py.
 
-        Checks if:
-        1. This is a Sumi protocol job (has sumi_endpoint in extra)
-        2. The expose and meta entry have payment configured (agentIdentifier)
+        All payment-relevant data is passed via extra to avoid database
+        access from Ray workers. Workers may run on different nodes without
+        access to expose.db, causing "no such table: expose" errors.
+
+        Required fields in extra (set by control.py _submit_job):
+        - sumi_endpoint: indicates this is a Sumi protocol job
+        - agentIdentifier: payment is configured if present
+        - network: blockchain network (Preprod/Mainnet)
+        - identifier_from_purchaser: customer job identifier
+        - input_hash: hash of input data
 
         Returns:
             Dict with payment config if this is a paid flow, None otherwise.
-            Config contains: agentIdentifier, network, identifier_from_purchaser, input_hash
         """
-        import os
-        from traceback import format_exc
-
         if not self.extra:
             await self._put_async(EVENT_DEBUG, "get_payment_config: no extra")
             return None
 
+        # Check if this is a Sumi protocol job
         sumi_endpoint = self.extra.get("sumi_endpoint")
         if not sumi_endpoint:
-            await self._put_async(EVENT_DEBUG, "get_payment_config: no sumi_endpoint")
+            await self._put_async(EVENT_DEBUG, "get_payment_config: no sumi_endpoint (not a Sumi job)")
             return None
 
+        # Extract payment config from extra
+        agent_identifier = self.extra.get("agentIdentifier")
+        network = self.extra.get("network")
         identifier_from_purchaser = self.extra.get("identifier_from_purchaser")
         input_hash = self.extra.get("input_hash")
+
+        # agentIdentifier indicates payment is configured for this endpoint
+        if not agent_identifier:
+            await self._put_async(EVENT_DEBUG, "get_payment_config: no agentIdentifier (payment not configured)")
+            return None
 
         if not identifier_from_purchaser or not input_hash:
             await self._put_async(EVENT_DEBUG, f"get_payment_config: missing id/hash: {identifier_from_purchaser=}, {input_hash=}")
             return None
 
-        # Parse sumi_endpoint: "expose_name" or "expose_name/meta_name"
-        parts = sumi_endpoint.split("/", 1)
-        expose_name = parts[0]
-        meta_name = parts[1] if len(parts) > 1 else ""
-
-        # Import here to avoid circular imports and ensure Ray worker can access
-        from kodosumi.service.expose import db
-
-        # Debug: log working directory and db path
-        cwd = os.getcwd()
-        db_path = db.EXPOSE_DATABASE
-        db_exists = os.path.exists(db_path)
-        await self._put_async(EVENT_DEBUG, f"get_payment_config: cwd={cwd}, db_path={db_path}, exists={db_exists}")
-
-        try:
-            row = await db.get_expose(expose_name)
-            if not row:
-                await self._put_async(EVENT_DEBUG, f"get_payment_config: no row for expose={expose_name}")
-                return None
-
-            network = row.get("network") or "Preprod"
-            meta_yaml = row.get("meta")
-
-            if not meta_yaml:
-                await self._put_async(EVENT_DEBUG, f"get_payment_config: no meta_yaml for expose={expose_name}")
-                return None
-
-            # Parse meta entries to find the matching one
-            meta_list = yaml.safe_load(meta_yaml)
-            if not meta_list:
-                await self._put_async(EVENT_DEBUG, f"get_payment_config: empty meta_list")
-                return None
-
-            for m in meta_list:
-                # Match by URL endpoint
-                url = m.get("url", "")
-                url_parts = url.strip("/").split("/")
-                url_endpoint = url_parts[-1] if url_parts else ""
-
-                # For root endpoint, meta_name is empty
-                if (meta_name == "" and (url_endpoint == expose_name or not url_endpoint)) or \
-                   (meta_name and url_endpoint == meta_name):
-                    # Found matching meta entry, check for agentIdentifier
-                    data_yaml = m.get("data")
-                    if not data_yaml:
-                        await self._put_async(EVENT_DEBUG, f"get_payment_config: no data_yaml for {url_endpoint}")
-                        return None
-
-                    data = yaml.safe_load(data_yaml)
-                    if not data or not isinstance(data, dict):
-                        await self._put_async(EVENT_DEBUG, f"get_payment_config: invalid data for {url_endpoint}")
-                        return None
-
-                    agent_identifier = data.get("agentIdentifier")
-                    if not agent_identifier:
-                        await self._put_async(EVENT_DEBUG, f"get_payment_config: no agentIdentifier in data")
-                        return None
-
-                    # This is a paid flow
-                    return {
-                        "agentIdentifier": agent_identifier,
-                        "network": network,
-                        "identifier_from_purchaser": identifier_from_purchaser,
-                        "input_hash": input_hash,
-                    }
-
-            await self._put_async(EVENT_DEBUG, f"get_payment_config: no matching meta entry for {meta_name=}")
+        if not network:
+            await self._put_async(EVENT_DEBUG, "get_payment_config: no network in extra")
             return None
 
-        except Exception:
-            # Database access failed, treat as non-payment flow
-            await self._put_async(EVENT_DEBUG, f"get_payment_config: exception: {format_exc()}")
-            return None
+        # This is a paid flow - all config from extra, no DB access needed
+        return {
+            "agentIdentifier": agent_identifier,
+            "network": network,
+            "identifier_from_purchaser": identifier_from_purchaser,
+            "input_hash": input_hash,
+        }
 
     async def prepare(self) -> Optional[dict]:
         """
