@@ -748,7 +748,8 @@ async def _submit_job(
         ext_dispute_unlock_time = None
         seller_vkey = None
         try:
-            runner = ray.get_actor(job_id, namespace=NAMESPACE)
+            # Use asyncio.to_thread to avoid blocking the event loop
+            runner = await asyncio.to_thread(ray.get_actor, job_id, namespace=NAMESPACE)
             prepare_data = await runner.prepare.remote()
             if prepare_data:
                 pay_data = prepare_data["pay_data"]
