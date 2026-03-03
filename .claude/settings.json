@@ -1,0 +1,12 @@
+{
+  "env": {
+    "CLAUDE_CODE_USE_FOUNDRY": "1",
+    "ANTHROPIC_FOUNDRY_BASE_URL": "https://claude-sweden-gateway.azure-api.net/claude-sweden/anthropic",
+    "ANTHROPIC_FOUNDRY_API_KEY": "9062813c0b2c4fff9bccc8708e5521e3",
+    "ANTHROPIC_CUSTOM_HEADERS": "api-key: 9062813c0b2c4fff9bccc8708e5521e3",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-5"
+  },
+"model": "claude-opus-4-5"
+}
+

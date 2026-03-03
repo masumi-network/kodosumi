@@ -734,7 +734,7 @@ async def _submit_job(
         with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent response: status={resp.status_code}\n")
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent headers: {dict(resp.headers)}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent body: {resp.content.decode()[:500]}\n")
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent body: {resp.content.decode()[:2000]}\n")
 
         if resp.status_code != 200:
             return _error_response(
