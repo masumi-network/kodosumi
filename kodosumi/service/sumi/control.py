@@ -677,6 +677,10 @@ async def _submit_job(
     Returns:
         JobStatusResponse on success, StartJobErrorResponse on failure
     """
+    # DEBUG: Log incoming request BEFORE forwarding to agent
+    print(f"[SUMI] start_job: {expose_name}/{meta_name}")
+    print(f"[SUMI] input_data: {json.dumps(data.input_data, default=str)}")
+
     service_id = _format_service_id(expose_name, meta_name)
     input_hash = create_input_hash(data.input_data, data.identifier_from_purchaser)
     meta_data_dict = _parse_meta_data(meta.data)
@@ -724,6 +728,11 @@ async def _submit_job(
         )
 
         resp = await proxy_forward(proxy_config)
+
+        # DEBUG: Log agent response
+        print(f"[SUMI] agent response: status={resp.status_code}")
+        print(f"[SUMI] agent headers: {dict(resp.headers)}")
+        print(f"[SUMI] agent body: {resp.content.decode()[:500]}")
 
         if resp.status_code != 200:
             return _error_response(
