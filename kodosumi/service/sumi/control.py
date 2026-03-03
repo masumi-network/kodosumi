@@ -696,6 +696,7 @@ async def _submit_job(
         "sumi_endpoint": service_id,
         "agentIdentifier": agent_identifier,
         "network": network,
+        "raw_input_data": data.input_data,  # Debug: raw input from Sumi start_job
     }
 
     def _error_response(error_msg: str) -> StartJobErrorResponse:

@@ -220,6 +220,9 @@ class Runner:
 
     async def start(self):
         await self._put_async(EVENT_STATUS, STATUS_STARTING)
+        # Debug: Show raw input_data from Sumi start_job request
+        if self.extra and self.extra.get("raw_input_data") is not None:
+            await self._put_async(EVENT_DEBUG, f"start_job_input_data = {serialize(self.extra['raw_input_data'])}")
         await self._put_async(EVENT_INPUTS, serialize(self.inputs))
         if not isinstance(self.entry_point, str):
             ep = self.entry_point
