@@ -264,7 +264,7 @@ def convert_element_to_mip003(element: Dict[str, Any]) -> Optional[InputField]:
         return InputField(
             id="info",
             type="none",
-            name=None,
+            name="Information",  # MIP-003 requires name
             data={"description": text.strip()},
             validations=None,
         )
