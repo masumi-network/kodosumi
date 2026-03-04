@@ -680,16 +680,12 @@ async def _submit_job(
     # DEBUG: Log incoming request BEFORE forwarding to agent
     with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] start_job: {expose_name}/{meta_name}\n")
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data (raw): {json.dumps(data.input_data, default=str)}\n")
+        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
 
     # Convert MIP-003 index arrays to string values for option/radio fields
     # Masumi sends [1] for second option, agents expect "Man"
     schema = await _fetch_input_schema(ray_serve_address, meta)
     converted_input = convert_mip003_indices_to_values(data.input_data, schema)
-
-    # DEBUG: Log converted input
-    with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data (converted): {json.dumps(converted_input, default=str)}\n")
 
     service_id = _format_service_id(expose_name, meta_name)
     input_hash = create_input_hash(data.input_data, data.identifier_from_purchaser)
@@ -1487,6 +1483,11 @@ class SumiLockControl(Controller):
             lid: Lock ID
             data: ProvideInputRequest with input data
         """
+        # DEBUG: Log incoming HITL input
+        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input: {fid}/{lid}\n")
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+
         try:
             lock, actor = find_lock(fid, lid)
         except LockNotFound as e:
@@ -1505,11 +1506,23 @@ class SumiLockControl(Controller):
         # Post to lock endpoint
         target = f"{lock['app_url']}/_lock_/{fid}/{lid}"
 
+        # Fetch schema and convert MIP-003 index arrays to string values
+        converted_input = data.input_data
+        try:
+            async with HTTPXClient() as client:
+                schema_resp = await client.get(target, timeout=10.0)
+            if schema_resp.status_code == 200:
+                elements = schema_resp.json()
+                schema = convert_model_to_schema(elements)
+                converted_input = convert_mip003_indices_to_values(data.input_data, schema)
+        except Exception:
+            pass  # Use original input if schema fetch fails
+
         try:
             async with HTTPXClient() as client:
                 resp = await client.post(
                     target,
-                    json=data.input_data or {},
+                    json=converted_input or {},
                     timeout=10.0,
                 )
 
