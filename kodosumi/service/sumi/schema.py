@@ -151,6 +151,13 @@ def _convert_validations_to_mip003(element: Dict[str, Any]) -> Optional[List[Dic
         min_val = element.get("min_week")
         max_val = element.get("max_week")
 
+    # Select (dropdown) → MIP-003 option: enforce single-select
+    # MIP-003 option can be multi-select, but Kodosumi doesn't support it
+    # radio type has implicit min: 1, max: 1 per MIP-003 spec
+    elif elem_type == "select":
+        min_val = 1
+        max_val = 1
+
     if min_val is not None:
         validations.append({"validation": "min", "value": str(min_val)})
     if max_val is not None:
@@ -544,6 +551,57 @@ def create_empty_schema() -> InputSchemaResponse:
     return InputSchemaResponse(
         input_data=None,
     )
+
+
+def convert_mip003_indices_to_values(
+    input_data: Optional[Dict[str, Any]],
+    schema: InputSchemaResponse,
+) -> Optional[Dict[str, Any]]:
+    """
+    Convert MIP-003 option/radio index arrays to string values.
+
+    Masumi sends option values as index arrays (e.g., [1] for second option).
+    Kodosumi agents expect string values (e.g., "Man").
+
+    This function converts index-based values to the actual option string values
+    based on the schema definition.
+
+    Args:
+        input_data: Input data dict from MIP-003 start_job request
+        schema: InputSchemaResponse containing field definitions with values arrays
+
+    Returns:
+        Converted input_data dict with indices replaced by option strings,
+        or original input_data if no conversion needed.
+    """
+    if not input_data or not schema.input_data:
+        return input_data
+
+    # Build lookup of fields by id
+    fields = {f.id: f for f in schema.input_data}
+    result = dict(input_data)
+
+    for field_id, value in input_data.items():
+        field = fields.get(field_id)
+        if not field or field.type not in ("option", "radio"):
+            continue
+
+        # Get the values array from field data
+        values = (field.data or {}).get("values", [])
+        if not values:
+            continue
+
+        # Handle index arrays: [1] → "Man"
+        if isinstance(value, list) and all(isinstance(i, int) for i in value):
+            converted = [values[i] for i in value if 0 <= i < len(values)]
+            # Single selection returns string, multiple returns list
+            if len(converted) == 1:
+                result[field_id] = converted[0]
+            elif converted:
+                result[field_id] = converted
+            # If no valid indices, keep original value
+
+    return result
 
 
 # Legacy alias for backwards compatibility

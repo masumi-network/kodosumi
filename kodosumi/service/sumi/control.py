@@ -34,7 +34,7 @@ from kodosumi.service.sumi.models import (
     ProvideInputResponse, StartJobErrorResponse, StartJobRequest, SumiFlowItem, 
     SumiFlowListResponse) 
 from kodosumi.service.sumi.schema import (
-    convert_model_to_schema, create_empty_schema)
+    convert_model_to_schema, convert_mip003_indices_to_values, create_empty_schema)
 from kodosumi.service.jwt import (
     parse_token, sumi_network_guard, sumi_job_network_guard)
 
@@ -680,7 +680,16 @@ async def _submit_job(
     # DEBUG: Log incoming request BEFORE forwarding to agent
     with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] start_job: {expose_name}/{meta_name}\n")
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data (raw): {json.dumps(data.input_data, default=str)}\n")
+
+    # Convert MIP-003 index arrays to string values for option/radio fields
+    # Masumi sends [1] for second option, agents expect "Man"
+    schema = await _fetch_input_schema(ray_serve_address, meta)
+    converted_input = convert_mip003_indices_to_values(data.input_data, schema)
+
+    # DEBUG: Log converted input
+    with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
+        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data (converted): {json.dumps(converted_input, default=str)}\n")
 
     service_id = _format_service_id(expose_name, meta_name)
     input_hash = create_input_hash(data.input_data, data.identifier_from_purchaser)
@@ -721,7 +730,7 @@ async def _submit_job(
             user=user,
             base=app_root_url,
             app_url=app_server,
-            json_body=data.input_data or {},
+            json_body=converted_input or {},
             headers=dict(request.headers),
             cookies=dict(request.cookies),
             extra=extra,
