@@ -80,8 +80,11 @@ TYPE_MAP_FROM_MIP003 = {
 
 # Non-input element types (skip during conversion)
 NON_INPUT_TYPES = {
-    "html", "markdown", "submit", "cancel", "action", "errors", "break", "hr"
+    "html", "submit", "cancel", "action", "errors", "break", "hr"
 }
+
+# Display-only types converted to MIP-003 type: "none"
+DISPLAY_TEXT_TYPES = {"markdown"}
 
 # Types that use min/max for length validation
 LENGTH_VALIDATION_TYPES = {
@@ -252,6 +255,19 @@ def convert_element_to_mip003(element: Dict[str, Any]) -> Optional[InputField]:
     # Skip non-input elements
     if elem_type in NON_INPUT_TYPES:
         return None
+
+    # Convert display-text elements (markdown) to type: "none"
+    if elem_type in DISPLAY_TEXT_TYPES:
+        text = element.get("text", "")
+        if not text or not text.strip():
+            return None
+        return InputField(
+            id="info",
+            type="none",
+            name=None,
+            data={"description": text.strip()},
+            validations=None,
+        )
 
     # Must have a name to be an input (except 'none' type)
     name = element.get("name")
