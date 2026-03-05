@@ -175,11 +175,3 @@ db/
 stats/
 apps/config.yaml
 node_modules/*
-
-# Claude Code local settings
-.claude/settings.json
-.claude/settings.json.backup
-.claude/settings.local.json
-
-# Environment specific temp files
-environments/*/yaml/
