@@ -553,6 +553,15 @@ def create_empty_schema() -> InputSchemaResponse:
     )
 
 
+# String-like field types that should default to "" when missing
+STRING_FIELD_TYPES = {
+    "text", "textarea", "password", "search",
+    "email", "url", "tel",
+    "date", "time", "datetime-local", "month", "week",
+    "color", "option", "radio",
+}
+
+
 def convert_mip003_inputs_to_kodosumi(
     input_data: Optional[Dict[str, Any]],
     schema: InputSchemaResponse,
@@ -563,6 +572,7 @@ def convert_mip003_inputs_to_kodosumi(
     Conversions performed:
     - option/radio: Index arrays [1] → string values "Man"
     - boolean: true → "on" (ServeAPI checkbox format)
+    - Missing optional fields: Add with type-appropriate defaults
 
     Args:
         input_data: Input data dict from MIP-003 start_job request
@@ -571,14 +581,17 @@ def convert_mip003_inputs_to_kodosumi(
     Returns:
         Converted input_data dict for Kodosumi agents.
     """
-    if not input_data or not schema.input_data:
+    if not schema.input_data:
         return input_data
+
+    # Start with input_data or empty dict
+    result = dict(input_data) if input_data else {}
 
     # Build lookup of fields by id
     fields = {f.id: f for f in schema.input_data}
-    result = dict(input_data)
 
-    for field_id, value in input_data.items():
+    # Convert existing values
+    for field_id, value in list(result.items()):
         field = fields.get(field_id)
         if not field:
             continue
@@ -608,6 +621,29 @@ def convert_mip003_inputs_to_kodosumi(
             elif converted:
                 result[field_id] = converted
             # If no valid indices, keep original value
+
+    # Add missing optional fields with type-appropriate defaults
+    # This ensures Sumi API behaves consistently regardless of what Masumi sends
+    for field in schema.input_data:
+        if field.id in result:
+            continue  # Field already has a value
+
+        # Skip display-only fields (type: "none")
+        if field.type == "none":
+            continue
+
+        # Add default based on field type
+        if field.type in STRING_FIELD_TYPES:
+            result[field.id] = ""
+        elif field.type == "boolean":
+            result[field.id] = False
+        elif field.type in ("number", "range"):
+            result[field.id] = None  # Numbers can legitimately be None
+        elif field.type == "hidden":
+            # Hidden fields should have a value in schema, use it
+            hidden_value = (field.data or {}).get("value", "")
+            result[field.id] = hidden_value
+        # file type: leave missing (agent handles file absence)
 
     return result
 
