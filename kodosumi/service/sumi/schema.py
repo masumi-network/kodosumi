@@ -553,26 +553,23 @@ def create_empty_schema() -> InputSchemaResponse:
     )
 
 
-def convert_mip003_indices_to_values(
+def convert_mip003_inputs_to_kodosumi(
     input_data: Optional[Dict[str, Any]],
     schema: InputSchemaResponse,
 ) -> Optional[Dict[str, Any]]:
     """
-    Convert MIP-003 option/radio index arrays to string values.
+    Convert MIP-003 input values to Kodosumi format.
 
-    Masumi sends option values as index arrays (e.g., [1] for second option).
-    Kodosumi agents expect string values (e.g., "Man").
-
-    This function converts index-based values to the actual option string values
-    based on the schema definition.
+    Conversions performed:
+    - option/radio: Index arrays [1] → string values "Man"
+    - boolean: true → "on" (ServeAPI checkbox format)
 
     Args:
         input_data: Input data dict from MIP-003 start_job request
-        schema: InputSchemaResponse containing field definitions with values arrays
+        schema: InputSchemaResponse containing field definitions
 
     Returns:
-        Converted input_data dict with indices replaced by option strings,
-        or original input_data if no conversion needed.
+        Converted input_data dict for Kodosumi agents.
     """
     if not input_data or not schema.input_data:
         return input_data
@@ -583,7 +580,18 @@ def convert_mip003_indices_to_values(
 
     for field_id, value in input_data.items():
         field = fields.get(field_id)
-        if not field or field.type not in ("option", "radio"):
+        if not field:
+            continue
+
+        # Boolean: true → "on", false stays as-is (ServeAPI defaults to False)
+        if field.type == "boolean":
+            if value is True:
+                result[field_id] = "on"
+            # False/None/other → leave unchanged, ServeAPI handles it
+            continue
+
+        # Option/Radio: index arrays → string values
+        if field.type not in ("option", "radio"):
             continue
 
         # Get the values array from field data
@@ -602,6 +610,10 @@ def convert_mip003_indices_to_values(
             # If no valid indices, keep original value
 
     return result
+
+
+# Legacy alias for backwards compatibility
+convert_mip003_indices_to_values = convert_mip003_inputs_to_kodosumi
 
 
 # Legacy alias for backwards compatibility
