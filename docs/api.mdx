@@ -226,6 +226,87 @@ After completion the status request contains the final result in the `final` fie
    'username': '35a04fc4-4442-4b24-b109-614b45d52de1'
 
 ```
+### Output File Types in `final` Field
+
+The `final` field is a JSON-serialized string that varies based on the output type returned by the agent. Kodosumi supports several output types, each serialized differently:
+
+#### Text Output
+
+Plain text output is wrapped in a `Text` object:
+
+```python
+{
+   'status': 'finished',
+   'final': '{"Text":{"body":"Hello, world!"}}',
+   ...
+}
+```
+
+#### Markdown Output
+
+Markdown content is wrapped in a `Markdown` object:
+
+```python
+{
+   'status': 'finished',
+   'final': '{"Markdown":{"body":"# Title\n\nSome **markdown** content."}}',
+   ...
+}
+```
+
+#### Link Output
+
+A link (URL) output is wrapped in a `Link` object with `href` and optional `text` fields:
+
+```python
+{
+   'status': 'finished',
+   'final': '{"Link":{"href":"https://example.com/result.pdf","text":"Download Result"}}',
+   ...
+}
+```
+
+#### Image Output
+
+An image output is wrapped in an `Image` object with `src` (URL or data URI) and optional `alt` fields:
+
+```python
+{
+   'status': 'finished',
+   'final': '{"Image":{"src":"https://example.com/output.png","alt":"Generated image"}}',
+   ...
+}
+```
+
+#### Video Output
+
+A video output is wrapped in a `Video` object with `src` (URL) and optional `poster` fields:
+
+```python
+{
+   'status': 'finished',
+   'final': '{"Video":{"src":"https://example.com/output.mp4","poster":"https://example.com/poster.png"}}',
+   ...
+}
+```
+
+To parse the `final` field in your client:
+
+```python
+import json
+
+result = resp.json()
+if result['status'] == 'finished' and result.get('final'):
+    final = json.loads(result['final'])
+    # final is a dict with one key indicating the output type:
+    # {'Text': {'body': '...'}}, {'Markdown': {'body': '...'}},
+    # {'Link': {'href': '...', 'text': '...'}},
+    # {'Image': {'src': '...', 'alt': '...'}},
+    # {'Video': {'src': '...', 'poster': '...'}}
+    output_type = next(iter(final))  # e.g. 'Text', 'Link', 'Image', 'Video'
+    output_data = final[output_type]
+```
+
 Since the plain `/status` request might fail due to Ray latencies you should harden the intial request past flow launch with `?extended=true` as in the following example:
 
 ```python
