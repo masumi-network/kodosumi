@@ -680,6 +680,7 @@ async def _submit_job(
     # DEBUG: Log incoming request BEFORE forwarding to agent
     with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] start_job: {expose_name}/{meta_name}\n")
+        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] identifier_from_purchaser: {data.identifier_from_purchaser}\n")
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
 
     # Convert MIP-003 index arrays to string values for option/radio fields
