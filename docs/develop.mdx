@@ -48,10 +48,12 @@ Create a public repository to host your agentic service. Ensure you have write a
 
 ### 2. Create Python Virtual Environment
 
-Create and source a Python Virtual Environment with your system Python executable. 
+Create and source a Python Virtual Environment with your system Python executable.
 
-    python3 -m venv .venv
-    source .venv/bin/activate
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
 <Note>You need to locate the Python system executable. Depending on your operating system and setup this location differs.</Note>
 
@@ -61,8 +63,8 @@ Create and source a Python Virtual Environment with your system Python executabl
 Clone the repository to your localhost:
 
 ```bash
-    git clone https://github.com/plan-net/agentic-workflow-example.git
-    cd agentic-workflow-example/
+git clone https://github.com/plan-net/agentic-workflow-example.git
+cd agentic-workflow-example/
 ```
 
 
@@ -103,32 +105,40 @@ You need to have an [OpenAI API key](https://platform.openai.com/api-keys) to ru
 
 Push our initial commit:
 
-    git add .
-    git commit -m "initial version"
-    git push
+```bash
+git add .
+git commit -m "initial version"
+git push
+```
 
 
 ### 5. Install Kodosumi
 
 Install Kodosumi from [PyPi](https://pypi.org/)
 
-    pip install kodosumi
+```bash
+pip install kodosumi
+```
 
 Or clone the latest `dev` trunk from [Kodosumi at GitHub](https://github.com/masumi-network/kodosumi)
 
-    git clone https://github.com/masumi-network/kodosumi
-    cd kodosumi
-    git checkout dev
-    pip install .
-    cd ..
-    rm -Rf kodosumi
+```bash
+git clone https://github.com/masumi-network/kodosumi
+cd kodosumi
+git checkout dev
+pip install .
+cd ..
+rm -Rf kodosumi
+```
 
 
 ### 6. Start ray
 
 Start Ray on your localhost. Load `.env` into the environment variables before
 
-    dotenv run -- ray start --head
+```bash
+dotenv run -- ray start --head
+```
 
 
 ### 7. Implement and test `query`
@@ -201,7 +211,9 @@ def chat(query: str, model="gpt-4o-mini"):
 
 At this stage and in `query.py` we use `jinja2` which has been installed with kodosumi and `openai` which needs to be installed first:
 
-    pip install openai
+```bash
+pip install openai
+```
 
 
 Test the `query` function with a Python interactive interpreter
@@ -266,7 +278,9 @@ def batch(texts: List[str],
 
 The `.remote()` statement forwards `batch` execution to Ray and creates futures to wait for.
 
-    futures = [query.remote(t, start, end) for t in refined]
+```python
+futures = [query.remote(t, start, end) for t in refined]
+```
 
 Test _batch processing_ with 
 
@@ -451,7 +465,9 @@ If you carefully watch the function signature you recognise `inputs` and `tracer
 
 We test the `app` in `query.py` with uvicorn
 
-    uvicorn company_news.query:app --port 8013
+```bash
+uvicorn company_news.query:app --port 8013
+```
 
 Access the exposed endpoint at http://localhost:8013/ and you will retrieve the `inputs` scheme defined above with named form elements _texts_, _start_, and _end_.
 
@@ -462,7 +478,9 @@ This time we will skip registering the OpenAPI endpoint http://localhost:8013/op
 
 Run the deployment, this time with the Ray `fast_app` object. Ensure you Ray cluster is up and running, i.e. with `ray status`.
 
-    serve run company_news.query:fast_app
+```bash
+serve run company_news.query:fast_app
+```
 
 Ray reports available routes at http://localhost:8000/-/routes. Verify the routes are properly published at http://localhost:8000/-/routes and retrieve the schema this time at http://localhost:8000/.
 
@@ -473,8 +491,10 @@ Again we will skip `koco serve` until we have a proper deployment.
 
 Deploy with Ray _serve_ and run `koco start` to register your service with Kodosumi.
 
-    serve deploy company_news.query:fast_app
-    koco start --register http://localhost:8000/-/routes
+```bash
+serve deploy company_news.query:fast_app
+koco start --register http://localhost:8000/-/routes
+```
 
 Now launch the admin panel at http://localhost:3370 and run a test from http://localhost:3370/inputs/-/localhost/8000/-/. Retrieve the inputs scheme from [/-/localhost/8000/-/](http://localhost:3370/-/localhost/8000/-/), and test the service at [/inputs/-/localhost/8000/-/](http://localhost:3370/inputs/-/localhost/8000/-/).
 

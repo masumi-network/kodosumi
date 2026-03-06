@@ -12,35 +12,49 @@ This deployment is based on the `company_news` service built in [development wor
 
 Let's start with creating a root directory to host our runtime environment, i.e.
 
-    mkdir ~/kodosumi
-    cd kodosumi
+```bash
+mkdir ~/kodosumi
+cd kodosumi
+```
 
 Create a Python Virtual Environment with
 
-    python -m venv .venv  # depends on OS setup
-    source .venv/bin/activate
+```bash
+python -m venv .venv  # depends on OS setup
+source .venv/bin/activate
+```
 
 <Note>The location of your system's Python executable `python` might vary.</Note>
 
 Next, install Kodosumi from the [Python package index](https://pypi.org/)
 
-    pip install kodosumi
+```bash
+pip install kodosumi
+```
 
 if instead you prefer to install the latest development trunk run
 
-    pip install "kodosumi @ git+https://github.com/masumi-network/kodosumi.git@dev" 
+```bash
+pip install "kodosumi @ git+https://github.com/masumi-network/kodosumi.git@dev"
+```
 
 Start your Ray cluster with
 
-    ray start --head
+```bash
+ray start --head
+```
 
 In the previous examples you did run `koco start` which launches the Kodosumi _spooler_ daemon ***PLUS*** the Kodosumi admin _panel_ web app and API. In the current example we start the spooler and the panel seperately. We start with the spooler
 
-    koco spool
+```bash
+koco spool
+```
 
 This starts the spooler in the background and as a daemon. You can review daemon status with
 
-    koco spool --status
+```bash
+koco spool --status
+```
 
 Stop the spooler later with `koco spool --stop`.
 
@@ -85,14 +99,18 @@ runtime_env:
 
 Test and deploy your configuration set with
 
-    koco deploy --dry-run --file ./data/config/config.yaml
-    koco deploy --run --file ./data/config/config.yaml
+```bash
+koco deploy --dry-run --file ./data/config/config.yaml
+koco deploy --run --file ./data/config/config.yaml
+```
 
 This will apply your _base_ configuration from `./data/config/config.yaml` and adds a key `application` with records from `./data/config/company_news.yaml`.
 
 With running Ray, spooler and app we now start the Kodosumi panel and register Ray deployments
 
-    koco serve --register http://localhost:8001/-/routes
+```bash
+koco serve --register http://localhost:8001/-/routes
+```
 
 See [Configure Ray Serve Deployments](https://docs.ray.io/en/latest/serve/configure-serve-deployment.html) for additional options on your deployment. Be advised to gather some experience with Ray core components before you rollout your services. Understand [remote resource requirements](https://docs.ray.io/en/latest/ray-core/scheduling/resources.html#resource-requirements) and how to [limit concurrency to avoid OOM issues](https://docs.ray.io/en/latest/ray-core/patterns/limit-running-tasks.html#pattern-using-resources-to-limit-the-number-of-concurrently-running-tasks)
 
