@@ -208,8 +208,34 @@ class StartJobResponse(BaseModel):
 # =============================================================================
 
 
+class InputGroup(BaseModel):
+    """MIP-003 input group for awaiting_input status (maps to Kodosumi lock)."""
+
+    id: str = Field(description="Group identifier (lock ID)")
+    title: Optional[str] = Field(default=None, description="Human-readable group title")
+    input_data: Optional[List[InputField]] = Field(
+        default=None, description="Input fields with lock-prefixed IDs"
+    )
+
+
+class AwaitingInputSchema(BaseModel):
+    """MIP-003 input schema in status response when awaiting_input.
+
+    Always uses input_groups (never flat input_data) because each group
+    maps to a Kodosumi lock and field IDs carry the lock prefix.
+    """
+
+    input_groups: List[InputGroup] = Field(
+        description="Grouped input fields, one group per pending lock"
+    )
+
+
 class LockInputSchema(BaseModel):
-    """Input schema for a single lock in awaiting status."""
+    """Input schema for a single lock.
+
+    Note: Used internally by /sumi/lock/ endpoints (Kodosumi-specific).
+    MIP-003 status response uses AwaitingInputSchema instead.
+    """
 
     lock_id: str = Field(description="Lock ID (lid)")
     input_data: Optional[List[InputField]] = Field(
@@ -253,8 +279,8 @@ class JobStatusResponse(BaseModel):
     ]
 
     # Conditional fields
-    input_schema: Optional[List[LockInputSchema]] = Field(
-        default=None, description='List of pending lock schemas when status="awaiting", sorted by lock_id'
+    input_schema: Optional[AwaitingInputSchema] = Field(
+        default=None, description='Input schema when status="awaiting_input" (MIP-003 format with input_groups)'
     )
     result: Optional[str] = Field(default=None, description='When status="completed" (MIP-003: string)')
     error: Optional[str] = Field(default=None, description='When status="failed"')

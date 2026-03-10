@@ -28,10 +28,11 @@ from kodosumi.service.expose.models import ExposeMeta
 from kodosumi.service.proxy import LockNotFound, find_lock
 from kodosumi.service.sumi.hash import create_input_hash
 from kodosumi.service.sumi.models import (
-    AgentPricing, AuthorInfo, AvailabilityResponse, CapabilityInfo, 
-    ExampleOutput, FixedPricing, InputSchemaResponse, JobStatusResponse, 
-    LegalInfo, LockInputSchema, LockSchemaResponse, ProvideInputRequest, 
-    ProvideInputResponse, StartJobErrorResponse, StartJobRequest, SumiFlowItem, 
+    AgentPricing, AuthorInfo, AvailabilityResponse, AwaitingInputSchema,
+    CapabilityInfo, ExampleOutput, FixedPricing, InputField, InputGroup,
+    InputSchemaResponse, JobStatusResponse, LegalInfo, LockInputSchema,
+    LockSchemaResponse, ProvideInputRequest, ProvideInputResponse,
+    StartJobErrorResponse, StartJobRequest, SumiFlowItem,
     SumiFlowListResponse) 
 from kodosumi.service.sumi.schema import (
     convert_model_to_schema, convert_mip003_indices_to_values, create_empty_schema)
@@ -592,24 +593,26 @@ async def _fetch_input_schema(
 async def _fetch_lock_input_schemas(
     job_id: str,
     lock_ids: set,
-) -> List[LockInputSchema]:
+) -> Optional[AwaitingInputSchema]:
     """
     Fetch and convert input schemas from all pending lock endpoints.
 
-    When a job is awaiting, this fetches schemas from all pending locks
-    to include in the status response.
+    Returns MIP-003 compliant AwaitingInputSchema with input_groups.
+    Each group maps to a Kodosumi lock, and field IDs are prefixed
+    with the lock ID (e.g. "lid-1:full_name") so provide_input can
+    route values to the correct lock.
 
     Args:
         job_id: The job/execution ID (fid)
         lock_ids: Set of pending lock IDs
 
     Returns:
-        List of LockInputSchema sorted by lock_id
+        AwaitingInputSchema with input_groups, or None if no schemas found
     """
     if not lock_ids:
-        return []
+        return None
 
-    schemas: List[LockInputSchema] = []
+    groups: List[InputGroup] = []
 
     # Fetch schema from each lock, sorted by lock ID for consistent ordering
     for lid in sorted(lock_ids):
@@ -634,18 +637,34 @@ async def _fetch_lock_input_schemas(
 
             elements = resp.json()
 
-            # Convert to MIP-003 schema and create LockInputSchema
+            # Convert to MIP-003 schema
             input_schema = convert_model_to_schema(elements)
-            schemas.append(LockInputSchema(
-                lock_id=lid,
-                input_data=input_schema.input_data,
-                expires_at=lock.get("expires"),
+
+            # Prefix field IDs with lock ID for provide_input routing
+            prefixed_fields: List[InputField] = []
+            if input_schema.input_data:
+                for field in input_schema.input_data:
+                    prefixed_fields.append(InputField(
+                        id=f"{lid}:{field.id}",
+                        type=field.type,
+                        name=field.name,
+                        data=field.data,
+                        validations=field.validations,
+                    ))
+
+            groups.append(InputGroup(
+                id=lid,
+                title=lock.get("name"),
+                input_data=prefixed_fields if prefixed_fields else None,
             ))
 
         except Exception:
             continue
 
-    return schemas
+    if not groups:
+        return None
+
+    return AwaitingInputSchema(input_groups=groups)
 
 
 async def _submit_job(
@@ -1114,14 +1133,14 @@ class SumiControl(Controller):
 
         # Fetch input schemas when awaiting_input (MIP-003 status)
         if status_data.status == "awaiting_input" and pending_locks:
-            input_schemas = await _fetch_lock_input_schemas(job_id, pending_locks)
-            # Create new response with input_schema list included
+            awaiting_schema = await _fetch_lock_input_schemas(job_id, pending_locks)
+            # Create new response with MIP-003 input_schema included
             return JobStatusResponse(
                 job_id=status_data.job_id,
                 status=status_data.status,
                 result=status_data.result,
                 error=status_data.error,
-                input_schema=input_schemas if input_schemas else None,
+                input_schema=awaiting_schema,
                 identifierFromPurchaser=status_data.identifierFromPurchaser,
                 agentIdentifier=status_data.agentIdentifier,
                 startedAt=status_data.startedAt,
