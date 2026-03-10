@@ -31,9 +31,9 @@ from kodosumi.service.sumi.models import (
     AgentPricing, AuthorInfo, AvailabilityResponse, AwaitingInputSchema,
     CapabilityInfo, ExampleOutput, FixedPricing, InputField, InputGroup,
     InputSchemaResponse, JobStatusResponse, LegalInfo, LockInputSchema,
-    LockSchemaResponse, ProvideInputRequest, ProvideInputResponse,
-    StartJobErrorResponse, StartJobRequest, SumiFlowItem,
-    SumiFlowListResponse) 
+    LockSchemaResponse, MIP003ProvideInputRequest, ProvideInputRequest,
+    ProvideInputResponse, StartJobErrorResponse, StartJobRequest,
+    SumiFlowItem, SumiFlowListResponse) 
 from kodosumi.service.sumi.schema import (
     convert_model_to_schema, convert_mip003_indices_to_values, create_empty_schema)
 from kodosumi.service.jwt import (
@@ -1221,6 +1221,150 @@ class SumiControl(Controller):
     ) -> JobStatusResponse:
         """Get job status using query parameter (MIP-003 compliant)."""
         return await self._get_job_status_impl(state, job_id)
+
+    async def _provide_input_impl(
+        self,
+        state: State,
+        data: MIP003ProvideInputRequest,
+    ) -> ProvideInputResponse:
+        """
+        MIP-003 provide_input implementation.
+
+        Parses lock-prefixed field IDs from input_data, groups by lock ID,
+        and releases each lock individually via Kodosumi core.
+
+        Only affects Sumi layer — core lock mechanism unchanged.
+        """
+        fid = data.job_id
+
+        # DEBUG: Log incoming provide_input request
+        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input (MIP-003): job_id={fid}\n")
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_schema_hash: {data.input_schema_hash}\n")
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+
+        if not data.input_data:
+            return ProvideInputResponse(status="error", input_hash=None)
+
+        # Split keys by lock ID prefix: "lid:field_name" → {lid: {field_name: value}}
+        locks_data: dict = {}
+        for key, value in data.input_data.items():
+            if ":" not in key:
+                # No prefix — cannot determine lock, skip
+                continue
+            lid, field_id = key.split(":", 1)
+            locks_data.setdefault(lid, {})[field_id] = value
+
+        if not locks_data:
+            with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input ERROR: no lock-prefixed keys found\n")
+            return ProvideInputResponse(status="error", input_hash=None)
+
+        # DEBUG: Log parsed lock groups
+        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input locks: {list(locks_data.keys())}\n")
+
+        # Release each lock via Kodosumi core (find_lock + POST + lease)
+        errors = []
+        for lid, fields in locks_data.items():
+            try:
+                lock, actor = find_lock(fid, lid)
+            except LockNotFound:
+                errors.append(f"Lock {lid} not found")
+                continue
+
+            if lock.get("result") is not None:
+                errors.append(f"Lock {lid} already released")
+                continue
+
+            # Fetch schema and convert MIP-003 values (indices, booleans, defaults)
+            target = f"{lock['app_url']}/_lock_/{fid}/{lid}"
+            converted_fields = fields
+            try:
+                async with HTTPXClient() as client:
+                    schema_resp = await client.get(target, timeout=10.0)
+                if schema_resp.status_code == 200:
+                    elements = schema_resp.json()
+                    schema = convert_model_to_schema(elements)
+                    converted_fields = convert_mip003_indices_to_values(fields, schema)
+            except Exception:
+                pass  # Use original fields if schema fetch fails
+
+            # POST to lock endpoint
+            try:
+                async with HTTPXClient() as client:
+                    resp = await client.post(
+                        target,
+                        json=converted_fields or {},
+                        timeout=10.0,
+                    )
+
+                if resp.status_code != 200:
+                    errors.append(f"Lock {lid}: HTTP {resp.status_code}")
+                    continue
+
+                response_data = resp.json()
+                result = response_data.get("result")
+
+                # Release the lock via the actor
+                ray.get(actor.lease.remote(lid, result))
+
+            except Exception as e:
+                errors.append(f"Lock {lid}: {type(e).__name__}: {e}")
+
+        # DEBUG: Log result
+        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
+            status = "error" if errors else "success"
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input result: {status}\n")
+            if errors:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input errors: {errors}\n")
+
+        if errors and len(errors) == len(locks_data):
+            # All locks failed
+            return ProvideInputResponse(status="error", input_hash=None)
+
+        # Compute input hash over original input_data
+        input_hash = create_input_hash(data.input_data, fid)
+        return ProvideInputResponse(status="success", input_hash=input_hash)
+
+    @post(
+        "/{expose_name:str}/provide_input",
+        summary="Provide input to root service (MIP-003)",
+        description="MIP-003 compliant provide_input. Sends additional input "
+        "when job is in awaiting_input status. Field IDs must be prefixed "
+        "with lock group ID (e.g. 'lock-id-1:field_name').",
+        operation_id="sumi_root_provide_input",
+        opt={"no_auth": True},
+        guards=[sumi_network_guard],
+    )
+    async def provide_input_root(
+        self,
+        state: State,
+        expose_name: str,
+        data: MIP003ProvideInputRequest,
+    ) -> ProvideInputResponse:
+        """Provide input for root service."""
+        return await self._provide_input_impl(state, data)
+
+    @post(
+        "/{expose_name:str}/{meta_name:str}/provide_input",
+        summary="Provide input (MIP-003)",
+        description="MIP-003 compliant provide_input. Sends additional input "
+        "when job is in awaiting_input status. Field IDs must be prefixed "
+        "with lock group ID (e.g. 'lock-id-1:field_name').",
+        operation_id="sumi_provide_input_mip003",
+        opt={"no_auth": True},
+        guards=[sumi_network_guard],
+    )
+    async def provide_input_named(
+        self,
+        state: State,
+        expose_name: str,
+        meta_name: str,
+        data: MIP003ProvideInputRequest,
+    ) -> ProvideInputResponse:
+        """Provide input for named service."""
+        return await self._provide_input_impl(state, data)
 
 
 async def _get_job_status_from_db(

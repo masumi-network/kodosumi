@@ -337,10 +337,26 @@ class LockSchemaResponse(BaseModel):
 
 
 class ProvideInputRequest(BaseModel):
-    """MIP-003 provide_input request (adapted for lock)."""
+    """MIP-003 provide_input request (used by /sumi/lock/{fid}/{lid})."""
 
     input_data: Optional[dict] = Field(
         default=None, description="Simple input values"
+    )
+
+
+class MIP003ProvideInputRequest(BaseModel):
+    """MIP-003 provide_input request (standard endpoint).
+
+    Field IDs in input_data are prefixed with lock ID:
+    e.g. {"lock-id-1:full_name": "Sandro", "lock-id-1:email": "s@t.com"}
+    """
+
+    job_id: str = Field(description="Job ID (Kodosumi fid)")
+    input_schema_hash: Optional[str] = Field(
+        default=None, description="SHA256 hash of the input_schema object"
+    )
+    input_data: Optional[dict] = Field(
+        default=None, description="Input values with lock-prefixed field IDs"
     )
 
 
