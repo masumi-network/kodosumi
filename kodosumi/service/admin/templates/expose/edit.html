@@ -260,6 +260,19 @@ deployments:
                                 <label>URL (read-only)</label>
                             </div>
 
+                            {% if app_server and item and item.name %}
+                            {% set sumi_url = app_server.rstrip('/') ~ '/sumi/' ~ item.name ~ meta.url.replace('/' ~ item.name, '') %}
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                <div class="field border label" style="flex: 1; margin: 0;">
+                                    <input type="text" value="{{ sumi_url }}" readonly class="readonly-field" id="sumi_url_{{ loop.index0 }}">
+                                    <label>Sumi API URL</label>
+                                </div>
+                                <button type="button" class="small" onclick="copySumiUrl('sumi_url_{{ loop.index0 }}')" title="Copy URL">
+                                    <i>content_copy</i>
+                                </button>
+                            </div>
+                            {% endif %}
+
                             <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
                                 <div class="status-row">
                                     <label class="switch">
@@ -329,6 +342,17 @@ deployments:
 
 {% block script %}
 let metaIndex = {{ (item.meta | length) if item and item.meta else 0 }};
+
+function copySumiUrl(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    navigator.clipboard.writeText(input.value).then(function() {
+        const btn = input.parentElement.nextElementSibling;
+        const icon = btn.querySelector('i');
+        icon.textContent = 'check';
+        setTimeout(function() { icon.textContent = 'content_copy'; }, 1500);
+    });
+}
 
 function deleteMeta(btn) {
     if (confirm('Remove this meta entry? It will reappear if the flow is still active after boot.')) {

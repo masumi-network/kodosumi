@@ -1269,8 +1269,13 @@ class SumiControl(Controller):
         for lid, fields in locks_data.items():
             try:
                 lock, actor = find_lock(fid, lid)
-            except LockNotFound:
-                errors.append(f"Lock {lid} not found")
+            except LockNotFound as e:
+                # e.lid is None → actor/execution gone (timeout, crash, finished)
+                # e.lid is set → actor alive but lock expired or already released
+                if e.lid is None:
+                    errors.append(f"Job {fid} is no longer running (lock may have expired)")
+                else:
+                    errors.append(f"Lock {lid} not found (expired or already released)")
                 continue
 
             if lock.get("result") is not None:
