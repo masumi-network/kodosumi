@@ -433,19 +433,17 @@ Sends additional input when a job is in `awaiting_input` status. This is the MIP
 
 ```json
 {
-    "status": "success",
-    "input_hash": "a1b2c3d4..."
+    "input_hash": "a1b2c3d4e5f6...",
+    "signature": "a1b2c3d4e5f6..."
 }
 ```
 
-**Error Response:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `input_hash` | string | SHA256 hash of submitted input data (MIP-004) |
+| `signature` | string | Cryptographic signature (Ed25519) for authenticity verification |
 
-```json
-{
-    "status": "error",
-    "input_hash": null
-}
-```
+**Error Response:** HTTP 400 with error detail when all locks failed (expired, already released, or job no longer running).
 
 ### Multiple Locks
 
