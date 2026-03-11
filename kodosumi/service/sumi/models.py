@@ -363,9 +363,12 @@ class MIP003ProvideInputRequest(BaseModel):
 class ProvideInputResponse(BaseModel):
     """MIP-003 provide_input response."""
 
-    status: Literal["success", "error"]
-    input_hash: Optional[str] = Field(
-        default=None, description="Hash of submitted data"
+    input_hash: str = Field(
+        description="Hash of the input data submitted, used for integrity verification"
+    )
+    signature: str = Field(
+        default="",
+        description="Cryptographic signature (Ed25519) for authenticity verification"
     )
 
 

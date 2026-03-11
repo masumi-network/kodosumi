@@ -1325,12 +1325,15 @@ class SumiControl(Controller):
                 f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input errors: {errors}\n")
 
         if errors and len(errors) == len(locks_data):
-            # All locks failed
-            return ProvideInputResponse(status="error", input_hash=None)
+            # All locks failed — return HTTP 400
+            raise HTTPException(
+                status_code=400,
+                detail="; ".join(errors),
+            )
 
-        # Compute input hash over original input_data
+        # Compute input hash over original input_data (MIP-003/MIP-004)
         input_hash = create_input_hash(data.input_data, fid)
-        return ProvideInputResponse(status="success", input_hash=input_hash)
+        return ProvideInputResponse(input_hash=input_hash, signature="")
 
     @post(
         "/{expose_name:str}/provide_input",
@@ -1696,9 +1699,9 @@ class SumiLockControl(Controller):
                 )
 
             if resp.status_code != 200:
-                return ProvideInputResponse(
-                    status="error",
-                    input_hash=None,
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Lock {lid}: HTTP {resp.status_code}",
                 )
 
             response_data = resp.json()
@@ -1712,12 +1715,14 @@ class SumiLockControl(Controller):
             input_hash = create_input_hash(data.input_data, f"{fid}:{lid}")
 
             return ProvideInputResponse(
-                status="success",
                 input_hash=input_hash,
+                signature="",
             )
 
-        except Exception:
-            return ProvideInputResponse(
-                status="error",
-                input_hash=None,
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Lock {lid}: {type(e).__name__}: {e}",
             )
