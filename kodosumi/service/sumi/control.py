@@ -1333,7 +1333,7 @@ class SumiControl(Controller):
 
         # Compute input hash over original input_data (MIP-003/MIP-004)
         input_hash = create_input_hash(data.input_data, fid)
-        return ProvideInputResponse(input_hash=input_hash, signature="")
+        return ProvideInputResponse(input_hash=input_hash, signature=input_hash)
 
     @post(
         "/{expose_name:str}/provide_input",
@@ -1716,7 +1716,7 @@ class SumiLockControl(Controller):
 
             return ProvideInputResponse(
                 input_hash=input_hash,
-                signature="",
+                signature=input_hash,
             )
 
         except HTTPException:
