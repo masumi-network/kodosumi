@@ -566,7 +566,7 @@ class ExposeUIControl(litestar.Controller):
             "item": None,
             "is_new": True,
             "networks": state["settings"].masumi_network_names,
-            "app_server": state["settings"].APP_SERVER,
+            "app_server": state["settings"].sumi_address,
         })
 
     @get(
@@ -587,7 +587,7 @@ class ExposeUIControl(litestar.Controller):
             "item": item,
             "is_new": False,
             "networks": state["settings"].masumi_network_names,
-            "app_server": state["settings"].APP_SERVER,
+            "app_server": state["settings"].sumi_address,
         })
 
     @get(
@@ -619,7 +619,7 @@ class ExposeUIControl(litestar.Controller):
             "is_new": True,
             "duplicate_name": copy_name,  # Suggested name for the duplicate
             "networks": state["settings"].masumi_network_names,
-            "app_server": state["settings"].APP_SERVER,
+            "app_server": state["settings"].sumi_address,
         })
 
     @get(

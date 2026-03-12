@@ -866,7 +866,7 @@ class SumiControl(Controller):
             (blockchain-based authentication). Authenticated requests see all.
         """
         pp = max(1, min(pp, MAX_PAGE_SIZE))
-        app_server = state["settings"].APP_SERVER
+        app_server = state["settings"].sumi_address
 
         # Check if user is authenticated (don't fail if not)
         is_authenticated = False
@@ -915,7 +915,7 @@ class SumiControl(Controller):
     ) -> SumiFlowItem:
         """Get metadata for the root service (endpoint "/") of an expose."""
         expose_name = _validate_path_param(expose_name, "expose_name")
-        app_server = state["settings"].APP_SERVER
+        app_server = state["settings"].sumi_address
 
         row, meta = await _get_meta_entry(expose_name, "")
         expose_network = row.get("network")
@@ -939,7 +939,7 @@ class SumiControl(Controller):
         """Get full MIP-002 metadata for a specific service."""
         expose_name = _validate_path_param(expose_name, "expose_name")
         meta_name = _validate_path_param(meta_name, "meta_name")
-        app_server = state["settings"].APP_SERVER
+        app_server = state["settings"].sumi_address
 
         row, meta = await _get_meta_entry(expose_name, meta_name)
         expose_network = row.get("network")
@@ -1025,7 +1025,7 @@ class SumiControl(Controller):
         expose_name = _validate_path_param(expose_name, "expose_name")
         row, meta = await _get_meta_entry(expose_name, meta_name)
         network = row.get("network") or "Preprod"
-        app_server = state["settings"].APP_SERVER
+        app_server = state["settings"].sumi_address
         ray_serve_address = state["settings"].RAY_SERVE_ADDRESS
         return await _submit_job(expose_name, meta_name, meta, network, data, app_server, ray_serve_address, request)
 

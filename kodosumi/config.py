@@ -112,6 +112,7 @@ class Settings(BaseSettings):
     AUDIT_LOG_BACKUP_COUNT: int = 5  # Keep 5 backup files
 
     APP_SERVER: str = "http://localhost:3370"
+    SUMI_ADDRESS: str = ""  # Public URL for Sumi API (fallback to APP_SERVER if empty)
     APP_RELOAD: bool = False
 
     UVICORN_LEVEL: str = "WARNING"
@@ -190,6 +191,11 @@ class Settings(BaseSettings):
     def masumi_network_names(self) -> List[str]:
         """Available Masumi network names (for UI dropdowns)."""
         return list(self.masumi_networks.keys())
+
+    @property
+    def sumi_address(self) -> str:
+        """Public URL for Sumi API (SUMI_ADDRESS or fallback to APP_SERVER)."""
+        return self.SUMI_ADDRESS or self.APP_SERVER
 
     def get_masumi(self, network: str) -> MasumiConfig:
         """Get Masumi config for a specific network."""
