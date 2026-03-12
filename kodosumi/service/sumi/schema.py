@@ -316,6 +316,15 @@ def convert_model_to_schema(elements: List[Dict[str, Any]]) -> InputSchemaRespon
         if field:
             input_fields.append(field)
 
+    # Ensure unique IDs — append counter to duplicates
+    seen: dict = {}
+    for field in input_fields:
+        if field.id in seen:
+            seen[field.id] += 1
+            field.id = f"{field.id}_{seen[field.id]}"
+        else:
+            seen[field.id] = 0
+
     return InputSchemaResponse(
         input_data=input_fields if input_fields else None,
     )
