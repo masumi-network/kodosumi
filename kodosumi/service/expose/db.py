@@ -154,15 +154,20 @@ async def update_expose_state(
     heartbeat: float,
     db_path: Optional[str] = None
 ) -> bool:
-    """Update only the state and heartbeat of an expose item."""
+    """Update only the state and heartbeat of an expose item.
+
+    Does not touch ``updated`` — that field is reserved for user-initiated
+    edits via upsert_expose() and serves as the ETag for optimistic
+    concurrency control on the edit form.
+    """
     if db_path is None:
         db_path = EXPOSE_DATABASE
     _ensure_db_dir(db_path)
     async with aiosqlite.connect(db_path) as conn:
         cursor = await conn.execute("""
-            UPDATE expose SET state = ?, heartbeat = ?, updated = ?
+            UPDATE expose SET state = ?, heartbeat = ?
             WHERE name = ?
-        """, (state, heartbeat, time.time(), name))
+        """, (state, heartbeat, name))
         await conn.commit()
         return cursor.rowcount > 0
 
@@ -172,14 +177,18 @@ async def update_expose_meta(
     meta: str,
     db_path: Optional[str] = None
 ) -> bool:
-    """Update only the meta field of an expose item."""
+    """Update only the meta field of an expose item.
+
+    Does NOT update the 'updated' timestamp to avoid changing the ETag.
+    The ETag is used for optimistic concurrency control on form saves.
+    """
     if db_path is None:
         db_path = EXPOSE_DATABASE
     _ensure_db_dir(db_path)
     async with aiosqlite.connect(db_path) as conn:
         cursor = await conn.execute("""
-            UPDATE expose SET meta = ?, updated = ?
+            UPDATE expose SET meta = ?
             WHERE name = ?
-        """, (meta, time.time(), name))
+        """, (meta, name))
         await conn.commit()
         return cursor.rowcount > 0

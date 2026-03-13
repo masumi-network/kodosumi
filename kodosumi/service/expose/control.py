@@ -578,27 +578,14 @@ class RegistryControl(litestar.Controller):
                 "registrationId": reg_id,
             }
 
-        # Sync: write back any missing/changed fields from registry to YAML
+        # Backfill registrationId only — this is a one-time essential fix.
+        # Do NOT sync other fields here as it changes the ETag and causes
+        # 409 conflicts when the user tries to save the form.
         result_reg_id = result.get("id")
-        if flow_url and result.get("state") == "RegistrationConfirmed":
-            sync_updates = {}
-            if not reg_id and result_reg_id:
-                sync_updates["registrationId"] = result_reg_id
-            # Sync name, description, tags from on-chain data
-            chain_name = result.get("name")
-            if chain_name and chain_name != meta_data.get("display"):
-                sync_updates["display"] = chain_name
-            chain_desc = result.get("description")
-            if chain_desc and chain_desc != meta_data.get("description"):
-                sync_updates["description"] = chain_desc
-            chain_tags = result.get("Tags")
-            if chain_tags and chain_tags != meta_data.get("tags"):
-                sync_updates["tags"] = chain_tags
-            chain_pricing = result.get("AgentPricing")
-            if chain_pricing and chain_pricing != meta_data.get("agentPricing"):
-                sync_updates["agentPricing"] = [chain_pricing]
-            if sync_updates:
-                await self._update_flow_meta(row, name, flow_url, sync_updates)
+        if agent_id and not reg_id and result_reg_id and flow_url:
+            await self._update_flow_meta(row, name, flow_url, {
+                "registrationId": result_reg_id,
+            })
 
         return {
             "registered": result.get("state") == "RegistrationConfirmed",
