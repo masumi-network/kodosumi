@@ -1101,8 +1101,8 @@ async function deregisterAgent(idx) {
     const flowUrl = section.dataset.flowUrl;
 
     try {
-        const resp = await fetch(`/expose/${exposeName}/registry`, {
-            method: 'DELETE',
+        const resp = await fetch(`/expose/${exposeName}/registry/deregister`, {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
             body: JSON.stringify({ flow_url: flowUrl })

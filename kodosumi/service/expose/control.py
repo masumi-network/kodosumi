@@ -809,8 +809,8 @@ class RegistryControl(litestar.Controller):
             "transaction": result.get("CurrentTransaction"),
         }
 
-    @delete(
-        "",
+    @post(
+        "/deregister",
         summary="Deregister agent",
         operation_id="registry_deregister",
     )
