@@ -49,7 +49,7 @@ from kodosumi.service.proxy import LockController, ProxyControl
 from kodosumi.service.expose.control import (
     ExposeControl, ExposeUIControl, BootControl, BootUIControl,
     MaintenanceControl, ExchangeControl, ExchangeUIControl,
-    AuditLogControl, ensure_serve_config
+    AuditLogControl, RegistryControl, WalletsControl, ensure_serve_config
 )
 from kodosumi.service.expose import db as expose_db
 from kodosumi.service.role import RoleControl
@@ -194,7 +194,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/serve", route_handlers=[ServeControl]),
             Router(path="/files", route_handlers=[FileControl]),
             Router(path="/health", route_handlers=[HealthControl]),
-            Router(path="/", route_handlers=[SumiControl, SumiLockControl, ExposeControl, ExposeUIControl, BootControl, BootUIControl, MaintenanceControl, ExchangeControl, ExchangeUIControl, AuditLogControl]),
+            Router(path="/", route_handlers=[SumiControl, SumiLockControl, ExposeControl, ExposeUIControl, BootControl, BootUIControl, MaintenanceControl, ExchangeControl, ExchangeUIControl, AuditLogControl, RegistryControl, WalletsControl]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],

@@ -500,6 +500,497 @@ class ExposeControl(litestar.Controller):
         }
 
 
+class RegistryControl(litestar.Controller):
+    """Controller for Masumi Registry integration endpoints."""
+
+    path = "/expose/{name:str}/registry"
+    tags = ["Registry"]
+    guards = [operator_guard]
+
+    @get(
+        "",
+        summary="Get registry status for a flow",
+        operation_id="registry_status",
+    )
+    async def get_status(
+        self, name: str, state: State, flow_url: Optional[str] = None
+    ) -> dict:
+        """
+        Check Masumi Registry status for a specific flow.
+
+        Reads agentIdentifier/registrationId from the flow's meta YAML
+        and queries the Masumi Registry API for current status.
+        """
+        await db.init_database()
+        row = await db.get_expose(name)
+        if not row:
+            raise NotFoundException(detail=f"Expose '{name}' not found")
+
+        network = row.get("network")
+        if not network:
+            return {"registered": False, "error": "No network configured"}
+
+        try:
+            masumi = state["settings"].get_masumi(network)
+        except ValueError as e:
+            return {"registered": False, "error": str(e)}
+
+        # Parse meta to find the flow
+        meta_data = self._get_flow_meta(row, flow_url)
+        if meta_data is None:
+            return {"registered": False, "error": "Flow not found"}
+
+        agent_id = meta_data.get("agentIdentifier")
+        reg_id = meta_data.get("registrationId")
+
+        if not agent_id and not reg_id:
+            return {"registered": False, "state": "NotRegistered"}
+
+        # Query registry
+        from kodosumi.service.expose.registry import get_registration_status
+        result = await get_registration_status(
+            masumi,
+            registration_id=reg_id,
+            agent_identifier=agent_id,
+        )
+
+        if not result:
+            return {
+                "registered": False,
+                "state": "NotFound",
+                "error": "Registration not found in registry",
+                "registrationId": reg_id,
+                "agentIdentifier": agent_id,
+            }
+
+        return {
+            "registered": result.get("state") == "RegistrationConfirmed",
+            "state": result.get("state", "Unknown"),
+            "agentIdentifier": result.get("agentIdentifier"),
+            "registrationId": result.get("id"),
+            "name": result.get("name"),
+            "error": result.get("error"),
+            "transaction": result.get("CurrentTransaction"),
+        }
+
+    @post(
+        "",
+        summary="Register agent on Masumi",
+        operation_id="registry_register",
+    )
+    async def register(
+        self, name: str, data: dict, state: State
+    ) -> dict:
+        """
+        Register an agent flow on the Masumi on-chain registry.
+
+        Reads display, description, tags, pricing from the flow's meta YAML.
+        Requires wallet_vkey and flow_url in the request body.
+
+        Body:
+            flow_url: str - Flow URL path (e.g. /myapp/analyze)
+            wallet_vkey: str - Selling wallet verification key
+            pricing_type: str - "Free" or "Fixed" (optional, reads from YAML if not set)
+            amount: float - Human-readable amount (optional, reads from YAML if not set)
+            currency: str - "USDM" or "ADA" (optional, reads from YAML if not set)
+        """
+        await db.init_database()
+        row = await db.get_expose(name)
+        if not row:
+            raise NotFoundException(detail=f"Expose '{name}' not found")
+
+        network = row.get("network")
+        if not network:
+            raise ClientException(detail="No network configured for this expose", status_code=422)
+
+        try:
+            masumi = state["settings"].get_masumi(network)
+        except ValueError as e:
+            raise ClientException(detail=str(e), status_code=422)
+
+        # Validate API connectivity first
+        from kodosumi.service.expose.registry import (
+            register_agent, pricing_yaml_to_registry, pricing_to_yaml_format,
+            update_meta_yaml_field, list_wallets,
+        )
+
+        # Quick health check to validate token
+        try:
+            wallets = await list_wallets(masumi)
+        except Exception as e:
+            raise ClientException(
+                detail=f"Cannot reach Masumi API: {e}. Check KODO_MASUMI configuration.",
+                status_code=502,
+            )
+
+        if not wallets:
+            raise ClientException(
+                detail=f"No wallets found for network '{network}'. "
+                       "Check KODO_MASUMI token and payment source configuration.",
+                status_code=422,
+            )
+
+        flow_url = data.get("flow_url", "")
+        wallet_vkey = data.get("wallet_vkey", "")
+
+        if not flow_url:
+            raise ClientException(detail="flow_url is required", status_code=422)
+        if not wallet_vkey:
+            raise ClientException(detail="wallet_vkey is required", status_code=422)
+
+        # Validate wallet exists
+        valid_vkeys = [w["walletVkey"] for w in wallets]
+        if wallet_vkey not in valid_vkeys:
+            raise ClientException(
+                detail=f"Wallet '{wallet_vkey[:8]}...' not found. Available: {[v[:8] + '...' for v in valid_vkeys]}",
+                status_code=422,
+            )
+
+        # Parse meta YAML for this flow
+        meta_data = self._get_flow_meta(row, flow_url)
+        if meta_data is None:
+            raise ClientException(detail=f"Flow '{flow_url}' not found", status_code=404)
+
+        if meta_data.get("agentIdentifier"):
+            raise ClientException(
+                detail="This flow is already registered. Deregister first to re-register.",
+                status_code=409,
+            )
+
+        # Build registration data from YAML
+        display_name = meta_data.get("display", name)
+        description = meta_data.get("description", "")
+        tags = meta_data.get("tags", [])
+        author_data = meta_data.get("author")
+        capability_data = meta_data.get("capability")
+        legal_data = meta_data.get("legal")
+
+        # Build author dict for registry
+        author = None
+        if author_data and isinstance(author_data, dict):
+            author = {
+                "name": author_data.get("name") or "",
+                "contactEmail": author_data.get("contact_email") or "",
+                "organization": author_data.get("organization") or "",
+            }
+
+        # Build capability dict
+        capability = None
+        if capability_data and isinstance(capability_data, dict):
+            capability = {
+                "name": capability_data.get("name") or "",
+                "version": str(capability_data.get("version", "1.0")),
+            }
+
+        # Determine pricing
+        pricing_type = data.get("pricing_type")
+        amount = data.get("amount")
+        currency = data.get("currency")
+
+        if pricing_type and pricing_type != "Free" and amount is not None and currency:
+            # Use values from dialog
+            yaml_pricing = pricing_to_yaml_format(pricing_type, float(amount), currency, network)
+            registry_pricing = pricing_yaml_to_registry(yaml_pricing, network)
+        elif meta_data.get("agentPricing"):
+            # Use values from YAML
+            yaml_pricing = meta_data["agentPricing"]
+            registry_pricing = pricing_yaml_to_registry(yaml_pricing, network)
+        else:
+            raise ClientException(
+                detail="No pricing configured. Set pricing_type/amount/currency or add agentPricing to the YAML.",
+                status_code=422,
+            )
+
+        # Compute apiBaseUrl
+        sumi_address = state["settings"].sumi_address.rstrip("/")
+        api_base_url = f"{sumi_address}/sumi{flow_url}"
+
+        # Register
+        try:
+            result = await register_agent(
+                masumi=masumi,
+                name=display_name,
+                description=description,
+                api_base_url=api_base_url,
+                tags=tags,
+                pricing=registry_pricing,
+                author=author,
+                capability=capability,
+                legal=legal_data,
+                wallet_vkey=wallet_vkey,
+            )
+        except RuntimeError as e:
+            raise ClientException(detail=str(e), status_code=502)
+
+        registration_id = result.get("id", "")
+
+        # Update meta YAML with registrationId and pricing
+        self._update_flow_meta(row, name, flow_url, {
+            "registrationId": registration_id,
+            "agentPricing": yaml_pricing if pricing_type else meta_data.get("agentPricing"),
+        })
+
+        return {
+            "success": True,
+            "registrationId": registration_id,
+            "state": result.get("state", "RegistrationRequested"),
+            "agentIdentifier": result.get("agentIdentifier"),
+        }
+
+    @post(
+        "/poll",
+        summary="Poll registry status and update YAML",
+        operation_id="registry_poll",
+    )
+    async def poll(
+        self, name: str, data: dict, state: State
+    ) -> dict:
+        """
+        Poll registration status and update meta YAML when confirmed.
+
+        Called periodically by frontend JS after registration.
+
+        Body:
+            flow_url: str - Flow URL path
+        """
+        await db.init_database()
+        row = await db.get_expose(name)
+        if not row:
+            raise NotFoundException(detail=f"Expose '{name}' not found")
+
+        network = row.get("network")
+        if not network:
+            return {"error": "No network configured"}
+
+        try:
+            masumi = state["settings"].get_masumi(network)
+        except ValueError as e:
+            return {"error": str(e)}
+
+        flow_url = data.get("flow_url", "")
+        meta_data = self._get_flow_meta(row, flow_url)
+        if meta_data is None:
+            return {"error": "Flow not found"}
+
+        agent_id = meta_data.get("agentIdentifier")
+        reg_id = meta_data.get("registrationId")
+
+        if not reg_id and not agent_id:
+            return {"state": "NotRegistered"}
+
+        if agent_id:
+            return {"state": "RegistrationConfirmed", "agentIdentifier": agent_id}
+
+        # Poll registry
+        from kodosumi.service.expose.registry import get_registration_status
+        result = await get_registration_status(
+            masumi,
+            registration_id=reg_id,
+            agent_identifier=agent_id,
+        )
+
+        if not result:
+            return {"state": "Polling", "registrationId": reg_id}
+
+        reg_state = result.get("state", "Unknown")
+        new_agent_id = result.get("agentIdentifier")
+
+        # If confirmed, write agentIdentifier to YAML
+        if reg_state == "RegistrationConfirmed" and new_agent_id:
+            self._update_flow_meta(row, name, flow_url, {
+                "agentIdentifier": new_agent_id,
+            })
+
+        return {
+            "state": reg_state,
+            "agentIdentifier": new_agent_id,
+            "registrationId": result.get("id"),
+            "error": result.get("error"),
+            "transaction": result.get("CurrentTransaction"),
+        }
+
+    @delete(
+        "",
+        summary="Deregister agent",
+        operation_id="registry_deregister",
+    )
+    async def deregister(
+        self, name: str, data: dict, state: State
+    ) -> dict:
+        """
+        Deregister an agent from the on-chain registry.
+
+        Body:
+            flow_url: str - Flow URL path
+        """
+        await db.init_database()
+        row = await db.get_expose(name)
+        if not row:
+            raise NotFoundException(detail=f"Expose '{name}' not found")
+
+        network = row.get("network")
+        if not network:
+            raise ClientException(detail="No network configured", status_code=422)
+
+        try:
+            masumi = state["settings"].get_masumi(network)
+        except ValueError as e:
+            raise ClientException(detail=str(e), status_code=422)
+
+        flow_url = data.get("flow_url", "")
+        meta_data = self._get_flow_meta(row, flow_url)
+        if meta_data is None:
+            raise ClientException(detail=f"Flow '{flow_url}' not found", status_code=404)
+
+        agent_id = meta_data.get("agentIdentifier")
+        if not agent_id:
+            raise ClientException(detail="No agentIdentifier found — not registered", status_code=422)
+
+        from kodosumi.service.expose.registry import deregister_agent
+        try:
+            result = await deregister_agent(masumi, agent_id)
+        except RuntimeError as e:
+            raise ClientException(detail=str(e), status_code=502)
+
+        # Remove agentIdentifier and registrationId from YAML
+        self._update_flow_meta(row, name, flow_url, {
+            "agentIdentifier": None,
+            "registrationId": None,
+        })
+
+        return {
+            "success": True,
+            "state": result.get("state", "DeregistrationRequested"),
+        }
+
+    def _get_flow_meta(self, row: dict, flow_url: Optional[str]) -> Optional[dict]:
+        """Parse meta YAML and return the data dict for a specific flow URL."""
+        if not row.get("meta"):
+            return None
+
+        try:
+            meta_list = yaml.safe_load(row["meta"])
+            if not meta_list:
+                return None
+        except yaml.YAMLError:
+            return None
+
+        for entry in meta_list:
+            entry_url = entry.get("url", "")
+            if flow_url and entry_url != flow_url:
+                continue
+            # Parse the data YAML string
+            data_str = entry.get("data", "")
+            if not data_str:
+                return {}
+            try:
+                parsed = yaml.safe_load(data_str)
+                return parsed if isinstance(parsed, dict) else {}
+            except yaml.YAMLError:
+                return {}
+
+        return None
+
+    def _update_flow_meta(
+        self, row: dict, expose_name: str, flow_url: str, updates: dict
+    ):
+        """Update fields in a flow's meta YAML data and save to DB."""
+        if not row.get("meta"):
+            return
+
+        try:
+            meta_list = yaml.safe_load(row["meta"])
+            if not meta_list:
+                return
+        except yaml.YAMLError:
+            return
+
+        updated = False
+        for entry in meta_list:
+            if entry.get("url") != flow_url:
+                continue
+
+            data_str = entry.get("data", "")
+            try:
+                parsed = yaml.safe_load(data_str) if data_str else {}
+                if not isinstance(parsed, dict):
+                    parsed = {}
+            except yaml.YAMLError:
+                parsed = {}
+
+            for key, value in updates.items():
+                if value is None:
+                    parsed.pop(key, None)
+                else:
+                    parsed[key] = value
+
+            entry["data"] = yaml.dump(
+                parsed,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+            updated = True
+            break
+
+        if updated:
+            new_meta_yaml = yaml.dump(
+                meta_list,
+                default_flow_style=False,
+                allow_unicode=True,
+            )
+            # Fire-and-forget DB update
+            import asyncio
+            asyncio.create_task(db.update_expose_meta(expose_name, new_meta_yaml))
+
+
+class WalletsControl(litestar.Controller):
+    """Controller for wallet listing endpoint."""
+
+    path = "/expose/{name:str}/wallets"
+    tags = ["Registry"]
+    guards = [operator_guard]
+
+    @get(
+        "",
+        summary="List wallets for expose network",
+        operation_id="registry_wallets",
+    )
+    async def list_wallets(self, name: str, state: State) -> dict:
+        """List available selling wallets for the expose's configured network."""
+        await db.init_database()
+        row = await db.get_expose(name)
+        if not row:
+            raise NotFoundException(detail=f"Expose '{name}' not found")
+
+        network = row.get("network")
+        if not network:
+            return {"wallets": [], "error": "No network configured. Set network first."}
+
+        try:
+            masumi = state["settings"].get_masumi(network)
+        except ValueError as e:
+            return {"wallets": [], "error": str(e)}
+
+        from kodosumi.service.expose.registry import list_wallets
+        try:
+            wallets = await list_wallets(masumi)
+        except Exception as e:
+            return {
+                "wallets": [],
+                "error": f"Cannot reach Masumi API: {e}. Check KODO_MASUMI token.",
+            }
+
+        if not wallets:
+            return {
+                "wallets": [],
+                "error": f"No selling wallets found for network '{network}'. "
+                         "Check your Masumi Payment API token and configuration.",
+            }
+
+        return {"wallets": wallets, "network": network}
+
+
 class ExposeUIControl(litestar.Controller):
     """Controller for expose UI pages."""
 

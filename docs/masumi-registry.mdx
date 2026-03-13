@@ -1,0 +1,421 @@
+---
+title: Masumi Registry API
+---
+
+Register and manage your Kodosumi agents on the Masumi on-chain registry. This guide covers the full lifecycle: finding your wallet, registering an agent, waiting for on-chain confirmation, and configuring the expose.
+
+## Prerequisites
+
+| Requirement | Source | Description |
+|-------------|--------|-------------|
+| Masumi Payment API URL | `KODO_MASUMI` env var | Base URL for the Masumi Payment API |
+| API Key | `KODO_MASUMI` env var | Authentication token (3rd value in the env string) |
+| Selling Wallet (walletVkey) | Payment Source API | From a Preprod or Mainnet payment source |
+| Sumi API URL | `KODO_SUMI_ADDRESS` env var | Public URL where the agent is reachable (e.g. `https://panel-hermes.kodosumi.io/sumi/my_agent/`) |
+
+## API Endpoints Overview
+
+Base URL: `https://payment.masumi.network/api/v1`
+
+Authentication: HTTP header `token: <api-key>`
+
+### Registry Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/registry` | Alle registrierten Agents auflisten (paginated, filter by network/status/search) |
+| `POST` | `/registry` | Agent registrieren (on-chain, name, pricing, capability, tags, apiBaseUrl) |
+| `GET` | `/registry/agent-identifier` | Metadata für einen bestimmten agentIdentifier abrufen |
+| `GET` | `/registry/count` | Anzahl registrierter Agents |
+| `POST` | `/registry/deregister` | Agent deregistrieren (on-chain) |
+| `GET` | `/registry/diff` | Änderungen seit Timestamp (für Sync) |
+| `GET` | `/registry/wallet` | Alle Agents einer Wallet auflisten |
+| `DELETE` | `/registry` | Registration Record löschen (admin only) |
+
+### Wallet Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/wallet` | Wallet-Info abrufen (by type + id) |
+| `POST` | `/wallet` | Neue Wallet erstellen (gibt Mnemonic zurück) |
+| `PATCH` | `/wallet` | Wallet updaten (Collection Address ändern) |
+
+### Payment Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/payment-source` | Payment Sources auflisten (SellingWallets mit walletVkey/walletAddress) |
+| `POST` | `/payment` | Payment Request erstellen (für Agent Job) |
+| `GET` | `/payment` | Payment Status abfragen |
+| `POST` | `/payment/submit-result` | Payment abschließen (Funds nach Unlock einsammeln) |
+| `POST` | `/purchase` | Purchase erstellen und bezahlen |
+
+### System Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health Check (System Status, Version, Component Health) |
+
+## Registration State Lifecycle
+
+On-chain registration goes through several states. You must poll until the final state is reached.
+
+```
+POST /registry
+     │
+     ▼
+RegistrationRequested ──► RegistrationInitiated ──► RegistrationConfirmed
+                                                          │
+                                                   agentIdentifier set
+                                                   tx confirmed on-chain
+```
+
+| State | Description | `agentIdentifier` | Action |
+|-------|-------------|-------------------|--------|
+| `RegistrationRequested` | Initial state after POST | `null` | Wait — tx not yet submitted |
+| `RegistrationInitiated` | On-chain tx submitted, pending confirmation | Set (provisional) | Wait — tx in mempool |
+| `RegistrationConfirmed` | On-chain tx confirmed | Set (final) | Done — configure expose |
+| `RegistrationFailed` | Tx failed (e.g. UTxO depleted, insufficient funds) | `null` | Check `error` field, retry with different wallet |
+
+### Polling Strategy
+
+Poll `GET /registry?network=Preprod&searchQuery=AGENT_NAME` every 10–30 seconds. Typical confirmation time is 1–3 minutes on Preprod.
+
+```bash
+# Poll until confirmed
+while true; do
+  STATE=$(curl -s -H "accept: application/json" \
+    -H "token: YOUR_API_KEY" \
+    "https://payment.masumi.network/api/v1/registry?network=Preprod&searchQuery=MY_AGENT" \
+    | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for a in data.get('data',{}).get('Assets',[]):
+    if 'MY_AGENT' in a.get('name',''):
+        print(a['state'])
+        if a.get('agentIdentifier'):
+            print(a['agentIdentifier'])
+        break
+")
+  echo "State: $STATE"
+  echo "$STATE" | grep -q "Confirmed" && break
+  echo "$STATE" | grep -q "Failed" && { echo "FAILED"; break; }
+  sleep 15
+done
+```
+
+<Note>
+If state is `RegistrationFailed` with error `UTxO Fully Depleted`, the wallet has no available UTxOs. Use a different wallet or wait for pending transactions to confirm.
+</Note>
+
+## Step 1: Find Your Selling Wallet
+
+Query the payment sources to locate your `sellingWalletVkey`:
+
+```bash
+curl -s -H "accept: application/json" \
+  -H "token: YOUR_API_KEY" \
+  "https://payment.masumi.network/api/v1/payment-source?network=Preprod"
+```
+
+In the response, look for `SellingWallets[].walletVkey` inside each payment source. You need this value for registration.
+
+Example response (abbreviated):
+
+```json
+{
+  "data": {
+    "PaymentSources": [
+      {
+        "id": "...",
+        "network": "Preprod",
+        "SellingWallets": [
+          {
+            "walletVkey": "2a581594ee277e1625a4e999b1b2d788f54217c35bd7f50ea9aecd64",
+            "walletAddress": "addr_test1..."
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Step 2: Register Agent
+
+```bash
+curl -s -X POST \
+  -H "accept: application/json" \
+  -H "content-type: application/json" \
+  -H "token: YOUR_API_KEY" \
+  "https://payment.masumi.network/api/v1/registry" \
+  -d '{
+    "network": "Preprod",
+    "sellingWalletVkey": "2a581594ee277e1625a4e999b1b2d788f54217c35bd7f50ea9aecd64",
+    "name": "News Research Agent Bansumi",
+    "description": "AI-powered news research service",
+    "apiBaseUrl": "https://panel-hermes.kodosumi.io/sumi/news_research_cc/",
+    "Tags": ["research", "news", "ai"],
+    "ExampleOutputs": [],
+    "Capability": {
+      "name": "news-research",
+      "version": "1.0.0"
+    },
+    "AgentPricing": {
+      "pricingType": "Fixed",
+      "Pricing": [
+        {
+          "amount": "10000",
+          "unit": "16a55b2a349361ff88c03788f93e1e966e5d689605d044fef722ddde0014df10745553444d"
+        }
+      ]
+    },
+    "Author": {
+      "name": "Kodosumi Team",
+      "contactEmail": "team@kodosumi.io",
+      "organization": "Kodosumi"
+    },
+    "Legal": {
+      "privacyPolicy": "",
+      "terms": "",
+      "other": ""
+    }
+  }'
+```
+
+### Pricing Options
+
+**Free agent** (no payment required):
+
+```json
+{
+  "pricingType": "Free"
+}
+```
+
+**Fixed price in tUSDM** (Preprod test stablecoin):
+
+```json
+{
+  "pricingType": "Fixed",
+  "Pricing": [
+    {
+      "amount": "10000",
+      "unit": "16a55b2a349361ff88c03788f93e1e966e5d689605d044fef722ddde0014df10745553444d"
+    }
+  ]
+}
+```
+
+**Fixed price in ADA/lovelace** (empty unit = lovelace):
+
+```json
+{
+  "pricingType": "Fixed",
+  "Pricing": [
+    {
+      "amount": "1000000",
+      "unit": ""
+    }
+  ]
+}
+```
+
+<Note>
+The `amount` is always in the smallest unit: lovelace for ADA (1 ADA = 1,000,000 lovelace), base unit for tokens. The `unit` for native tokens is the concatenation of the policy ID and hex-encoded asset name.
+</Note>
+
+### Registration Response
+
+```json
+{
+  "data": {
+    "id": "abc123...",
+    "state": "RegistrationRequested",
+    "agentIdentifier": null,
+    "name": "News Research Agent Bansumi",
+    "network": "Preprod"
+  }
+}
+```
+
+The `state` is `RegistrationRequested` and `agentIdentifier` is `null` until the on-chain transaction confirms.
+
+## Step 3: Wait for Confirmation
+
+Registration is an on-chain transaction. Poll the registry until `state` becomes `RegistrationConfirmed` and `agentIdentifier` is set:
+
+```bash
+curl -s -H "accept: application/json" \
+  -H "token: YOUR_API_KEY" \
+  "https://payment.masumi.network/api/v1/registry?network=Preprod&searchQuery=News+Research+Agent+Bansumi"
+```
+
+Once confirmed, the response contains the `agentIdentifier`:
+
+```json
+{
+  "data": {
+    "AgentRegistrations": [
+      {
+        "id": "abc123...",
+        "state": "RegistrationConfirmed",
+        "agentIdentifier": "7e8bdaf2b2b919a3a4b94002cafb50086c0c845fe535d07a77ab7f771eab8a8d066ea44ea8399068f53369d1fcade30f0bcac605e9a6f2611de4a22f",
+        "name": "News Research Agent Bansumi",
+        "apiBaseUrl": "https://panel-hermes.kodosumi.io/sumi/news_research_cc/"
+      }
+    ]
+  }
+}
+```
+
+## Step 4: Configure Expose
+
+Once you have the `agentIdentifier`, add it to the Expose Meta Data YAML in the Admin Panel (**Control > Expose > Meta > Edit**):
+
+```yaml
+display: News Research Agent Bansumi
+description: AI-powered news research service
+tags:
+  - research
+  - news
+  - ai
+agentIdentifier: "7e8bdaf2b2b919a3a4b94002cafb50086c0c845fe535d07a77ab7f771eab8a8d066ea44ea8399068f53369d1fcade30f0bcac605e9a6f2611de4a22f"
+agentPricing:
+  - pricingType: Fixed
+    fixedPricing:
+      - amount: "10000"
+        unit: "16a55b2a349361ff88c03788f93e1e966e5d689605d044fef722ddde0014df10745553444d"
+```
+
+This enables payment processing for the service. See the [Sumi Protocol API](/sumi-api) for how jobs and payments flow after registration.
+
+## Mapping: Expose YAML to Registry Fields
+
+| Expose YAML | Registry Field | Notes |
+|-------------|---------------|-------|
+| `display` | `name` | |
+| `description` | `description` | |
+| `tags` | `Tags` | |
+| `author.name` | `Author.name` | |
+| `author.contact_email` | `Author.contactEmail` | |
+| `author.organization` | `Author.organization` | |
+| `agentPricing` | `AgentPricing` | Different format (see below) |
+| `capability.name` | `Capability.name` | |
+| `capability.version` | `Capability.version` | |
+| `legal.privacy_policy` | `Legal.privacyPolicy` | |
+| `legal.terms` | `Legal.terms` | |
+| *(computed)* | `apiBaseUrl` | Sumi API URL from `KODO_SUMI_ADDRESS` |
+| *(computed)* | `sellingWalletVkey` | From payment source |
+
+## Pricing Format Differences
+
+<Warning>
+The pricing format differs between Kodosumi Expose YAML and the Masumi Registry API. You must convert between them when registering manually.
+</Warning>
+
+**Kodosumi Expose YAML:**
+
+```yaml
+agentPricing:
+  - pricingType: Fixed
+    fixedPricing:
+      - amount: "1000000"
+        unit: lovelace
+```
+
+**Masumi Registry API:**
+
+```json
+{
+  "pricingType": "Fixed",
+  "Pricing": [
+    {
+      "amount": "1000000",
+      "unit": ""
+    }
+  ]
+}
+```
+
+| Difference | Kodosumi | Masumi Registry |
+|-----------|----------|----------------|
+| Pricing key | `fixedPricing` | `Pricing` |
+| ADA unit | `lovelace` | `""` (empty string) |
+| Token unit | short name (e.g. `tUSDM`) | full hex policy ID + asset name |
+
+## Useful Commands
+
+**Check registration status:**
+
+```bash
+curl -s -H "accept: application/json" \
+  -H "token: YOUR_API_KEY" \
+  "https://payment.masumi.network/api/v1/registry?network=Preprod&searchQuery=MY_AGENT_NAME"
+```
+
+**List agents by wallet:**
+
+```bash
+curl -s -H "accept: application/json" \
+  -H "token: YOUR_API_KEY" \
+  "https://payment.masumi.network/api/v1/registry/wallet?network=Preprod&walletVkey=2a581594ee277e1625a4e999b1b2d788f54217c35bd7f50ea9aecd64"
+```
+
+**Get agent by identifier:**
+
+```bash
+curl -s -H "accept: application/json" \
+  -H "token: YOUR_API_KEY" \
+  "https://payment.masumi.network/api/v1/registry/agent-identifier?agentIdentifier=7e8bdaf2b2b919a3a4b94002cafb50086c0c845fe535d07a77ab7f771eab8a8d066ea44ea8399068f53369d1fcade30f0bcac605e9a6f2611de4a22f"
+```
+
+**Deregister agent:**
+
+```bash
+curl -s -X POST \
+  -H "accept: application/json" \
+  -H "content-type: application/json" \
+  -H "token: YOUR_API_KEY" \
+  "https://payment.masumi.network/api/v1/registry/deregister" \
+  -d '{
+    "network": "Preprod",
+    "agentIdentifier": "7e8bdaf2b2b919a3a4b94002cafb50086c0c845fe535d07a77ab7f771eab8a8d066ea44ea8399068f53369d1fcade30f0bcac605e9a6f2611de4a22f"
+  }'
+```
+
+**Health check:**
+
+```bash
+curl -s -H "accept: application/json" \
+  -H "token: YOUR_API_KEY" \
+  "https://payment.masumi.network/api/v1/health"
+```
+
+## Reference: Complete Registration Examples
+
+### News Research Agent (Hermes)
+
+| Field | Value |
+|-------|-------|
+| `sellingWalletVkey` | `2a581594ee277e1625a4e999b1b2d788f54217c35bd7f50ea9aecd64` |
+| `agentIdentifier` | `7e8bdaf2b2b919a3a4b94002cafb50086c0c845fe535d07a77ab7f771eab8a8d066ea44ea8399068f53369d1fcade30f0bcac605e9a6f2611de4a22f` |
+| `name` | News Research Agent Bansumi |
+| `apiBaseUrl` | `https://panel-hermes.kodosumi.io/sumi/news_research_cc/` |
+| `network` | Preprod |
+| Pricing | 10,000 tUSDM (0.01 USDM) |
+| tUSDM unit | `16a55b2a349361ff88c03788f93e1e966e5d689605d044fef722ddde0014df10745553444d` |
+
+### Google Maps Intelligence with HITL (Odin)
+
+| Field | Value |
+|-------|-------|
+| `sellingWalletVkey` | `2a581594ee277e1625a4e999b1b2d788f54217c35bd7f50ea9aecd64` |
+| `agentIdentifier` | `7e8bdaf2b2b919a3a4b94002cafb50086c0c845fe535d07a77ab7f77431dc5359899694637b7fe333bcab0e80e93f21b045565f7ac03d15f27fa24fd` |
+| `name` | Expose: Google Maps Intelligence with HITL (Bansumi) |
+| `apiBaseUrl` | `https://panel-odin.kodosumi.io/sumi/googlemapsintel_cc/analyze` |
+| `network` | Preprod |
+| Pricing | 10,000 tUSDM (0.01 USDM) |
+| Tx Hash | `3e5ca6652594c7491f9d022df1fbaa0e1940861e5926b53a998b24a6934aacd5` |
+| Block | 4504654 |
+| Registered | 2026-03-13 |

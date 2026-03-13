@@ -145,6 +145,92 @@
         background: var(--surface-variant);
         border-radius: 8px;
     }
+    .registry-section {
+        background: var(--surface-variant);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+    }
+    .registry-section .registry-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+    .registry-section .registry-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+    }
+    .registry-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .reg-not-registered { background: #9e9e9e; color: white; }
+    .reg-pending { background: #f9a825; color: #1a1a1a; }
+    .reg-confirmed { background: #2e7d32; color: white; }
+    .reg-failed { background: #c62828; color: white; }
+    .reg-spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(0,0,0,0.2);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .agent-id-text {
+        font-family: monospace;
+        font-size: 0.75rem;
+        color: var(--on-surface-variant);
+        word-break: break-all;
+        max-width: 400px;
+        display: inline-block;
+    }
+    .registry-error {
+        font-size: 0.8rem;
+        color: var(--error);
+        margin-top: 4px;
+    }
+    .registry-info {
+        font-size: 0.75rem;
+        color: var(--on-surface-variant);
+        margin-top: 2px;
+    }
+    .calc-display {
+        font-size: 0.75rem;
+        color: var(--on-surface-variant);
+        margin-left: 4px;
+    }
+    /* Register dialog */
+    .register-dialog {
+        max-width: 500px;
+    }
+    .register-dialog .dialog-field {
+        margin-bottom: 12px;
+    }
+    .register-dialog .dialog-field label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: block;
+        margin-bottom: 4px;
+    }
+    .register-dialog .dialog-readonly {
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+        padding: 4px 0;
+    }
 </style>
 {% endblock %}
 
@@ -293,6 +379,40 @@ deployments:
                                 {% endif %}
                             </div>
 
+                            <!-- Masumi Registry -->
+                            <div class="registry-section" id="registry_{{ loop.index0 }}" data-flow-url="{{ meta.url }}">
+                                <div class="registry-header">
+                                    <i style="font-size: 18px;">verified</i>
+                                    Masumi Registry
+                                </div>
+                                <div class="registry-row">
+                                    <span>Status:</span>
+                                    <span class="registry-badge reg-not-registered" id="reg_badge_{{ loop.index0 }}">Loading...</span>
+                                    <span class="agent-id-text" id="reg_agent_id_{{ loop.index0 }}" style="display:none;"></span>
+                                    <button type="button" class="small" id="reg_copy_{{ loop.index0 }}" style="display:none;" onclick="copyAgentId({{ loop.index0 }})" title="Copy Agent ID">
+                                        <i>content_copy</i>
+                                    </button>
+                                </div>
+                                <div class="registry-row">
+                                    <div class="field border label" style="min-width: 200px; margin: 0;" id="reg_wallet_container_{{ loop.index0 }}">
+                                        <select id="reg_wallet_{{ loop.index0 }}" style="font-size: 0.85rem;">
+                                            <option value="">Select wallet...</option>
+                                        </select>
+                                        <label>Wallet</label>
+                                    </div>
+                                    <button type="button" class="small primary" id="reg_btn_{{ loop.index0 }}" onclick="openRegisterDialog({{ loop.index0 }})">
+                                        <i>app_registration</i>
+                                        <span>Register</span>
+                                    </button>
+                                    <button type="button" class="small error" id="dereg_btn_{{ loop.index0 }}" style="display:none;" onclick="deregisterAgent({{ loop.index0 }})">
+                                        <i>delete_forever</i>
+                                        <span>Deregister</span>
+                                    </button>
+                                </div>
+                                <div class="registry-error" id="reg_error_{{ loop.index0 }}" style="display:none;"></div>
+                                <div class="registry-info" id="reg_info_{{ loop.index0 }}" style="display:none;"></div>
+                            </div>
+
                             <span class="textarea-label">Data (YAML)</span>
                             <textarea name="meta_data_{{ loop.index0 }}" class="yaml-editor yaml-editor-large">{{ meta.data if meta.data else '' }}</textarea>
                         </div>
@@ -339,6 +459,62 @@ deployments:
     </div>
 </div>
 {% endblock %}
+
+<!-- Register Agent Dialog -->
+<dialog id="register-dialog" class="register-dialog">
+    <h5>Register Agent on Masumi</h5>
+    <div class="dialog-field">
+        <label>Name</label>
+        <div class="dialog-readonly" id="dlg_name"></div>
+    </div>
+    <div class="dialog-field">
+        <label>Description</label>
+        <div class="dialog-readonly" id="dlg_description"></div>
+    </div>
+    <div class="dialog-field">
+        <label>Tags</label>
+        <div class="dialog-readonly" id="dlg_tags"></div>
+    </div>
+    <div class="dialog-field">
+        <label>API Base URL</label>
+        <div class="dialog-readonly" id="dlg_api_url" style="font-family: monospace; font-size: 0.8rem;"></div>
+    </div>
+    <hr>
+    <div class="dialog-field">
+        <label>Pricing</label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <select id="dlg_pricing_type" onchange="updatePricingFields()" style="width: 100px;">
+                <option value="Free">Free</option>
+                <option value="Fixed" selected>Fixed</option>
+            </select>
+            <div class="field border label" style="margin: 0; width: 100px;" id="dlg_amount_container">
+                <input type="number" id="dlg_amount" step="0.000001" min="0" value="0.01">
+                <label>Amount</label>
+            </div>
+            <select id="dlg_currency" onchange="updateCalc()" style="width: 90px;">
+                <option value="USDM">USDM</option>
+                <option value="ADA">ADA</option>
+            </select>
+            <span class="calc-display" id="dlg_calc"></span>
+        </div>
+    </div>
+    <div class="dialog-field">
+        <label>Wallet</label>
+        <div class="dialog-readonly" id="dlg_wallet"></div>
+    </div>
+    <div class="dialog-field" id="dlg_optional">
+        <label>Optional (from YAML)</label>
+        <div class="dialog-readonly" id="dlg_optional_info" style="font-size: 0.8rem;"></div>
+    </div>
+    <div class="registry-error" id="dlg_error" style="display:none;"></div>
+    <nav>
+        <button type="button" class="secondary" onclick="document.getElementById('register-dialog').close()">Cancel</button>
+        <button type="button" class="primary" id="dlg_submit" onclick="submitRegistration()">
+            <i>app_registration</i>
+            Register Agent
+        </button>
+    </nav>
+</dialog>
 
 {% block script %}
 let metaIndex = {{ (item.meta | length) if item and item.meta else 0 }};
@@ -504,5 +680,444 @@ document.addEventListener('DOMContentLoaded', function() {
             el.textContent = date.toLocaleString();
         }
     });
+
+    // Initialize registry sections
+    initRegistrySections();
 });
+
+// ─── Registry Integration ───────────────────────────────────────
+
+const exposeName = '{{ item.name if item else "" }}';
+let activeDialogIdx = null;
+const pollIntervals = {};
+
+function getNetwork() {
+    return document.getElementById('network').value;
+}
+
+async function initRegistrySections() {
+    if (!exposeName) return;
+    const network = getNetwork();
+
+    // Load wallets if network is set
+    if (network) {
+        await loadWallets();
+    }
+
+    // Check registry status for each flow
+    document.querySelectorAll('.registry-section').forEach(async function(section) {
+        const idx = section.id.replace('registry_', '');
+        const flowUrl = section.dataset.flowUrl;
+        await checkRegistryStatus(idx, flowUrl);
+    });
+
+    // Hide registry sections when no network
+    updateRegistryVisibility();
+}
+
+function updateRegistryVisibility() {
+    const network = getNetwork();
+    document.querySelectorAll('.registry-section').forEach(function(section) {
+        if (!network) {
+            section.style.opacity = '0.5';
+            section.querySelector('.registry-info').style.display = 'block';
+            section.querySelector('.registry-info').textContent = 'Set network in Basic Information to enable registry.';
+        } else {
+            section.style.opacity = '1';
+        }
+    });
+}
+
+// Listen for network change
+document.getElementById('network').addEventListener('change', function() {
+    updateRegistryVisibility();
+    if (this.value) {
+        loadWallets();
+    }
+});
+
+async function loadWallets() {
+    if (!exposeName) return;
+    try {
+        const resp = await fetch(`/expose/${exposeName}/wallets`, { credentials: 'same-origin' });
+        const data = await resp.json();
+
+        if (data.error) {
+            document.querySelectorAll('.registry-section').forEach(function(section) {
+                const idx = section.id.replace('registry_', '');
+                showRegError(idx, data.error);
+            });
+            return;
+        }
+
+        // Populate all wallet dropdowns
+        document.querySelectorAll('[id^="reg_wallet_"]').forEach(function(select) {
+            const current = select.value;
+            select.innerHTML = '<option value="">Select wallet...</option>';
+            (data.wallets || []).forEach(function(w) {
+                const label = w.note ? `${w.note} (${w.walletVkey.substring(0, 8)}...)` : `${w.walletVkey.substring(0, 12)}...`;
+                const opt = document.createElement('option');
+                opt.value = w.walletVkey;
+                opt.textContent = label;
+                if (w.walletVkey === current) opt.selected = true;
+                select.appendChild(opt);
+            });
+        });
+    } catch (e) {
+        console.error('Failed to load wallets:', e);
+    }
+}
+
+async function checkRegistryStatus(idx, flowUrl) {
+    if (!exposeName || !getNetwork()) {
+        updateBadge(idx, 'NotRegistered', null);
+        return;
+    }
+
+    try {
+        const resp = await fetch(`/expose/${exposeName}/registry?flow_url=${encodeURIComponent(flowUrl)}`, {
+            credentials: 'same-origin'
+        });
+        const data = await resp.json();
+        updateRegistryUI(idx, data);
+
+        // Start polling if pending
+        if (data.state && data.state !== 'RegistrationConfirmed' && data.state !== 'NotRegistered' && data.state !== 'RegistrationFailed') {
+            startPolling(idx, flowUrl);
+        }
+    } catch (e) {
+        showRegError(idx, 'Failed to check status: ' + e.message);
+    }
+}
+
+function updateRegistryUI(idx, data) {
+    const state = data.state || 'NotRegistered';
+    const agentId = data.agentIdentifier;
+    const error = data.error;
+
+    updateBadge(idx, state, agentId);
+
+    // Show/hide buttons
+    const regBtn = document.getElementById(`reg_btn_${idx}`);
+    const deregBtn = document.getElementById(`dereg_btn_${idx}`);
+    const walletContainer = document.getElementById(`reg_wallet_container_${idx}`);
+
+    if (state === 'RegistrationConfirmed') {
+        regBtn.style.display = 'none';
+        deregBtn.style.display = '';
+        walletContainer.style.display = 'none';
+    } else if (state === 'RegistrationRequested' || state === 'RegistrationInitiated') {
+        regBtn.style.display = 'none';
+        deregBtn.style.display = 'none';
+        walletContainer.style.display = 'none';
+    } else {
+        regBtn.style.display = '';
+        deregBtn.style.display = 'none';
+        walletContainer.style.display = '';
+    }
+
+    // Show error
+    if (error) {
+        showRegError(idx, error);
+    } else {
+        hideRegError(idx);
+    }
+
+    // Show transaction info
+    if (data.transaction) {
+        const tx = data.transaction;
+        const info = document.getElementById(`reg_info_${idx}`);
+        info.style.display = 'block';
+        info.textContent = `Tx: ${tx.txHash ? tx.txHash.substring(0, 16) + '...' : '—'}  Status: ${tx.status || '—'}`;
+    }
+}
+
+function updateBadge(idx, state, agentId) {
+    const badge = document.getElementById(`reg_badge_${idx}`);
+    const agentIdEl = document.getElementById(`reg_agent_id_${idx}`);
+    const copyBtn = document.getElementById(`reg_copy_${idx}`);
+
+    // Reset
+    badge.className = 'registry-badge';
+
+    switch (state) {
+        case 'RegistrationConfirmed':
+            badge.className += ' reg-confirmed';
+            badge.textContent = 'Confirmed';
+            break;
+        case 'RegistrationRequested':
+        case 'RegistrationInitiated':
+            badge.className += ' reg-pending';
+            badge.innerHTML = '<span class="reg-spinner"></span>&nbsp;Pending...';
+            break;
+        case 'RegistrationFailed':
+            badge.className += ' reg-failed';
+            badge.textContent = 'Failed';
+            break;
+        default:
+            badge.className += ' reg-not-registered';
+            badge.textContent = 'Not Registered';
+    }
+
+    if (agentId) {
+        agentIdEl.style.display = '';
+        agentIdEl.textContent = agentId.substring(0, 24) + '...';
+        agentIdEl.title = agentId;
+        copyBtn.style.display = '';
+    } else {
+        agentIdEl.style.display = 'none';
+        copyBtn.style.display = 'none';
+    }
+}
+
+function copyAgentId(idx) {
+    const el = document.getElementById(`reg_agent_id_${idx}`);
+    navigator.clipboard.writeText(el.title).then(function() {
+        const btn = document.getElementById(`reg_copy_${idx}`);
+        const icon = btn.querySelector('i');
+        icon.textContent = 'check';
+        setTimeout(function() { icon.textContent = 'content_copy'; }, 1500);
+    });
+}
+
+function showRegError(idx, msg) {
+    const el = document.getElementById(`reg_error_${idx}`);
+    el.style.display = 'block';
+    el.textContent = msg;
+}
+
+function hideRegError(idx) {
+    const el = document.getElementById(`reg_error_${idx}`);
+    el.style.display = 'none';
+}
+
+// ─── Register Dialog ────────────────────────────────────────────
+
+function openRegisterDialog(idx) {
+    if (!getNetwork()) {
+        showRegError(idx, 'Set network first.');
+        return;
+    }
+
+    const walletSelect = document.getElementById(`reg_wallet_${idx}`);
+    if (!walletSelect.value) {
+        showRegError(idx, 'Select a wallet first.');
+        return;
+    }
+
+    activeDialogIdx = idx;
+    const section = document.getElementById(`registry_${idx}`);
+    const flowUrl = section.dataset.flowUrl;
+
+    // Parse YAML from textarea to pre-fill dialog
+    const textarea = document.querySelector(`[name="meta_data_${idx}"]`);
+    let yamlData = {};
+    try {
+        // Simple YAML field extraction (display, description, tags)
+        const text = textarea.value;
+        const displayMatch = text.match(/^display:\s*(.+)$/m);
+        const descMatch = text.match(/^description:\s*(.+)$/m);
+        yamlData.display = displayMatch ? displayMatch[1].trim() : exposeName;
+        yamlData.description = descMatch ? descMatch[1].trim() : '';
+
+        // Tags
+        const tagsMatch = text.match(/^tags:\s*\n((?:\s+-\s+.+\n?)*)/m);
+        if (tagsMatch) {
+            yamlData.tags = tagsMatch[1].match(/- (.+)/g)?.map(t => t.replace('- ', '').trim()) || [];
+        }
+
+        // Check optional fields
+        const authorMatch = text.match(/^author:\s*\n/m);
+        const capMatch = text.match(/^capability:\s*\n/m);
+        const legalMatch = text.match(/^legal:\s*\n/m);
+        yamlData.hasAuthor = authorMatch && !text.match(/^author:\s*~$/m);
+        yamlData.hasCapability = capMatch != null;
+        yamlData.hasLegal = legalMatch != null;
+    } catch (e) {
+        yamlData.display = exposeName;
+    }
+
+    // Fill dialog
+    document.getElementById('dlg_name').textContent = yamlData.display || exposeName;
+    document.getElementById('dlg_description').textContent = yamlData.description || '(not set)';
+    document.getElementById('dlg_tags').textContent = (yamlData.tags || []).join(', ') || '(none)';
+
+    const sumiAddress = '{{ app_server }}';
+    document.getElementById('dlg_api_url').textContent = `${sumiAddress}/sumi${flowUrl}`;
+
+    // Wallet info
+    const walletOpt = walletSelect.options[walletSelect.selectedIndex];
+    document.getElementById('dlg_wallet').textContent = walletOpt.textContent;
+
+    // Optional fields info
+    const optParts = [];
+    if (!yamlData.hasAuthor) optParts.push('Author: not set');
+    if (!yamlData.hasCapability) optParts.push('Capability: not set');
+    if (!yamlData.hasLegal) optParts.push('Legal: not set');
+    document.getElementById('dlg_optional_info').textContent = optParts.length ? optParts.join(' | ') : 'All set';
+
+    // Reset error
+    document.getElementById('dlg_error').style.display = 'none';
+
+    updateCalc();
+    document.getElementById('register-dialog').showModal();
+}
+
+function updatePricingFields() {
+    const type = document.getElementById('dlg_pricing_type').value;
+    document.getElementById('dlg_amount_container').style.display = type === 'Fixed' ? '' : 'none';
+    document.getElementById('dlg_currency').style.display = type === 'Fixed' ? '' : 'none';
+    document.getElementById('dlg_calc').style.display = type === 'Fixed' ? '' : 'none';
+    if (type === 'Fixed') updateCalc();
+}
+
+function updateCalc() {
+    const amount = parseFloat(document.getElementById('dlg_amount').value) || 0;
+    const currency = document.getElementById('dlg_currency').value;
+    const baseUnits = Math.floor(amount * 1000000);
+    const unitName = currency === 'ADA' ? 'lovelace' : (getNetwork() === 'Preprod' ? 'tUSDM' : 'USDM');
+    document.getElementById('dlg_calc').textContent = `= ${baseUnits.toLocaleString()} ${unitName}`;
+}
+
+document.getElementById('dlg_amount')?.addEventListener('input', updateCalc);
+
+async function submitRegistration() {
+    const idx = activeDialogIdx;
+    if (idx === null) return;
+
+    const section = document.getElementById(`registry_${idx}`);
+    const flowUrl = section.dataset.flowUrl;
+    const walletVkey = document.getElementById(`reg_wallet_${idx}`).value;
+    const pricingType = document.getElementById('dlg_pricing_type').value;
+    const amount = parseFloat(document.getElementById('dlg_amount').value) || 0;
+    const currency = document.getElementById('dlg_currency').value;
+
+    const submitBtn = document.getElementById('dlg_submit');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="reg-spinner"></span>&nbsp;Submitting...';
+
+    try {
+        const resp = await fetch(`/expose/${exposeName}/registry`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                flow_url: flowUrl,
+                wallet_vkey: walletVkey,
+                pricing_type: pricingType,
+                amount: pricingType === 'Fixed' ? amount : undefined,
+                currency: pricingType === 'Fixed' ? currency : undefined,
+            })
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            document.getElementById('dlg_error').style.display = 'block';
+            document.getElementById('dlg_error').textContent = data.detail || 'Registration failed';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i>app_registration</i> Register Agent';
+            return;
+        }
+
+        // Success — close dialog, update UI, start polling
+        document.getElementById('register-dialog').close();
+        updateBadge(idx, data.state || 'RegistrationRequested', data.agentIdentifier);
+
+        // Hide register button, show pending state
+        document.getElementById(`reg_btn_${idx}`).style.display = 'none';
+        document.getElementById(`reg_wallet_container_${idx}`).style.display = 'none';
+
+        const info = document.getElementById(`reg_info_${idx}`);
+        info.style.display = 'block';
+        info.textContent = `Registration submitted. Waiting for on-chain confirmation (~1-5 min)...`;
+
+        startPolling(idx, flowUrl);
+
+    } catch (e) {
+        document.getElementById('dlg_error').style.display = 'block';
+        document.getElementById('dlg_error').textContent = 'Network error: ' + e.message;
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i>app_registration</i> Register Agent';
+    }
+}
+
+// ─── Polling ────────────────────────────────────────────────────
+
+function startPolling(idx, flowUrl) {
+    if (pollIntervals[idx]) return; // Already polling
+
+    pollIntervals[idx] = setInterval(async function() {
+        try {
+            const resp = await fetch(`/expose/${exposeName}/registry/poll`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ flow_url: flowUrl })
+            });
+            const data = await resp.json();
+
+            if (data.state === 'RegistrationConfirmed') {
+                clearInterval(pollIntervals[idx]);
+                delete pollIntervals[idx];
+
+                updateRegistryUI(idx, data);
+
+                const info = document.getElementById(`reg_info_${idx}`);
+                info.style.display = 'block';
+                info.textContent = 'Agent registered on-chain. Needs reboot to activate.';
+
+                // Reload page to get updated YAML
+                setTimeout(function() { window.location.reload(); }, 2000);
+            } else if (data.state === 'RegistrationFailed') {
+                clearInterval(pollIntervals[idx]);
+                delete pollIntervals[idx];
+                updateRegistryUI(idx, data);
+            } else {
+                // Update badge with current state
+                updateBadge(idx, data.state || 'Polling', data.agentIdentifier);
+                if (data.transaction) {
+                    const tx = data.transaction;
+                    const info = document.getElementById(`reg_info_${idx}`);
+                    info.style.display = 'block';
+                    info.textContent = `Tx: ${tx.txHash ? tx.txHash.substring(0, 16) + '...' : '—'}  Status: ${tx.status || 'Pending'}`;
+                }
+            }
+        } catch (e) {
+            console.error('Poll error:', e);
+        }
+    }, 15000); // Every 15 seconds
+}
+
+// ─── Deregister ─────────────────────────────────────────────────
+
+async function deregisterAgent(idx) {
+    if (!confirm('Deregister this agent from the Masumi on-chain registry?\n\nThis is an on-chain transaction and will take a moment.')) {
+        return;
+    }
+
+    const section = document.getElementById(`registry_${idx}`);
+    const flowUrl = section.dataset.flowUrl;
+
+    try {
+        const resp = await fetch(`/expose/${exposeName}/registry`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ flow_url: flowUrl })
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            showRegError(idx, data.detail || 'Deregistration failed');
+            return;
+        }
+
+        // Reload to get updated YAML
+        window.location.reload();
+    } catch (e) {
+        showRegError(idx, 'Network error: ' + e.message);
+    }
+}
 {% endblock %}
