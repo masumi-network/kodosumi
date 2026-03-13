@@ -146,24 +146,30 @@
         border-radius: 8px;
     }
     .registry-section {
-        background: var(--surface-variant);
+        border: 1px solid var(--outline);
         border-radius: 8px;
         padding: 12px 16px;
-        margin-bottom: 12px;
+        margin: 12px 0;
     }
     .registry-section .registry-header {
         display: flex;
         align-items: center;
         gap: 8px;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
         font-size: 0.85rem;
         font-weight: 600;
+        color: var(--on-surface-variant);
     }
-    .registry-section .registry-row {
+    .registry-section .registry-status-row {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 10px;
         margin-bottom: 8px;
+    }
+    .registry-section .registry-actions-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
         flex-wrap: wrap;
     }
     .registry-badge {
@@ -176,7 +182,7 @@
         text-transform: uppercase;
         letter-spacing: 0.3px;
     }
-    .reg-not-registered { background: #9e9e9e; color: white; }
+    .reg-not-registered { background: #616161; color: white; }
     .reg-pending { background: #f9a825; color: #1a1a1a; }
     .reg-confirmed { background: #2e7d32; color: white; }
     .reg-failed { background: #c62828; color: white; }
@@ -201,12 +207,13 @@
     .registry-error {
         font-size: 0.8rem;
         color: var(--error);
-        margin-top: 4px;
+        margin-top: 6px;
+        padding: 4px 0;
     }
     .registry-info {
         font-size: 0.75rem;
         color: var(--on-surface-variant);
-        margin-top: 2px;
+        margin-top: 4px;
     }
     .calc-display {
         font-size: 0.75rem;
@@ -385,16 +392,16 @@ deployments:
                                     <i style="font-size: 18px;">verified</i>
                                     Masumi Registry
                                 </div>
-                                <div class="registry-row">
-                                    <span>Status:</span>
+                                <div class="registry-status-row">
+                                    <span style="font-size: 0.85rem;">Status:</span>
                                     <span class="registry-badge reg-not-registered" id="reg_badge_{{ loop.index0 }}">Loading...</span>
                                     <span class="agent-id-text" id="reg_agent_id_{{ loop.index0 }}" style="display:none;"></span>
                                     <button type="button" class="small" id="reg_copy_{{ loop.index0 }}" style="display:none;" onclick="copyAgentId({{ loop.index0 }})" title="Copy Agent ID">
                                         <i>content_copy</i>
                                     </button>
                                 </div>
-                                <div class="registry-row">
-                                    <div class="field border label" style="min-width: 200px; margin: 0;" id="reg_wallet_container_{{ loop.index0 }}">
+                                <div class="registry-actions-row">
+                                    <div class="field border label" style="min-width: 220px; margin: 0;" id="reg_wallet_container_{{ loop.index0 }}">
                                         <select id="reg_wallet_{{ loop.index0 }}" style="font-size: 0.85rem;">
                                             <option value="">Select wallet...</option>
                                         </select>
@@ -404,8 +411,8 @@ deployments:
                                         <i>app_registration</i>
                                         <span>Register</span>
                                     </button>
-                                    <button type="button" class="small error" id="dereg_btn_{{ loop.index0 }}" style="display:none;" onclick="deregisterAgent({{ loop.index0 }})">
-                                        <i>delete_forever</i>
+                                    <button type="button" class="small" id="dereg_btn_{{ loop.index0 }}" style="display:none; background: var(--error); color: white;" onclick="deregisterAgent({{ loop.index0 }})">
+                                        <i>remove_circle</i>
                                         <span>Deregister</span>
                                     </button>
                                 </div>
@@ -699,31 +706,36 @@ async function initRegistrySections() {
     if (!exposeName) return;
     const network = getNetwork();
 
-    // Load wallets if network is set
-    if (network) {
-        await loadWallets();
-    }
-
-    // Check registry status for each flow
-    document.querySelectorAll('.registry-section').forEach(async function(section) {
-        const idx = section.id.replace('registry_', '');
-        const flowUrl = section.dataset.flowUrl;
-        await checkRegistryStatus(idx, flowUrl);
-    });
-
-    // Hide registry sections when no network
     updateRegistryVisibility();
+
+    if (!network) return;
+
+    // Load wallets and check status in parallel
+    await Promise.all([
+        loadWallets(),
+        ...Array.from(document.querySelectorAll('.registry-section')).map(function(section) {
+            const idx = section.id.replace('registry_', '');
+            const flowUrl = section.dataset.flowUrl;
+            return checkRegistryStatus(idx, flowUrl);
+        })
+    ]);
 }
 
 function updateRegistryVisibility() {
     const network = getNetwork();
     document.querySelectorAll('.registry-section').forEach(function(section) {
+        const idx = section.id.replace('registry_', '');
+        const info = document.getElementById(`reg_info_${idx}`);
         if (!network) {
             section.style.opacity = '0.5';
-            section.querySelector('.registry-info').style.display = 'block';
-            section.querySelector('.registry-info').textContent = 'Set network in Basic Information to enable registry.';
+            section.style.pointerEvents = 'none';
+            info.style.display = 'block';
+            info.textContent = 'Set network in Basic Information to enable registry.';
         } else {
             section.style.opacity = '1';
+            section.style.pointerEvents = '';
+            info.style.display = 'none';
+            info.textContent = '';
         }
     });
 }
@@ -740,13 +752,21 @@ async function loadWallets() {
     if (!exposeName) return;
     try {
         const resp = await fetch(`/expose/${exposeName}/wallets`, { credentials: 'same-origin' });
+        if (!resp.ok) {
+            console.error('Wallets endpoint error:', resp.status, resp.statusText);
+            showWalletError(`Wallets could not be loaded (${resp.status})`);
+            return;
+        }
         const data = await resp.json();
 
         if (data.error) {
-            document.querySelectorAll('.registry-section').forEach(function(section) {
-                const idx = section.id.replace('registry_', '');
-                showRegError(idx, data.error);
-            });
+            showWalletError(data.error);
+            return;
+        }
+
+        const wallets = data.wallets || [];
+        if (wallets.length === 0) {
+            showWalletError('No selling wallets found for this network.');
             return;
         }
 
@@ -754,7 +774,7 @@ async function loadWallets() {
         document.querySelectorAll('[id^="reg_wallet_"]').forEach(function(select) {
             const current = select.value;
             select.innerHTML = '<option value="">Select wallet...</option>';
-            (data.wallets || []).forEach(function(w) {
+            wallets.forEach(function(w) {
                 const label = w.note ? `${w.note} (${w.walletVkey.substring(0, 8)}...)` : `${w.walletVkey.substring(0, 12)}...`;
                 const opt = document.createElement('option');
                 opt.value = w.walletVkey;
@@ -765,7 +785,18 @@ async function loadWallets() {
         });
     } catch (e) {
         console.error('Failed to load wallets:', e);
+        showWalletError('Failed to load wallets: ' + e.message);
     }
+}
+
+function showWalletError(msg) {
+    document.querySelectorAll('.registry-section').forEach(function(section) {
+        const idx = section.id.replace('registry_', '');
+        const info = document.getElementById(`reg_info_${idx}`);
+        info.style.display = 'block';
+        info.textContent = msg;
+        info.style.color = 'var(--error)';
+    });
 }
 
 async function checkRegistryStatus(idx, flowUrl) {
@@ -778,26 +809,30 @@ async function checkRegistryStatus(idx, flowUrl) {
         const resp = await fetch(`/expose/${exposeName}/registry?flow_url=${encodeURIComponent(flowUrl)}`, {
             credentials: 'same-origin'
         });
+        if (!resp.ok) {
+            console.error('Registry status error:', resp.status);
+            return; // Don't change UI on error
+        }
         const data = await resp.json();
         updateRegistryUI(idx, data);
 
-        // Start polling if pending
+        // Start polling if pending (not confirmed, not unregistered, not failed)
         if (data.state && data.state !== 'RegistrationConfirmed' && data.state !== 'NotRegistered' && data.state !== 'RegistrationFailed') {
             startPolling(idx, flowUrl);
         }
     } catch (e) {
-        showRegError(idx, 'Failed to check status: ' + e.message);
+        console.error('Failed to check registry status:', e);
+        // Don't change the UI on network errors — prevents flickering
     }
 }
 
 function updateRegistryUI(idx, data) {
     const state = data.state || 'NotRegistered';
     const agentId = data.agentIdentifier;
-    const error = data.error;
 
     updateBadge(idx, state, agentId);
 
-    // Show/hide buttons
+    // Show/hide buttons based on state
     const regBtn = document.getElementById(`reg_btn_${idx}`);
     const deregBtn = document.getElementById(`dereg_btn_${idx}`);
     const walletContainer = document.getElementById(`reg_wallet_container_${idx}`);
@@ -806,7 +841,7 @@ function updateRegistryUI(idx, data) {
         regBtn.style.display = 'none';
         deregBtn.style.display = '';
         walletContainer.style.display = 'none';
-    } else if (state === 'RegistrationRequested' || state === 'RegistrationInitiated') {
+    } else if (state === 'RegistrationRequested' || state === 'RegistrationInitiated' || state === 'Polling') {
         regBtn.style.display = 'none';
         deregBtn.style.display = 'none';
         walletContainer.style.display = 'none';
@@ -816,18 +851,12 @@ function updateRegistryUI(idx, data) {
         walletContainer.style.display = '';
     }
 
-    // Show error
-    if (error) {
-        showRegError(idx, error);
-    } else {
-        hideRegError(idx);
-    }
-
-    // Show transaction info
+    // Show transaction info if available
     if (data.transaction) {
         const tx = data.transaction;
         const info = document.getElementById(`reg_info_${idx}`);
         info.style.display = 'block';
+        info.style.color = 'var(--on-surface-variant)';
         info.textContent = `Tx: ${tx.txHash ? tx.txHash.substring(0, 16) + '...' : '—'}  Status: ${tx.status || '—'}`;
     }
 }
@@ -1093,12 +1122,17 @@ function startPolling(idx, flowUrl) {
 // ─── Deregister ─────────────────────────────────────────────────
 
 async function deregisterAgent(idx) {
-    if (!confirm('Deregister this agent from the Masumi on-chain registry?\n\nThis is an on-chain transaction and will take a moment.')) {
+    if (!confirm('Deregister this agent from the Masumi on-chain registry?\n\nThis is an on-chain transaction and may take a moment.')) {
         return;
     }
 
     const section = document.getElementById(`registry_${idx}`);
     const flowUrl = section.dataset.flowUrl;
+    const deregBtn = document.getElementById(`dereg_btn_${idx}`);
+
+    // Show loading state
+    deregBtn.disabled = true;
+    deregBtn.innerHTML = '<span class="reg-spinner"></span>&nbsp;Deregistering...';
 
     try {
         const resp = await fetch(`/expose/${exposeName}/registry/deregister`, {
@@ -1111,13 +1145,21 @@ async function deregisterAgent(idx) {
 
         if (!resp.ok) {
             showRegError(idx, data.detail || 'Deregistration failed');
+            deregBtn.disabled = false;
+            deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
             return;
         }
 
-        // Reload to get updated YAML
-        window.location.reload();
+        // Success — reload to get updated YAML
+        const info = document.getElementById(`reg_info_${idx}`);
+        info.style.display = 'block';
+        info.style.color = 'var(--on-surface-variant)';
+        info.textContent = 'Deregistration submitted. Reloading...';
+        setTimeout(function() { window.location.reload(); }, 1500);
     } catch (e) {
         showRegError(idx, 'Network error: ' + e.message);
+        deregBtn.disabled = false;
+        deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
     }
 }
 {% endblock %}

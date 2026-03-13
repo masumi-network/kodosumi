@@ -5,10 +5,13 @@ All endpoints require operator role authentication.
 """
 
 import asyncio
+import logging
 import time
 import uuid
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 import yaml
 import litestar
@@ -546,21 +549,33 @@ class RegistryControl(litestar.Controller):
         if not agent_id and not reg_id:
             return {"registered": False, "state": "NotRegistered"}
 
-        # Query registry
+        # If agentIdentifier is in YAML, the agent IS registered on-chain.
+        # Query registry for latest details but don't flip to "not registered"
+        # if the API is temporarily unavailable.
         from kodosumi.service.expose.registry import get_registration_status
-        result = await get_registration_status(
-            masumi,
-            registration_id=reg_id,
-            agent_identifier=agent_id,
-        )
+        try:
+            result = await get_registration_status(
+                masumi,
+                registration_id=reg_id,
+                agent_identifier=agent_id,
+            )
+        except Exception as e:
+            logger.warning("Registry API error for %s: %s", name, e)
+            result = None
 
         if not result:
+            if agent_id:
+                # Trust YAML — agent was confirmed on-chain
+                return {
+                    "registered": True,
+                    "state": "RegistrationConfirmed",
+                    "agentIdentifier": agent_id,
+                    "registrationId": reg_id,
+                }
             return {
                 "registered": False,
-                "state": "NotFound",
-                "error": "Registration not found in registry",
+                "state": "Polling",
                 "registrationId": reg_id,
-                "agentIdentifier": agent_id,
             }
 
         # Backfill: if agentIdentifier exists but registrationId is missing,
@@ -574,10 +589,9 @@ class RegistryControl(litestar.Controller):
         return {
             "registered": result.get("state") == "RegistrationConfirmed",
             "state": result.get("state", "Unknown"),
-            "agentIdentifier": result.get("agentIdentifier"),
-            "registrationId": result_reg_id,
+            "agentIdentifier": result.get("agentIdentifier") or agent_id,
+            "registrationId": result_reg_id or reg_id,
             "name": result.get("name"),
-            "error": result.get("error"),
             "transaction": result.get("CurrentTransaction"),
         }
 
