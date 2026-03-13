@@ -136,7 +136,7 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
                         "walletVkey": wallet.get("walletVkey", ""),
                         "walletAddress": wallet.get("walletAddress", ""),
                         "sourceId": source.get("id", ""),
-                        "note": source.get("note", ""),
+                        "note": wallet.get("note", ""),
                     })
             return wallets
     except Exception as e:

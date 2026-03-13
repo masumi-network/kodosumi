@@ -464,11 +464,9 @@ deployments:
             </form>
         </article>
     </div>
-</div>
-{% endblock %}
 
-<!-- Register Agent Dialog -->
-<dialog id="register-dialog" class="register-dialog">
+    <!-- Register Agent Dialog -->
+    <dialog id="register-dialog" class="register-dialog">
     <h5>Register Agent on Masumi</h5>
     <div class="dialog-field">
         <label>Name</label>
@@ -521,7 +519,9 @@ deployments:
             Register Agent
         </button>
     </nav>
-</dialog>
+    </dialog>
+</div>
+{% endblock %}
 
 {% block script %}
 let metaIndex = {{ (item.meta | length) if item and item.meta else 0 }};
