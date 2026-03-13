@@ -791,13 +791,13 @@ async function loadWallets() {
             var current = sel.value;
             sel.innerHTML = '<option value="">Select wallet...</option>';
             wallets.forEach(function(w) {
-                var label = w.note
-                    ? w.note + ' (' + w.walletVkey.substring(0, 8) + '...)'
-                    : w.walletVkey.substring(0, 16) + '...';
+                var vk = w.walletVkey;
+                var shortId = vk.substring(0, 6) + '\u2026' + vk.substring(vk.length - 6);
+                var label = w.note ? w.note + ' (' + shortId + ')' : shortId;
                 var opt = document.createElement('option');
-                opt.value = w.walletVkey;
+                opt.value = vk;
                 opt.textContent = label;
-                if (w.walletVkey === current) opt.selected = true;
+                if (vk === current) opt.selected = true;
                 sel.appendChild(opt);
             });
         });

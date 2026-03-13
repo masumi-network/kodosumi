@@ -213,7 +213,18 @@ async def get_registration_status(
                 if resp.status_code == 200:
                     data = resp.json().get("data", {})
                     if data.get("agentIdentifier"):
-                        return data
+                        # /agent-identifier returns {agentIdentifier, Metadata, ...}
+                        # but has NO state or id field. If found here, agent is on-chain = confirmed.
+                        meta = data.get("Metadata", {})
+                        return {
+                            "state": "RegistrationConfirmed",
+                            "agentIdentifier": data["agentIdentifier"],
+                            "name": meta.get("name"),
+                            "description": meta.get("description"),
+                            "apiBaseUrl": meta.get("apiBaseUrl"),
+                            "AgentPricing": meta.get("AgentPricing"),
+                            "Tags": meta.get("Tags", []),
+                        }
         except Exception as e:
             logger.error("Error checking agent-identifier: %s", e)
 
