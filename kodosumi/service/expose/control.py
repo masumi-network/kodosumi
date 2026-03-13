@@ -563,11 +563,19 @@ class RegistryControl(litestar.Controller):
                 "agentIdentifier": agent_id,
             }
 
+        # Backfill: if agentIdentifier exists but registrationId is missing,
+        # write the registrationId from the registry into the YAML
+        result_reg_id = result.get("id")
+        if agent_id and not reg_id and result_reg_id and flow_url:
+            self._update_flow_meta(row, name, flow_url, {
+                "registrationId": result_reg_id,
+            })
+
         return {
             "registered": result.get("state") == "RegistrationConfirmed",
             "state": result.get("state", "Unknown"),
             "agentIdentifier": result.get("agentIdentifier"),
-            "registrationId": result.get("id"),
+            "registrationId": result_reg_id,
             "name": result.get("name"),
             "error": result.get("error"),
             "transaction": result.get("CurrentTransaction"),

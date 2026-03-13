@@ -28,6 +28,13 @@ class MasumiConfig:
     submit_result_by_time: float = 3600.0  # seconds - result submission deadline (default 60 minutes)
     poll_interval: float = 1.0  # seconds - interval between payment status polls
 
+    @property
+    def registry_network(self) -> str:
+        """Map internal network name to Masumi API network (Preprod|Mainnet)."""
+        if self.network.startswith("Mainnet"):
+            return "Mainnet"
+        return "Preprod"
+
 
 def _parse_masumi_env(default_masumi: str = "") -> Dict[str, MasumiConfig]:
     """

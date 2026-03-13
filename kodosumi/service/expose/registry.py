@@ -119,7 +119,7 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
 
     Returns list of dicts with walletVkey, walletAddress, and source info.
     """
-    url = f"{masumi.base_url}/payment-source?network={masumi.network}"
+    url = f"{masumi.base_url}/payment-source?network={masumi.registry_network}"
     headers = {"accept": "application/json", "token": masumi.token}
 
     try:
@@ -169,7 +169,7 @@ async def register_agent(
     }
 
     body = {
-        "network": masumi.network,
+        "network": masumi.registry_network,
         "sellingWalletVkey": wallet_vkey,
         "name": name,
         "description": description or "",
@@ -206,7 +206,7 @@ async def get_registration_status(
     headers = {"accept": "application/json", "token": masumi.token}
 
     if agent_identifier:
-        url = f"{masumi.base_url}/registry/agent-identifier?agentIdentifier={agent_identifier}"
+        url = f"{masumi.base_url}/registry/agent-identifier?network={masumi.registry_network}&agentIdentifier={agent_identifier}"
         try:
             async with HTTPXClient() as client:
                 resp = await client.get(url, headers=headers)
@@ -218,7 +218,7 @@ async def get_registration_status(
             logger.error("Error checking agent-identifier: %s", e)
 
     # Fallback: search in registry list
-    url = f"{masumi.base_url}/registry?network={masumi.network}"
+    url = f"{masumi.base_url}/registry?network={masumi.registry_network}"
     if search_query:
         url += f"&searchQuery={search_query}"
 
@@ -253,7 +253,7 @@ async def deregister_agent(
         "token": masumi.token,
     }
     body = {
-        "network": masumi.network,
+        "network": masumi.registry_network,
         "agentIdentifier": agent_identifier,
     }
 
