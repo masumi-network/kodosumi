@@ -166,6 +166,7 @@ cython_debug/
 data/
 .vscode
 .claude/*.backup
+.claude/settings.json
 proposal/
 
 crews/dev/*.yaml
