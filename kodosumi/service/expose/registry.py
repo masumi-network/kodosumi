@@ -33,7 +33,7 @@ CURRENCY_DECIMALS = 6
 
 def human_to_base_amount(amount: float) -> str:
     """Convert human-readable amount (e.g. 0.01) to base units string (e.g. '10000')."""
-    base = int(amount * (10 ** CURRENCY_DECIMALS))
+    base = round(amount * (10 ** CURRENCY_DECIMALS))
     return str(base)
 
 

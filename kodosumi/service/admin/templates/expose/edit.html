@@ -222,10 +222,21 @@
     }
     /* Register dialog */
     .register-dialog {
-        max-width: 500px;
+        max-width: 520px;
+        width: 90vw;
+        border-radius: 12px;
+        border: 1px solid var(--outline);
+        padding: 24px;
+    }
+    .register-dialog::backdrop {
+        background: rgba(0, 0, 0, 0.6);
+    }
+    .register-dialog h5 {
+        margin-top: 0;
+        margin-bottom: 16px;
     }
     .register-dialog .dialog-field {
-        margin-bottom: 12px;
+        margin-bottom: 14px;
     }
     .register-dialog .dialog-field label {
         font-size: 0.8rem;
@@ -237,6 +248,33 @@
         font-size: 0.85rem;
         color: var(--on-surface-variant);
         padding: 4px 0;
+    }
+    .register-dialog select {
+        background: var(--surface-variant);
+        color: var(--on-surface);
+        border: 1px solid var(--outline);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 0.85rem;
+        appearance: auto;
+        -webkit-appearance: auto;
+    }
+    .register-dialog .pricing-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .register-dialog nav {
+        margin-top: 16px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+    .register-dialog .dlg-error {
+        font-size: 0.8rem;
+        color: var(--error);
+        padding: 8px 0;
     }
 </style>
 {% endblock %}
@@ -467,58 +505,58 @@ deployments:
 
     <!-- Register Agent Dialog -->
     <dialog id="register-dialog" class="register-dialog">
-    <h5>Register Agent on Masumi</h5>
-    <div class="dialog-field">
-        <label>Name</label>
-        <div class="dialog-readonly" id="dlg_name"></div>
-    </div>
-    <div class="dialog-field">
-        <label>Description</label>
-        <div class="dialog-readonly" id="dlg_description"></div>
-    </div>
-    <div class="dialog-field">
-        <label>Tags</label>
-        <div class="dialog-readonly" id="dlg_tags"></div>
-    </div>
-    <div class="dialog-field">
-        <label>API Base URL</label>
-        <div class="dialog-readonly" id="dlg_api_url" style="font-family: monospace; font-size: 0.8rem;"></div>
-    </div>
-    <hr>
-    <div class="dialog-field">
-        <label>Pricing</label>
-        <div style="display: flex; gap: 8px; align-items: center;">
-            <select id="dlg_pricing_type" onchange="updatePricingFields()" style="width: 100px;">
-                <option value="Free">Free</option>
-                <option value="Fixed" selected>Fixed</option>
-            </select>
-            <div class="field border label" style="margin: 0; width: 100px;" id="dlg_amount_container">
-                <input type="number" id="dlg_amount" step="0.000001" min="0" value="0.01" oninput="updateCalc()">
-                <label>Amount</label>
-            </div>
-            <select id="dlg_currency" onchange="updateCalc()" style="width: 90px;">
-                <option value="USDM">USDM</option>
-                <option value="ADA">ADA</option>
-            </select>
-            <span class="calc-display" id="dlg_calc"></span>
+        <h5>Register Agent on Masumi</h5>
+        <div class="dialog-field">
+            <label>Name</label>
+            <div class="dialog-readonly" id="dlg_name"></div>
         </div>
-    </div>
-    <div class="dialog-field">
-        <label>Wallet</label>
-        <div class="dialog-readonly" id="dlg_wallet"></div>
-    </div>
-    <div class="dialog-field" id="dlg_optional">
-        <label>Optional (from YAML)</label>
-        <div class="dialog-readonly" id="dlg_optional_info" style="font-size: 0.8rem;"></div>
-    </div>
-    <div class="registry-error" id="dlg_error" style="display:none;"></div>
-    <nav>
-        <button type="button" class="secondary" onclick="document.getElementById('register-dialog').close()">Cancel</button>
-        <button type="button" class="primary" id="dlg_submit" onclick="submitRegistration()">
-            <i>app_registration</i>
-            Register Agent
-        </button>
-    </nav>
+        <div class="dialog-field">
+            <label>Description</label>
+            <div class="dialog-readonly" id="dlg_description"></div>
+        </div>
+        <div class="dialog-field">
+            <label>Tags</label>
+            <div class="dialog-readonly" id="dlg_tags"></div>
+        </div>
+        <div class="dialog-field">
+            <label>API Base URL</label>
+            <div class="dialog-readonly" id="dlg_api_url" style="font-family: monospace; font-size: 0.8rem;"></div>
+        </div>
+        <hr style="border-color: var(--outline); margin: 12px 0;">
+        <div class="dialog-field">
+            <label>Pricing</label>
+            <div class="pricing-row">
+                <select id="dlg_pricing_type" onchange="updatePricingFields()">
+                    <option value="Free">Free</option>
+                    <option value="Fixed" selected>Fixed</option>
+                </select>
+                <div class="field border label" style="margin: 0; width: 110px;" id="dlg_amount_container">
+                    <input type="number" id="dlg_amount" step="0.000001" min="0" value="0.01" oninput="updateCalc()">
+                    <label>Amount</label>
+                </div>
+                <select id="dlg_currency" onchange="updateCalc()">
+                    <option value="USDM">USDM</option>
+                    <option value="ADA">ADA</option>
+                </select>
+                <span class="calc-display" id="dlg_calc"></span>
+            </div>
+        </div>
+        <div class="dialog-field">
+            <label>Wallet</label>
+            <div class="dialog-readonly" id="dlg_wallet"></div>
+        </div>
+        <div class="dialog-field" id="dlg_optional">
+            <label>Optional (from YAML)</label>
+            <div class="dialog-readonly" id="dlg_optional_info" style="font-size: 0.8rem;"></div>
+        </div>
+        <div class="dlg-error" id="dlg_error" style="display:none;"></div>
+        <nav>
+            <button type="button" class="secondary" onclick="document.getElementById('register-dialog').close()">Cancel</button>
+            <button type="button" class="primary" id="dlg_submit" onclick="submitRegistration()">
+                <i>app_registration</i>
+                Register Agent
+            </button>
+        </nav>
     </dialog>
 </div>
 {% endblock %}
@@ -898,6 +936,7 @@ function updateBadge(idx, state, agentId) {
             break;
         case 'RegistrationRequested':
         case 'RegistrationInitiated':
+        case 'Polling':
             badge.className += ' reg-pending';
             badge.innerHTML = '<span class="reg-spinner"></span>\u00a0Pending...';
             break;
@@ -1103,7 +1142,16 @@ async function submitRegistration() {
 function startPolling(idx, flowUrl) {
     if (pollIntervals[idx]) return;
 
+    var pollCount = 0;
+    var maxPolls = 20; // 20 * 15s = 5 minutes max
     pollIntervals[idx] = setInterval(async function() {
+        pollCount++;
+        if (pollCount > maxPolls) {
+            clearInterval(pollIntervals[idx]);
+            delete pollIntervals[idx];
+            showRegError(idx, 'Registration is taking longer than expected. Reload page to check status.');
+            return;
+        }
         try {
             var resp = await fetch('/expose/' + exposeName + '/registry/poll', {
                 method: 'POST',
