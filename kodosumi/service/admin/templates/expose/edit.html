@@ -530,8 +530,8 @@ deployments:
                     <option value="Free">Free</option>
                     <option value="Fixed" selected>Fixed</option>
                 </select>
-                <div class="field border label" style="margin: 0; width: 110px;" id="dlg_amount_container">
-                    <input type="number" id="dlg_amount" step="0.000001" min="0" value="0.01" oninput="updateCalc()">
+                <div class="field border label" style="margin: 0; width: 150px;" id="dlg_amount_container">
+                    <input type="text" inputmode="decimal" id="dlg_amount" value="0.01" oninput="updateCalc()" pattern="[0-9]*[.,]?[0-9]*">
                     <label>Amount</label>
                 </div>
                 <select id="dlg_currency" onchange="updateCalc()">
@@ -1103,14 +1103,19 @@ function updatePricingFields() {
     if (show) updateCalc();
 }
 
+function parseAmount(str) {
+    if (!str) return 0;
+    return parseFloat(str.replace(',', '.')) || 0;
+}
+
 function updateCalc() {
     var amountEl = document.getElementById('dlg_amount');
     var currencyEl = document.getElementById('dlg_currency');
     var calcEl = document.getElementById('dlg_calc');
     if (!amountEl || !calcEl) return;
-    var amount = parseFloat(amountEl.value) || 0;
+    var amount = parseAmount(amountEl.value);
     var currency = currencyEl ? currencyEl.value : 'USDM';
-    var baseUnits = Math.floor(amount * 1000000);
+    var baseUnits = Math.round(amount * 1000000);
     var net = getNetwork();
     var unitName = currency === 'ADA' ? 'lovelace' : (net && net.indexOf('Mainnet') === -1 ? 'tUSDM' : 'USDM');
     calcEl.textContent = '= ' + baseUnits.toLocaleString() + ' ' + unitName;
@@ -1125,7 +1130,7 @@ async function submitRegistration() {
     var walletSelect = getWalletSelect(idx);
     var walletVkey = walletSelect ? walletSelect.value : '';
     var pricingType = document.getElementById('dlg_pricing_type').value;
-    var amount = parseFloat(document.getElementById('dlg_amount').value) || 0;
+    var amount = parseAmount(document.getElementById('dlg_amount').value);
     var currency = document.getElementById('dlg_currency').value;
 
     var submitBtn = document.getElementById('dlg_submit');
