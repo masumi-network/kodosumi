@@ -1173,6 +1173,12 @@ async function submitRegistration() {
         document.getElementById('register-dialog').close();
         updateBadge(idx, data.state || 'RegistrationRequested', data.agentIdentifier);
 
+        // Update textarea with new YAML (registrationId, agentPricing)
+        if (data.updatedYaml) {
+            var ta = document.querySelector('[name="meta_data_' + idx + '"]');
+            if (ta) ta.value = data.updatedYaml;
+        }
+
         var regBtn = document.getElementById('reg_btn_' + idx);
         var actionsRow = document.getElementById('reg_actions_' + idx);
         if (regBtn) regBtn.style.display = 'none';
@@ -1219,6 +1225,12 @@ function startPolling(idx, flowUrl) {
             });
             if (!resp.ok) return;
             var data = await resp.json();
+
+            // Update textarea with latest YAML from backend
+            if (data.updatedYaml) {
+                var ta = document.querySelector('[name="meta_data_' + idx + '"]');
+                if (ta) ta.value = data.updatedYaml;
+            }
 
             if (data.state === 'RegistrationConfirmed') {
                 clearInterval(pollIntervals[idx]);

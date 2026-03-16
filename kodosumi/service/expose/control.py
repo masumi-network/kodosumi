@@ -588,7 +588,12 @@ class RegistryControl(litestar.Controller):
             })
 
         tx = result.get("CurrentTransaction") or {}
+        # Error can be in CurrentTransaction.errorMessage or top-level error field
         error_message = tx.get("errorMessage") or tx.get("error") or ""
+        if not error_message:
+            top_error = result.get("error") or ""
+            if top_error and top_error != "{}":
+                error_message = top_error
 
         return {
             "registered": result.get("state") == "RegistrationConfirmed",
@@ -771,7 +776,7 @@ class RegistryControl(litestar.Controller):
         registration_id = result.get("id", "")
 
         # Update meta YAML with registrationId and pricing
-        await self._update_flow_meta(row, name, flow_url, {
+        updated_yaml = await self._update_flow_meta(row, name, flow_url, {
             "registrationId": registration_id,
             "agentPricing": yaml_pricing if pricing_type else meta_data.get("agentPricing"),
         })
@@ -781,6 +786,7 @@ class RegistryControl(litestar.Controller):
             "registrationId": registration_id,
             "state": result.get("state", "RegistrationRequested"),
             "agentIdentifier": result.get("agentIdentifier"),
+            "updatedYaml": updated_yaml,
         }
 
     @post(
@@ -842,17 +848,26 @@ class RegistryControl(litestar.Controller):
         new_agent_id = result.get("agentIdentifier")
 
         # If confirmed, write agentIdentifier to YAML
+        updated_yaml = None
         if reg_state == "RegistrationConfirmed" and new_agent_id:
-            await self._update_flow_meta(row, name, flow_url, {
+            updated_yaml = await self._update_flow_meta(row, name, flow_url, {
                 "agentIdentifier": new_agent_id,
             })
+
+        tx = result.get("CurrentTransaction") or {}
+        error_message = tx.get("errorMessage") or tx.get("error") or ""
+        if not error_message:
+            top_error = result.get("error") or ""
+            if top_error and top_error != "{}":
+                error_message = top_error
 
         return {
             "state": reg_state,
             "agentIdentifier": new_agent_id,
             "registrationId": result.get("id"),
-            "error": result.get("error"),
-            "transaction": result.get("CurrentTransaction"),
+            "errorMessage": error_message,
+            "transaction": tx or None,
+            "updatedYaml": updated_yaml,
         }
 
     @post(
@@ -939,19 +954,23 @@ class RegistryControl(litestar.Controller):
 
     async def _update_flow_meta(
         self, row: dict, expose_name: str, flow_url: str, updates: dict
-    ):
-        """Update fields in a flow's meta YAML data and save to DB."""
+    ) -> Optional[str]:
+        """Update fields in a flow's meta YAML data and save to DB.
+
+        Returns the updated data YAML string for the flow, or None.
+        """
         if not row.get("meta"):
-            return
+            return None
 
         try:
             meta_list = yaml.safe_load(row["meta"])
             if not meta_list:
-                return
+                return None
         except yaml.YAMLError:
-            return
+            return None
 
         updated = False
+        updated_data_yaml = None
         for entry in meta_list:
             if entry.get("url") != flow_url:
                 continue
@@ -970,12 +989,13 @@ class RegistryControl(litestar.Controller):
                 else:
                     parsed[key] = value
 
-            entry["data"] = yaml.dump(
+            updated_data_yaml = yaml.dump(
                 parsed,
                 default_flow_style=False,
                 allow_unicode=True,
                 sort_keys=False,
             )
+            entry["data"] = updated_data_yaml
             updated = True
             break
 
@@ -987,6 +1007,8 @@ class RegistryControl(litestar.Controller):
                 sort_keys=False,
             )
             await db.update_expose_meta(expose_name, new_meta_yaml)
+
+        return updated_data_yaml
 
 
 class WalletsControl(litestar.Controller):
