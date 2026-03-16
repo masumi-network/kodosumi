@@ -774,6 +774,37 @@ async function initRegistrySections() {
         const flowUrl = section.dataset.flowUrl;
         await checkRegistryStatus(idx, flowUrl);
     }
+
+    // Warn if any flow is registered and user tries to change network
+    checkNetworkLock();
+}
+
+function checkNetworkLock() {
+    var hasRegistered = false;
+    document.querySelectorAll('.registry-section .badge').forEach(function(badge) {
+        if (badge.textContent.indexOf('Confirmed') !== -1 ||
+            badge.textContent.indexOf('Requested') !== -1 ||
+            badge.textContent.indexOf('Initiated') !== -1) {
+            hasRegistered = true;
+        }
+    });
+    var networkEl = getNetworkEl();
+    if (!networkEl) return;
+
+    var warning = document.getElementById('network-lock-warning');
+    if (hasRegistered) {
+        if (!warning) {
+            warning = document.createElement('span');
+            warning.id = 'network-lock-warning';
+            warning.className = 'helper-text';
+            warning.style.color = 'var(--error)';
+            warning.style.fontSize = '0.8rem';
+            warning.textContent = 'Registered flows exist — changing the network may cause errors.';
+            networkEl.closest('.field').appendChild(warning);
+        }
+    } else if (warning) {
+        warning.remove();
+    }
 }
 
 function updateRegistryVisibility() {
@@ -905,6 +936,21 @@ function updateRegistryUI(idx, data) {
             info.style.color = 'var(--on-surface-variant)';
             info.textContent = 'Waiting for on-chain confirmation...';
         }
+    } else if (state === 'RegistrationFailed') {
+        if (regBtn) regBtn.style.display = '';
+        if (deregBtn) deregBtn.style.display = 'none';
+        if (walletRow) walletRow.style.display = '';
+        var errorMsg = data.errorMessage || '';
+        var txInfo = data.transaction || {};
+        var failInfo = document.getElementById('reg_info_' + idx);
+        if (failInfo) {
+            failInfo.style.display = 'block';
+            failInfo.style.color = 'var(--error)';
+            var msg = 'Registration failed.';
+            if (errorMsg) msg += ' Reason: ' + errorMsg;
+            if (txInfo.txHash) msg += ' (Tx: ' + txInfo.txHash.substring(0, 16) + '...)';
+            failInfo.textContent = msg;
+        }
     } else {
         if (regBtn) regBtn.style.display = '';
         if (deregBtn) deregBtn.style.display = 'none';
@@ -920,6 +966,8 @@ function updateRegistryUI(idx, data) {
             info.textContent = 'Tx: ' + (tx.txHash ? tx.txHash.substring(0, 16) + '...' : '\u2014') + '  Status: ' + (tx.status || '\u2014');
         }
     }
+
+    checkNetworkLock();
 }
 
 function updateBadge(idx, state, agentId) {
@@ -1084,11 +1132,16 @@ async function submitRegistration() {
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span class="reg-spinner"></span>\u00a0Submitting...';
 
+    // Send current textarea YAML so backend uses live edits, not stale DB data
+    var textarea = document.querySelector('[name="meta_data_' + idx + '"]');
+    var metaYaml = textarea ? textarea.value : '';
+
     try {
         var body = {
             flow_url: flowUrl,
             wallet_vkey: walletVkey,
-            pricing_type: pricingType
+            pricing_type: pricingType,
+            meta_yaml: metaYaml
         };
         if (pricingType === 'Fixed') {
             body.amount = amount;
@@ -1177,6 +1230,12 @@ function startPolling(idx, flowUrl) {
                 clearInterval(pollIntervals[idx]);
                 delete pollIntervals[idx];
                 updateRegistryUI(idx, data);
+                var failInfo = document.getElementById('reg_info_' + idx);
+                if (failInfo && data.errorMessage) {
+                    failInfo.style.display = 'block';
+                    failInfo.style.color = 'var(--error)';
+                    failInfo.textContent = 'Registration failed: ' + data.errorMessage;
+                }
             } else {
                 updateBadge(idx, data.state || 'Polling', data.agentIdentifier);
             }

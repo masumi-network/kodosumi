@@ -587,13 +587,17 @@ class RegistryControl(litestar.Controller):
                 "registrationId": result_reg_id,
             })
 
+        tx = result.get("CurrentTransaction") or {}
+        error_message = tx.get("errorMessage") or tx.get("error") or ""
+
         return {
             "registered": result.get("state") == "RegistrationConfirmed",
             "state": result.get("state", "Unknown"),
             "agentIdentifier": result.get("agentIdentifier") or agent_id,
             "registrationId": result_reg_id or reg_id,
             "name": result.get("name"),
-            "transaction": result.get("CurrentTransaction"),
+            "transaction": tx or None,
+            "errorMessage": error_message,
         }
 
     @post(
@@ -669,8 +673,25 @@ class RegistryControl(litestar.Controller):
                 status_code=422,
             )
 
-        # Parse meta YAML for this flow
-        meta_data = self._get_flow_meta(row, flow_url)
+        # Parse meta YAML — prefer live textarea content from frontend
+        # over stale DB data, so unsaved edits are used for registration.
+        frontend_yaml = data.get("meta_yaml", "")
+        if frontend_yaml:
+            try:
+                parsed = yaml.safe_load(frontend_yaml)
+                if not isinstance(parsed, dict):
+                    raise ClientException(
+                        detail="Invalid YAML format — expected a mapping (key: value pairs).",
+                        status_code=422,
+                    )
+                meta_data = parsed
+            except yaml.YAMLError as e:
+                raise ClientException(
+                    detail=f"YAML parse error in flow metadata: {e}",
+                    status_code=422,
+                )
+        else:
+            meta_data = self._get_flow_meta(row, flow_url)
         if meta_data is None:
             raise ClientException(detail=f"Flow '{flow_url}' not found", status_code=404)
 
@@ -710,14 +731,16 @@ class RegistryControl(litestar.Controller):
         amount = data.get("amount")
         currency = data.get("currency")
 
+        reg_network = masumi.registry_network  # "Preprod" or "Mainnet"
+
         if pricing_type and pricing_type != "Free" and amount is not None and currency:
             # Use values from dialog
-            yaml_pricing = pricing_to_yaml_format(pricing_type, float(amount), currency, network)
-            registry_pricing = pricing_yaml_to_registry(yaml_pricing, network)
+            yaml_pricing = pricing_to_yaml_format(pricing_type, float(amount), currency, reg_network)
+            registry_pricing = pricing_yaml_to_registry(yaml_pricing, reg_network)
         elif meta_data.get("agentPricing"):
             # Use values from YAML
             yaml_pricing = meta_data["agentPricing"]
-            registry_pricing = pricing_yaml_to_registry(yaml_pricing, network)
+            registry_pricing = pricing_yaml_to_registry(yaml_pricing, reg_network)
         else:
             raise ClientException(
                 detail="No pricing configured. Set pricing_type/amount/currency or add agentPricing to the YAML.",
