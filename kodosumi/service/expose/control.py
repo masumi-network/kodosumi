@@ -775,11 +775,12 @@ class RegistryControl(litestar.Controller):
 
         registration_id = result.get("id", "")
 
-        # Update meta YAML with registrationId and pricing
+        # Update meta YAML with registrationId and pricing.
+        # Use frontend_yaml as base so unsaved textarea edits are preserved.
         updated_yaml = await self._update_flow_meta(row, name, flow_url, {
             "registrationId": registration_id,
             "agentPricing": yaml_pricing if pricing_type else meta_data.get("agentPricing"),
-        })
+        }, base_data=frontend_yaml or None)
 
         return {
             "success": True,
@@ -953,9 +954,14 @@ class RegistryControl(litestar.Controller):
         return None
 
     async def _update_flow_meta(
-        self, row: dict, expose_name: str, flow_url: str, updates: dict
+        self, row: dict, expose_name: str, flow_url: str, updates: dict,
+        base_data: Optional[str] = None,
     ) -> Optional[str]:
         """Update fields in a flow's meta YAML data and save to DB.
+
+        If base_data is provided, it replaces the stored data YAML for
+        this flow before applying updates.  This allows the caller to
+        pass the live textarea content so unsaved edits are preserved.
 
         Returns the updated data YAML string for the flow, or None.
         """
@@ -975,7 +981,7 @@ class RegistryControl(litestar.Controller):
             if entry.get("url") != flow_url:
                 continue
 
-            data_str = entry.get("data", "")
+            data_str = base_data if base_data else entry.get("data", "")
             try:
                 parsed = yaml.safe_load(data_str) if data_str else {}
                 if not isinstance(parsed, dict):
