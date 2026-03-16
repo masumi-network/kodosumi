@@ -1069,6 +1069,14 @@ function openRegisterDialog(idx) {
         yamlData.hasAuthor = /^author:\s*\n/m.test(text) && !/^author:\s*~$/m.test(text);
         yamlData.hasCapability = /^capability:\s*\n/m.test(text);
         yamlData.hasLegal = /^legal:\s*\n/m.test(text);
+
+        // Parse agentPricing from YAML
+        var pricingTypeMatch = text.match(/agentPricing:\s*\n\s*-\s*pricingType:\s*(\w+)/m);
+        var amountMatch = text.match(/amount:\s*'?(\d+)'?/m);
+        var unitMatch = text.match(/unit:\s*([0-9a-f]+)/m);
+        if (pricingTypeMatch) yamlData.pricingType = pricingTypeMatch[1];
+        if (amountMatch) yamlData.baseAmount = amountMatch[1];
+        if (unitMatch) yamlData.unit = unitMatch[1];
     } catch (e) {
         yamlData.display = exposeName;
     }
@@ -1079,6 +1087,25 @@ function openRegisterDialog(idx) {
 
     var sumiAddress = '{{ app_server }}';
     document.getElementById('dlg_api_url').textContent = sumiAddress + '/sumi' + flowUrl;
+
+    // Pre-fill pricing from YAML if available
+    var dlgPricingType = document.getElementById('dlg_pricing_type');
+    var dlgAmount = document.getElementById('dlg_amount');
+    var dlgCurrency = document.getElementById('dlg_currency');
+    if (yamlData.pricingType) {
+        dlgPricingType.value = yamlData.pricingType;
+    }
+    if (yamlData.baseAmount) {
+        var humanAmount = parseInt(yamlData.baseAmount) / 1000000;
+        dlgAmount.value = humanAmount;
+    }
+    if (yamlData.unit) {
+        // Non-empty unit = USDM, empty = ADA
+        dlgCurrency.value = 'USDM';
+    } else if (yamlData.pricingType === 'Fixed') {
+        dlgCurrency.value = 'ADA';
+    }
+    updatePricingFields();
 
     var walletOpt = walletSelect.options[walletSelect.selectedIndex];
     document.getElementById('dlg_wallet').textContent = walletOpt.textContent;
