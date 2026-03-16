@@ -277,6 +277,7 @@
         padding: 8px 0;
     }
 </style>
+<script src="/static/js-yaml.min.js"></script>
 {% endblock %}
 
 {% block menu %}
@@ -1050,40 +1051,19 @@ function openRegisterDialog(idx) {
     var section = document.getElementById('registry_' + idx);
     var flowUrl = section.dataset.flowUrl;
 
-    // Parse YAML from textarea
+    // Parse YAML from textarea using js-yaml
     var textarea = document.querySelector('[name="meta_data_' + idx + '"]');
-    var yamlData = {};
+    var parsed = {};
     try {
-        var text = textarea.value;
-        var displayMatch = text.match(/^display:\s*(.+)$/m);
-        var descMatch = text.match(/^description:\s*(.+)$/m);
-        yamlData.display = displayMatch ? displayMatch[1].trim() : exposeName;
-        yamlData.description = descMatch ? descMatch[1].trim() : '';
-
-        var tagsMatch = text.match(/^tags:\s*\n((?:\s+-\s+.+\n?)*)/m);
-        if (tagsMatch) {
-            var matches = tagsMatch[1].match(/- (.+)/g);
-            yamlData.tags = matches ? matches.map(function(t) { return t.replace('- ', '').trim(); }) : [];
-        }
-
-        yamlData.hasAuthor = /^author:\s*\n/m.test(text) && !/^author:\s*~$/m.test(text);
-        yamlData.hasCapability = /^capability:\s*\n/m.test(text);
-        yamlData.hasLegal = /^legal:\s*\n/m.test(text);
-
-        // Parse agentPricing from YAML
-        var pricingTypeMatch = text.match(/agentPricing:\s*\n\s*-\s*pricingType:\s*(\w+)/m);
-        var amountMatch = text.match(/amount:\s*'?(\d+)'?/m);
-        var unitMatch = text.match(/unit:\s*([0-9a-f]+)/m);
-        if (pricingTypeMatch) yamlData.pricingType = pricingTypeMatch[1];
-        if (amountMatch) yamlData.baseAmount = amountMatch[1];
-        if (unitMatch) yamlData.unit = unitMatch[1];
+        parsed = jsyaml.load(textarea.value) || {};
     } catch (e) {
-        yamlData.display = exposeName;
+        console.warn('YAML parse error:', e.message);
     }
 
-    document.getElementById('dlg_name').textContent = yamlData.display || exposeName;
-    document.getElementById('dlg_description').textContent = yamlData.description || '(not set)';
-    document.getElementById('dlg_tags').textContent = (yamlData.tags || []).join(', ') || '(none)';
+    document.getElementById('dlg_name').textContent = parsed.display || exposeName;
+    document.getElementById('dlg_description').textContent = parsed.description || '(not set)';
+    var tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+    document.getElementById('dlg_tags').textContent = tags.join(', ') || '(none)';
 
     var sumiAddress = '{{ app_server }}';
     document.getElementById('dlg_api_url').textContent = sumiAddress + '/sumi' + flowUrl;
@@ -1092,28 +1072,30 @@ function openRegisterDialog(idx) {
     var dlgPricingType = document.getElementById('dlg_pricing_type');
     var dlgAmount = document.getElementById('dlg_amount');
     var dlgCurrency = document.getElementById('dlg_currency');
-    if (yamlData.pricingType) {
-        dlgPricingType.value = yamlData.pricingType;
-    }
-    if (yamlData.baseAmount) {
-        var humanAmount = parseInt(yamlData.baseAmount) / 1000000;
-        dlgAmount.value = humanAmount;
-    }
-    if (yamlData.unit) {
-        // Non-empty unit = USDM, empty = ADA
-        dlgCurrency.value = 'USDM';
-    } else if (yamlData.pricingType === 'Fixed') {
-        dlgCurrency.value = 'ADA';
+    var pricing = Array.isArray(parsed.agentPricing) ? parsed.agentPricing[0] : null;
+    if (pricing) {
+        dlgPricingType.value = pricing.pricingType || 'Fixed';
+        var fp = Array.isArray(pricing.fixedPricing) ? pricing.fixedPricing[0] : null;
+        if (fp && fp.amount) {
+            dlgAmount.value = parseInt(fp.amount) / 1000000;
+            dlgCurrency.value = fp.unit ? 'USDM' : 'ADA';
+        }
     }
     updatePricingFields();
+
+    // Optional fields
+    var hasAuthor = parsed.author && typeof parsed.author === 'object' &&
+        Object.values(parsed.author).some(function(v) { return v !== null; });
+    var hasCapability = parsed.capability && typeof parsed.capability === 'object';
+    var hasLegal = parsed.legal && typeof parsed.legal === 'object';
 
     var walletOpt = walletSelect.options[walletSelect.selectedIndex];
     document.getElementById('dlg_wallet').textContent = walletOpt.textContent;
 
     var optParts = [];
-    if (!yamlData.hasAuthor) optParts.push('Author: not set');
-    if (!yamlData.hasCapability) optParts.push('Capability: not set');
-    if (!yamlData.hasLegal) optParts.push('Legal: not set');
+    if (!hasAuthor) optParts.push('Author: not set');
+    if (!hasCapability) optParts.push('Capability: not set');
+    if (!hasLegal) optParts.push('Legal: not set');
     document.getElementById('dlg_optional_info').textContent = optParts.length ? optParts.join(' | ') : 'All set';
 
     document.getElementById('dlg_error').style.display = 'none';
