@@ -124,12 +124,109 @@ All configuration settings can be set using environment variables with the prefi
   - Admin user password
   - Should be changed in production
 
+### Ray Serve Settings
+
+- `RAY_SERVE_ADDRESS` (default: `"http://localhost:8005"`)
+  - Ray Serve HTTP endpoint address
+  - Used for proxying requests to deployed agent services
+
+- `SERVE_EXECUTABLE` (default: `"serve"`)
+  - Path to the Ray Serve executable
+
+- `BOOT_HEALTH_TIMEOUT` (default: `1800`)
+  - Boot process timeout in seconds (30 minutes)
+
+### Sumi Protocol Settings
+
+- `SUMI_ADDRESS` (default: `""`)
+  - Public URL for the Sumi API
+  - Falls back to `APP_SERVER` if empty
+  - Used as base URL for agent `apiBaseUrl` in registry
+
+### Masumi Payment Integration
+
+- `MASUMI` (default: `""`)
+  - Masumi network configuration (space-separated: `"Name URL Token [pay_by_time] [submit_result_by_time] [poll_interval]"`)
+  - Supports multiple networks via `MASUMI0` through `MASUMI9` (or `KODO_MASUMI0` through `KODO_MASUMI9`)
+  - Example: `KODO_MASUMI="Preprod https://payment.masumi.network/api/v1 mytoken"`
+  - Example multi-network:
+    ```
+    KODO_MASUMI0="Preprod https://payment.masumi.network/api/v1 preprod-token"
+    KODO_MASUMI1="Mainnet https://mainnet-payment.example.com/api/v1 mainnet-token 1200 3600 1.0"
+    ```
+  - Optional fields: `pay_by_time` (default: 1200s), `submit_result_by_time` (default: 3600s), `poll_interval` (default: 1.0s)
+
+### File Upload Settings
+
+- `UPLOAD_DIR` (default: `"./data/uploads"`)
+  - Directory for temporary file uploads
+
+- `CHUNK_SIZE` (default: `5242880` / 5MB)
+  - Chunk size for file upload operations in bytes
+
+- `SAVE_CHUNK_SIZE` (default: `1048576` / 1MB)
+  - Chunk size for saving files to disk in bytes
+
+### Audit Logging Settings
+
+- `AUDIT_LOG_FILE` (default: `"./data/audit.log"`)
+  - Path to the audit log file for boot/deployment events
+
+- `AUDIT_LOG_MAX_BYTES` (default: `10485760` / 10MB)
+  - Maximum size per audit log file before rotation
+
+- `AUDIT_LOG_BACKUP_COUNT` (default: `5`)
+  - Number of rotated audit log backup files to keep
+
+### Log Rotation Settings
+
+- `SPOOLER_LOG_MAX_BYTES` (default: `10485760` / 10MB)
+  - Maximum size per spooler log file before rotation
+
+- `SPOOLER_LOG_BACKUP_COUNT` (default: `5`)
+  - Number of rotated spooler log backup files to keep
+
+- `APP_LOG_MAX_BYTES` (default: `10485760` / 10MB)
+  - Maximum size per app log file before rotation
+
+- `APP_LOG_BACKUP_COUNT` (default: `5`)
+  - Number of rotated app log backup files to keep
+
+### SSL Settings
+
+- `SSL_KEYFILE` (default: `None`)
+  - Path to SSL key file
+
+- `SSL_CERTFILE` (default: `None`)
+  - Path to SSL certificate file
+
+- `SSL_KEYFILE_PASSWORD` (default: `None`)
+  - Password for the SSL key file
+
+- `SSL_CA_CERTS` (default: `None`)
+  - Path to CA certificates file
+
+### Lock and Session Settings
+
+- `LOCK_EXPIRES` (default: `10800` / 3 hours)
+  - How long a HITL lock remains valid in seconds
+
+- `ANONYMOUS` (default: `"_ANONYMOUS_"`)
+  - Identifier used for anonymous (non-authenticated) users
+
 ### Other Settings
 
 - `WAIT_FOR_JOB` (default: `600`)
-  - Maximum wait time for jobs in seconds
+  - Maximum wait time for job database to appear in seconds
 
 - `PROXY_TIMEOUT` (default: `30`)
-  - Proxy timeout in seconds
+  - HTTP proxy request timeout in seconds
 
+- `APP_WORKERS` (default: `1`)
+  - Number of Uvicorn worker processes
 
+- `YAML_BASE` (default: `"./data/config/config.yaml"`)
+  - Path to the base YAML configuration file
+
+- `REGISTER_FLOW` (default: `[]`)
+  - List of flow URLs to auto-register on startup

@@ -66,6 +66,14 @@ koco serve [OPTIONS]
 - `--exec-dir TEXT` - Execution directory
 - `--reload` - Reload app server on file changes
 - `--register TEXT` - Register endpoints (can be used multiple times)
+- `--app-workers INT` - Number of Uvicorn worker processes (default: 1)
+- `--ssl-keyfile TEXT` - Path to SSL key file
+- `--ssl-certfile TEXT` - Path to SSL certificate file
+- `--ssl-keyfile-password TEXT` - Password for SSL key file
+- `--ssl-version INT` - SSL protocol version
+- `--ssl-cert-reqs INT` - SSL certificate requirements
+- `--ssl-ca-certs TEXT` - Path to CA certificates file
+- `--ssl-ciphers TEXT` - SSL ciphers string
 
 **Examples:**
 
@@ -103,7 +111,11 @@ koco start
 koco start --exec-dir /path/to/flows
 ```
 
-### deploy
+### deploy (deprecated)
+
+<Warning>
+The `deploy` command is deprecated. Use the Expose API (`/expose/`) and Boot API (`/boot/`) via the Admin Panel instead.
+</Warning>
 
 Manages deployments of Kodosumi configurations.
 

@@ -66,13 +66,21 @@ pytest tests/test_flow.py -v  # single test file
 - `kodosumi/core.py` - Public API exports (`ServeAPI`, `Launch`, `Tracer`, etc.)
 - `kodosumi/serve.py` - `ServeAPI` class (extended FastAPI for agent endpoints)
 - `kodosumi/runner/main.py` - `Runner` Ray actor that executes agent workflows
+- `kodosumi/runner/payment.py` - `MasumiClient` for blockchain payment integration
 - `kodosumi/spooler.py` - Background process that collects execution events from Ray queues
-- `kodosumi/config.py` - Settings with `KODO_` env prefix (e.g., `KODO_EXEC_DIR`)
+- `kodosumi/config.py` - Settings with `KODO_` env prefix (e.g., `KODO_EXEC_DIR`, `KODO_MASUMI`)
 - `kodosumi/service/expose/` - Expose management system:
-  - `control.py` - API endpoints for CRUD operations
+  - `control.py` - API endpoints for CRUD, registry, wallets, exchange, audit
   - `boot.py` - Boot/shutdown streaming endpoints
   - `db.py` - SQLite database operations for expose items
   - `models.py` - Pydantic models for expose data
+  - `registry.py` - Masumi on-chain registry client (register, deregister, status)
+- `kodosumi/service/sumi/` - Sumi Protocol (MIP-002/MIP-003):
+  - `control.py` - External API for job submission, status, HITL locks
+  - `models.py` - MIP-003 compliant request/response models
+  - `schema.py` - OpenAPI to MIP-003 schema conversion
+- `kodosumi/service/dashboard.py` - Analytics API (running agents, errors, timeline, stats)
+- `kodosumi/service/role.py` - User management and profile endpoint
 
 ### Data Flow
 1. User submits form on agent endpoint → `ServeAPI` handles POST
@@ -84,9 +92,16 @@ pytest tests/test_flow.py -v  # single test file
 ### Directory Structure
 ```
 data/
-├── admin.db         # User database (SQLAlchemy)
-├── expose.db        # Expose items database
-├── execution/       # Per-user execution data
+├── admin.db              # User database (SQLAlchemy)
+├── expose.db             # Expose items database
+├── serve_config.yaml     # Ray Serve configuration
+├── audit.log             # Boot/deployment audit log (rotating)
+├── app.log               # Application server log (rotating)
+├── spooler.log           # Spooler log (rotating)
+├── uploads/              # Temporary file uploads
+├── config/
+│   └── config.yaml       # Base deployment configuration
+├── execution/            # Per-user execution data
 │   └── {user_id}/
 │       └── {exec_id}/
 │           ├── sqlite3.db  # Execution event log (monitor table)
@@ -115,11 +130,29 @@ data/
 - `GET /exchange/export` - Export all expose items to JSON
 - `POST /exchange/import` - Import expose items from JSON
 
+#### Registry (`/expose/{name}/registry`)
+- `GET /expose/{name}/registry` - Get on-chain registration status
+- `POST /expose/{name}/registry` - Register agent on Masumi
+- `POST /expose/{name}/registry/poll` - Poll for confirmation
+- `POST /expose/{name}/registry/deregister` - Deregister agent
+- `GET /expose/{name}/wallets` - List selling wallets
+
+#### Sumi Protocol (`/sumi/`)
+- `GET /sumi/` - List available services
+- `POST /sumi/{expose}/{meta}/start_job` - Start a job
+- `GET /sumi/{expose}/{meta}/status/{job_id}` - Get job status
+- `POST /sumi/{expose}/{meta}/provide_input` - HITL input
+- `GET /sumi/{expose}/{meta}/input_schema` - Get input schema
+
+#### Profile & Roles
+- `GET /role/profile` - Get own user profile (no operator required)
+- `GET /role/` - List all roles (operator only)
+
 #### Other Key Endpoints
 - `GET /health/` - System health (Ray, Serve, Spooler, Services)
 - `POST /flow/register` - Register flows from OpenAPI endpoints
 - `GET /flow/` - List registered flows
-- `/-/{path}` - Proxy to registered agent endpoints
+- `GET /api/dashboard/*` - Analytics (running agents, errors, timeline, stats)
 
 ## Key Patterns
 
@@ -155,6 +188,9 @@ Settings via environment variables with `KODO_` prefix or `.env` file:
 - `KODO_RAY_SERVE_ADDRESS` - Ray Serve HTTP endpoint (default: `http://localhost:8005`)
 - `KODO_BOOT_HEALTH_TIMEOUT` - Boot process timeout in seconds (default: 1800)
 - `KODO_ADMIN_EMAIL` / `KODO_ADMIN_PASSWORD` - Default admin credentials
+- `KODO_SUMI_ADDRESS` - Public Sumi API URL (fallback to `APP_SERVER`)
+- `KODO_MASUMI` - Masumi payment config: `"Name URL Token [pay_by_time] [submit_result_by_time] [poll_interval]"`
+- `KODO_MASUMI0..9` - Additional Masumi network configs (multi-network support)
 
 ### Litestar Controllers
 ```python

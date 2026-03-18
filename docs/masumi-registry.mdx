@@ -108,6 +108,47 @@ done
 If state is `RegistrationFailed` with error `UTxO Fully Depleted`, the wallet has no available UTxOs. Use a different wallet or wait for pending transactions to confirm.
 </Note>
 
+## Kodosumi Registry Endpoints
+
+The Admin Panel provides REST endpoints to manage registry operations without calling the Masumi API directly. These endpoints handle pricing conversion, YAML updates, and wallet listing automatically.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/expose/{name}/registry?flow_url=...` | Get registration status for a flow |
+| `POST` | `/expose/{name}/registry` | Register agent on-chain (reads pricing/metadata from YAML) |
+| `POST` | `/expose/{name}/registry/poll` | Poll for registration confirmation and update YAML |
+| `POST` | `/expose/{name}/registry/deregister` | Deregister agent from on-chain registry |
+| `GET` | `/expose/{name}/wallets` | List available selling wallets for the expose's network |
+
+### Register via Kodosumi API
+
+```bash
+curl -X POST "https://your-panel/expose/my_agent_cc/registry" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: kodosumi_jwt=YOUR_JWT" \
+  -d '{
+    "flow_url": "/my_agent_cc/analyze",
+    "wallet_vkey": "2a581594ee277e1625a4e999b1b2d788f54217c35bd7f50ea9aecd64",
+    "pricing_type": "Fixed",
+    "amount": 0.01,
+    "currency": "USDM"
+  }'
+```
+
+The endpoint reads `display`, `description`, `tags`, `author`, and `capability` from the flow's meta YAML, converts pricing to the on-chain format, and updates the YAML with `registrationId` and `agentPricing` after submission.
+
+### UI Integration
+
+The Expose Edit page includes a built-in registry section with:
+- Network selector and wallet dropdown
+- Register dialog with pricing calculator (USDM/ADA, base unit conversion)
+- Auto-polling for on-chain confirmation (15s intervals, 5 min timeout)
+- Live YAML updates when registration completes
+
+## Direct Masumi API Usage
+
+The following sections document direct interaction with the Masumi Payment API for advanced use cases.
+
 ## Step 1: Find Your Selling Wallet
 
 Query the payment sources to locate your `sellingWalletVkey`:
