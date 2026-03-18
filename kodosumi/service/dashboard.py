@@ -20,22 +20,6 @@ class DashboardAPI(Controller):
 
     tags = ["Dashboard"]
 
-    @get("/debug/user", summary="Debug current user", description="Returns current user's ID, name, email, operator status, and active flag. For debugging authentication.")
-    async def debug_user(
-        self,
-        request: Request,
-        transaction: AsyncSession
-    ) -> Dict[str, Any]:
-        """Debug endpoint to check current user and operator status."""
-        current_user = await get_user_details(request.user, transaction)
-        return {
-            "user_id": str(current_user.id),
-            "name": current_user.name,
-            "email": current_user.email,
-            "operator": current_user.operator,
-            "active": current_user.active
-        }
-
     async def _get_user_map(self, transaction: AsyncSession) -> Dict[str, str]:
         """Get mapping of user IDs to user names."""
         query = select(Role.id, Role.name)
