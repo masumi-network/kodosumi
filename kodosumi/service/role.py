@@ -43,7 +43,7 @@ class ProfileControl(litestar.Controller):
     path = "/profile"
 
     @get("/", summary="Get own profile",
-         description="Returns the profile of the currently authenticated user.",
+         description="Returns the profile (id, name, email, active) of the currently authenticated user. No operator privileges required.",
          operation_id="25_get_profile")
     async def get_profile(self, request: Request,
                           transaction: AsyncSession) -> RoleResponse:

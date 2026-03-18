@@ -513,6 +513,7 @@ class RegistryControl(litestar.Controller):
     @get(
         "",
         summary="Get registry status for a flow",
+        description="Check Masumi on-chain registry status for a specific flow. Returns registration state, agentIdentifier, and transaction details.",
         operation_id="registry_status",
     )
     async def get_status(
@@ -608,6 +609,7 @@ class RegistryControl(litestar.Controller):
     @post(
         "",
         summary="Register agent on Masumi",
+        description="Register an agent flow on the Masumi on-chain registry. Reads display, description, tags, and pricing from the flow's meta YAML. Requires wallet_vkey and flow_url in request body.",
         operation_id="registry_register",
     )
     async def register(
@@ -793,6 +795,7 @@ class RegistryControl(litestar.Controller):
     @post(
         "/poll",
         summary="Poll registry status and update YAML",
+        description="Poll Masumi registry for registration confirmation. Updates meta YAML with agentIdentifier when confirmed. Called periodically by frontend after registration.",
         operation_id="registry_poll",
     )
     async def poll(
@@ -874,6 +877,7 @@ class RegistryControl(litestar.Controller):
     @post(
         "/deregister",
         summary="Deregister agent",
+        description="Remove an agent from the Masumi on-chain registry. Clears agentIdentifier and registrationId from the flow's meta YAML.",
         operation_id="registry_deregister",
     )
     async def deregister(
@@ -1027,6 +1031,7 @@ class WalletsControl(litestar.Controller):
     @get(
         "",
         summary="List wallets for expose network",
+        description="List available selling wallets from Masumi Payment API for the expose's configured network.",
         operation_id="registry_wallets",
     )
     async def list_wallets(self, name: str, state: State) -> dict:

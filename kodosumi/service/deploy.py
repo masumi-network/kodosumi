@@ -115,8 +115,9 @@ async def _wait_for(*tasks) -> str:
 
 
 class DeployControl(litestar.Controller):
+    """Deprecated: Use Expose API (/expose/) and Boot API (/boot/) instead."""
 
-    tags = ["Deployment"]
+    tags = ["Deployment (deprecated)"]
     guards=[operator_guard]
 
 
@@ -171,7 +172,9 @@ class DeployControl(litestar.Controller):
         await _wait_for(deployer.delete.remote(name))
 
 class ServeControl(litestar.Controller):
-    tags = ["Deployment"]
+    """Deprecated: Use Expose API (/expose/) and Boot API (/boot/) instead."""
+
+    tags = ["Deployment (deprecated)"]
     guards=[operator_guard]
     
     @post("/", summary="Re-deploy all",
