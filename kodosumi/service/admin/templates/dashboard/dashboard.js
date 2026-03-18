@@ -1,6 +1,10 @@
 // Dashboard JavaScript
+const PAGE_SIZE = 100;
 let refreshInterval = null;
 let currentTimeRange = 24;
+let currentOffset = 0;
+let hasMore = false;
+let isLoadingMore = false;
 let currentFilters = {
     search: '',
     agent_name: '',
@@ -41,9 +45,11 @@ function getStatusBadge(status) {
 }
 
 // API calls
-async function fetchRunningAgents() {
+async function fetchRunningAgents(limit = PAGE_SIZE, offset = 0) {
     const params = new URLSearchParams({
         hours: currentTimeRange,
+        limit: limit,
+        offset: offset,
         ...Object.fromEntries(Object.entries(currentFilters).filter(([_, v]) => v !== ''))
     });
     const response = await fetch(`/api/dashboard/running-agents?${params}`);
@@ -82,20 +88,8 @@ function formatFileSize(bytes) {
 }
 
 // Render functions
-function renderRunningAgents(data) {
-    const tbody = document.querySelector('#running-agents-table tbody');
-    const resultsCount = document.getElementById('results-count');
-
-    if (data.agents.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="center-align">No agents found</td></tr>';
-        resultsCount.textContent = 'No results';
-        return;
-    }
-
-    // Populate filter dropdowns
-    populateFilters(data.agents);
-
-    tbody.innerHTML = data.agents.map(agent => {
+function renderAgentRows(agents) {
+    return agents.map(agent => {
         const hasFiles = agent.upload_count > 0 || agent.download_count > 0;
         const fileDisplay = hasFiles
             ? `<a href="#" onclick="showFiles('${agent.fid}'); return false;" style="color: var(--primary); text-decoration: underline;">${agent.upload_count}/${agent.download_count}</a>`
@@ -118,9 +112,43 @@ function renderRunningAgents(data) {
         </tr>
         `;
     }).join('');
+}
 
-    // Update results count
-    resultsCount.textContent = `Showing ${data.agents.length} of ${data.total} executions`;
+function renderRunningAgents(data, append = false) {
+    const tbody = document.querySelector('#running-agents-table tbody');
+    const resultsCount = document.getElementById('results-count');
+
+    hasMore = data.has_more || false;
+
+    if (!append && data.agents.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="center-align">No agents found</td></tr>';
+        resultsCount.textContent = 'No results';
+        return;
+    }
+
+    if (!append) {
+        populateFilters(data.agents);
+        tbody.innerHTML = renderAgentRows(data.agents);
+    } else {
+        tbody.insertAdjacentHTML('beforeend', renderAgentRows(data.agents));
+    }
+
+    const showing = (data.offset || 0) + data.agents.length;
+    resultsCount.textContent = `Showing ${showing} of ${data.total} executions`;
+}
+
+async function loadMoreAgents() {
+    if (isLoadingMore || !hasMore) return;
+    isLoadingMore = true;
+    try {
+        currentOffset += PAGE_SIZE;
+        const data = await fetchRunningAgents(PAGE_SIZE, currentOffset);
+        renderRunningAgents(data, true);
+    } catch (err) {
+        console.error('Failed to load more agents:', err);
+    } finally {
+        isLoadingMore = false;
+    }
 }
 
 async function showFiles(fid) {
@@ -189,11 +217,7 @@ function populateFilters(agents) {
     agentSelect.innerHTML = '<option value="">All Agents</option>' +
         agentNames.map(name => `<option value="${name}" ${name === currentAgent ? 'selected' : ''}>${name}</option>`).join('');
 
-    // Populate user filter
-    const userSelect = document.getElementById('filter-user');
-    const currentUser = userSelect.value;
-    userSelect.innerHTML = '<option value="">All Users</option>' +
-        users.map(user => `<option value="${user}" ${user === currentUser ? 'selected' : ''}>${user}</option>`).join('');
+    // User filter is populated from agent-stats (sees all users, not just current page)
 
     // Populate status filter - only show statuses that exist in the data
     const statusSelect = document.getElementById('filter-status');
@@ -441,13 +465,14 @@ function renderTimeline(data) {
 }
 
 function renderStats(data) {
-    // Store global stats for comparison
+    // Store global stats and user_map for reuse
     globalStats = {
         total: data.total_executions,
         running: data.by_status.running || 0,
         error_rate: data.error_rate,
         avg_runtime: data.avg_runtime
     };
+    const userMap = data.user_map || {};
 
     // Update summary stats (will be updated again with filtered counts)
     updateStatsDisplay();
@@ -455,25 +480,37 @@ function renderStats(data) {
     // Render status table
     renderStatsTable('status-table-body', data.by_status);
 
-    // Render user table
-    renderStatsTable('user-table-body', data.by_user);
+    // Render user table — resolve UUIDs to names
+    const userByName = {};
+    for (const [uid, count] of Object.entries(data.by_user)) {
+        userByName[userMap[uid] || uid] = count;
+    }
+    renderStatsTable('user-table-body', userByName);
+
+    // Populate user filter from ALL users (not just current page)
+    const userSelect = document.getElementById('filter-user');
+    const currentUser = userSelect.value;
+    const allUsers = Object.entries(userMap)
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    userSelect.innerHTML = '<option value="">All Users</option>' +
+        allUsers.map(u => `<option value="${u.id}" ${u.id === currentUser ? 'selected' : ''}>${u.name}</option>`).join('');
 }
 
 function updateStatsDisplay(filteredData) {
     if (filteredData) {
-        // Show filtered / total
-        const filteredTotal = filteredData.agents.length;
+        // Use server-side total (all matching, not just current page)
+        const filteredTotal = filteredData.total;
         const filteredRunning = filteredData.agents.filter(a => a.status === 'running').length;
         const filteredErrors = filteredData.agents.filter(a => a.error).length;
         const filteredErrorRate = filteredTotal > 0 ? (filteredErrors / filteredTotal) * 100 : 0;
-        const filteredAvgRuntime = filteredData.agents.reduce((sum, a) => sum + (a.runtime || 0), 0) / (filteredTotal || 1);
+        const filteredAvgRuntime = filteredData.agents.reduce((sum, a) => sum + (a.runtime || 0), 0) / (filteredData.agents.length || 1);
 
         document.getElementById('stat-total').innerHTML = `${filteredTotal}<span class="small" style="color: var(--on-surface-variant);"> / ${globalStats.total}</span>`;
         document.getElementById('stat-running').innerHTML = `${filteredRunning}<span class="small" style="color: var(--on-surface-variant);"> / ${globalStats.running}</span>`;
         document.getElementById('stat-errors').innerHTML = `${filteredErrorRate.toFixed(1)}%<span class="small" style="color: var(--on-surface-variant);"> / ${(globalStats.error_rate * 100).toFixed(1)}%</span>`;
         document.getElementById('stat-runtime').innerHTML = `${formatDuration(filteredAvgRuntime)}<span class="small" style="color: var(--on-surface-variant);"> / ${formatDuration(globalStats.avg_runtime)}</span>`;
     } else {
-        // Show only totals
         document.getElementById('stat-total').textContent = globalStats.total;
         document.getElementById('stat-running').textContent = globalStats.running;
         document.getElementById('stat-errors').textContent = `${(globalStats.error_rate * 100).toFixed(1)}%`;
@@ -509,21 +546,26 @@ function renderStatsTable(tableBodyId, data) {
 // Load all dashboard data
 async function loadDashboard() {
     try {
-        // Load all data in parallel
+        currentOffset = 0;
+
         const [runningData, errorData, timelineData, statsData] = await Promise.all([
-            fetchRunningAgents(),
+            fetchRunningAgents(PAGE_SIZE, 0),
             fetchErrors(),
             fetchTimeline(),
             fetchAgentStats()
         ]);
 
-        // Render all components
+        // Handle "index building" state
+        if (runningData.status === 'index_building') {
+            const tbody = document.querySelector('#running-agents-table tbody');
+            tbody.innerHTML = `<tr><td colspan="7" class="center-align"><progress></progress> ${runningData.message}</td></tr>`;
+            return;
+        }
+
         renderRunningAgents(runningData);
         renderErrors(errorData);
         renderTimeline(timelineData);
         renderStats(statsData);
-
-        // Update stats with filtered data
         updateStatsDisplay(runningData);
     } catch (err) {
         console.error('Failed to load dashboard:', err);
@@ -569,6 +611,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Auto-refresh every 30 seconds
     refreshInterval = setInterval(loadDashboard, 30000);
+
+    // Infinite scroll for agents table — the scrollable div wraps the table
+    const tableContainer = document.querySelector('#running-agents-table')?.parentElement;
+    if (tableContainer) {
+        tableContainer.addEventListener('scroll', () => {
+            if (tableContainer.scrollTop + tableContainer.clientHeight >= tableContainer.scrollHeight - 100) {
+                loadMoreAgents();
+            }
+        });
+    }
 });
 
 // Cleanup on page unload
