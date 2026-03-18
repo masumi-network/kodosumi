@@ -56,7 +56,7 @@ class DashboardAPI(Controller):
         except Exception:
             return []
 
-    @get("/running-agents")
+    @get("/running-agents", summary="List running agents", description="Get all currently running or recently active agent executions. Supports filtering by hours, agent_name, user, status, and search. Non-operators see only their own executions.")
     async def get_running_agents(
         self,
         request: Request,
@@ -169,7 +169,7 @@ class DashboardAPI(Controller):
             },
         }
 
-    @get("/errors")
+    @get("/errors", summary="List recent errors", description="Get recent error events from all executions within the specified time window. Non-operators see only their own errors.")
     async def get_errors(
         self,
         request: Request,
@@ -227,7 +227,7 @@ class DashboardAPI(Controller):
         errors.sort(key=lambda x: x["timestamp"], reverse=True)
         return {"total": len(errors), "errors": errors[:limit]}
 
-    @get("/timeline")
+    @get("/timeline", summary="Get execution timeline", description="Get execution timeline data for charting. Returns all executions within the specified time window sorted by start time.")
     async def get_timeline(
         self,
         request: Request,
@@ -272,7 +272,7 @@ class DashboardAPI(Controller):
 
         return {"total": len(executions), "executions": executions}
 
-    @get("/agent-stats")
+    @get("/agent-stats", summary="Get agent statistics", description="Get aggregate statistics: total executions, status breakdown, per-user counts, average runtime, and error rate.")
     async def get_agent_stats(
         self,
         request: Request,
@@ -347,7 +347,7 @@ class DashboardAPI(Controller):
         stats["user_map"] = user_map
         return stats
 
-    @get("/execution/{fid:str}/details")
+    @get("/execution/{fid:str}/details", summary="Get execution details", description="Get detailed information about a specific execution including all monitor events and metadata.")
     async def get_execution_details(
         self,
         fid: str,
@@ -449,7 +449,7 @@ class DashboardAPI(Controller):
             "download_count": download_count,
         }
 
-    @get("/execution/{fid:str}/files")
+    @get("/execution/{fid:str}/files", summary="Get execution files", description="List uploaded input files and generated output files for a specific execution.")
     async def get_execution_files(
         self,
         fid: str,
