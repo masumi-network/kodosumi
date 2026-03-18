@@ -38,6 +38,7 @@ from kodosumi.service.admin.panel import AdminControl
 from kodosumi.service.auth import LoginControl
 from kodosumi.service.dashboard import DashboardAPI
 from kodosumi.service.deploy import DeployControl, ServeControl
+from kodosumi.service.execution_index import ExecutionIndex, start_refresh_loop
 from kodosumi.service.files import FileControl
 from kodosumi.service.flow import FlowControl
 from kodosumi.service.health import HealthControl
@@ -123,15 +124,37 @@ async def provide_transaction(
             ) from exc
 
    
+async def _build_execution_index(app: Litestar):
+    """Build execution index in background thread, then start refresh loop."""
+    import asyncio
+    index = app.state["execution_index"]
+    await asyncio.to_thread(index.full_scan)
+    logger.info(
+        f"Execution index ready: {index.count} executions "
+        f"({index.active_count} active) from {index.user_count} users"
+    )
+    app.state["index_refresh_task"] = asyncio.create_task(
+        start_refresh_loop(index)
+    )
+
+
 async def startup(app: Litestar):
+    import asyncio
     helper.ray_init()
     await endpoint.init(app.state)
-    # Initialize expose database and serve config
     await expose_db.init_database()
     ensure_serve_config()
+    # Start execution index build non-blocking — dashboard shows
+    # "building..." until ready, server accepts requests immediately
+    exec_dir = Path(app.state["settings"].EXEC_DIR)
+    app.state["execution_index"] = ExecutionIndex(exec_dir, refresh_interval=60)
+    asyncio.create_task(_build_execution_index(app))
 
 
 async def shutdown(app):
+    task = app.state.get("index_refresh_task")
+    if task and not task.done():
+        task.cancel()
     await endpoint.destroy(app.state)
     helper.ray_shutdown()
 

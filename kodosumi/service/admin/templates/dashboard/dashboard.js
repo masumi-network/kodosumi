@@ -1,6 +1,10 @@
 // Dashboard JavaScript
+const PAGE_SIZE = 100;
 let refreshInterval = null;
 let currentTimeRange = 24;
+let currentOffset = 0;
+let hasMore = false;
+let isLoadingMore = false;
 let currentFilters = {
     search: '',
     agent_name: '',
@@ -41,9 +45,11 @@ function getStatusBadge(status) {
 }
 
 // API calls
-async function fetchRunningAgents() {
+async function fetchRunningAgents(limit = PAGE_SIZE, offset = 0) {
     const params = new URLSearchParams({
         hours: currentTimeRange,
+        limit: limit,
+        offset: offset,
         ...Object.fromEntries(Object.entries(currentFilters).filter(([_, v]) => v !== ''))
     });
     const response = await fetch(`/api/dashboard/running-agents?${params}`);
@@ -82,20 +88,8 @@ function formatFileSize(bytes) {
 }
 
 // Render functions
-function renderRunningAgents(data) {
-    const tbody = document.querySelector('#running-agents-table tbody');
-    const resultsCount = document.getElementById('results-count');
-
-    if (data.agents.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="center-align">No agents found</td></tr>';
-        resultsCount.textContent = 'No results';
-        return;
-    }
-
-    // Populate filter dropdowns
-    populateFilters(data.agents);
-
-    tbody.innerHTML = data.agents.map(agent => {
+function renderAgentRows(agents) {
+    return agents.map(agent => {
         const hasFiles = agent.upload_count > 0 || agent.download_count > 0;
         const fileDisplay = hasFiles
             ? `<a href="#" onclick="showFiles('${agent.fid}'); return false;" style="color: var(--primary); text-decoration: underline;">${agent.upload_count}/${agent.download_count}</a>`
@@ -118,9 +112,43 @@ function renderRunningAgents(data) {
         </tr>
         `;
     }).join('');
+}
 
-    // Update results count
-    resultsCount.textContent = `Showing ${data.agents.length} of ${data.total} executions`;
+function renderRunningAgents(data, append = false) {
+    const tbody = document.querySelector('#running-agents-table tbody');
+    const resultsCount = document.getElementById('results-count');
+
+    hasMore = data.has_more || false;
+
+    if (!append && data.agents.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="center-align">No agents found</td></tr>';
+        resultsCount.textContent = 'No results';
+        return;
+    }
+
+    if (!append) {
+        populateFilters(data.agents);
+        tbody.innerHTML = renderAgentRows(data.agents);
+    } else {
+        tbody.insertAdjacentHTML('beforeend', renderAgentRows(data.agents));
+    }
+
+    const showing = (data.offset || 0) + data.agents.length;
+    resultsCount.textContent = `Showing ${showing} of ${data.total} executions`;
+}
+
+async function loadMoreAgents() {
+    if (isLoadingMore || !hasMore) return;
+    isLoadingMore = true;
+    try {
+        currentOffset += PAGE_SIZE;
+        const data = await fetchRunningAgents(PAGE_SIZE, currentOffset);
+        renderRunningAgents(data, true);
+    } catch (err) {
+        console.error('Failed to load more agents:', err);
+    } finally {
+        isLoadingMore = false;
+    }
 }
 
 async function showFiles(fid) {
@@ -509,21 +537,26 @@ function renderStatsTable(tableBodyId, data) {
 // Load all dashboard data
 async function loadDashboard() {
     try {
-        // Load all data in parallel
+        currentOffset = 0;
+
         const [runningData, errorData, timelineData, statsData] = await Promise.all([
-            fetchRunningAgents(),
+            fetchRunningAgents(PAGE_SIZE, 0),
             fetchErrors(),
             fetchTimeline(),
             fetchAgentStats()
         ]);
 
-        // Render all components
+        // Handle "index building" state
+        if (runningData.status === 'index_building') {
+            const tbody = document.querySelector('#running-agents-table tbody');
+            tbody.innerHTML = `<tr><td colspan="7" class="center-align"><progress></progress> ${runningData.message}</td></tr>`;
+            return;
+        }
+
         renderRunningAgents(runningData);
         renderErrors(errorData);
         renderTimeline(timelineData);
         renderStats(statsData);
-
-        // Update stats with filtered data
         updateStatsDisplay(runningData);
     } catch (err) {
         console.error('Failed to load dashboard:', err);
@@ -569,6 +602,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Auto-refresh every 30 seconds
     refreshInterval = setInterval(loadDashboard, 30000);
+
+    // Infinite scroll for agents table
+    const tableContainer = document.querySelector('#running-agents-table')?.closest('.scroll');
+    if (tableContainer) {
+        tableContainer.addEventListener('scroll', () => {
+            if (tableContainer.scrollTop + tableContainer.clientHeight >= tableContainer.scrollHeight - 100) {
+                loadMoreAgents();
+            }
+        });
+    }
 });
 
 // Cleanup on page unload
