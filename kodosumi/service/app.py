@@ -53,7 +53,7 @@ from kodosumi.service.expose.control import (
     AuditLogControl, RegistryControl, WalletsControl, ensure_serve_config
 )
 from kodosumi.service.expose import db as expose_db
-from kodosumi.service.role import RoleControl
+from kodosumi.service.role import RoleControl, ProfileControl
 from kodosumi.service.sumi.control import SumiControl, SumiLockControl
 
 
@@ -204,7 +204,7 @@ def create_app(**kwargs) -> Litestar:
                                allow_credentials=True),
         route_handlers=[
             Router(path="/", route_handlers=[LoginControl]),
-            Router(path="/role", route_handlers=[RoleControl]),
+            Router(path="/role", route_handlers=[RoleControl, ProfileControl]),
             Router(path="/-/", route_handlers=[ProxyControl]),
             Router(path="/lock", route_handlers=[LockController]),
             Router(path="/admin", route_handlers=[AdminControl]),

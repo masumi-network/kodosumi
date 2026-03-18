@@ -272,6 +272,7 @@ class DashboardAPI(Controller):
 
         return {"total": len(executions), "executions": executions}
 
+
     @get("/agent-stats", summary="Get agent statistics", description="Get aggregate statistics: total executions, status breakdown, per-user counts, average runtime, and error rate.")
     async def get_agent_stats(
         self,
