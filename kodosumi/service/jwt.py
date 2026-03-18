@@ -50,13 +50,19 @@ async def operator_guard(connection: ASGIConnection,
                          _: BaseRouteHandler) -> None:
     try:
         user = connection.user
-        session = connection.app.state["session_maker_class"]()
     except:
         raise NotAuthorizedException("User not authorized")
-    query = select(Role).where(Role.id == uuid.UUID(user))
-    result = await session.execute(query)
-    role = result.scalar_one_or_none()
-    if not role.operator:
+    try:
+        session = connection.app.state["session_maker_class"]()
+        async with session:
+            query = select(Role).where(Role.id == uuid.UUID(user))
+            result = await session.execute(query)
+            role = result.scalar_one_or_none()
+            if not role or not role.operator:
+                raise NotAuthorizedException("User not authorized")
+    except NotAuthorizedException:
+        raise
+    except Exception:
         raise NotAuthorizedException("User not authorized")
 
 
