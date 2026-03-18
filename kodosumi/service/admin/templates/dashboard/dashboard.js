@@ -489,19 +489,18 @@ function renderStats(data) {
 
 function updateStatsDisplay(filteredData) {
     if (filteredData) {
-        // Show filtered / total
-        const filteredTotal = filteredData.agents.length;
+        // Use server-side total (all matching, not just current page)
+        const filteredTotal = filteredData.total;
         const filteredRunning = filteredData.agents.filter(a => a.status === 'running').length;
         const filteredErrors = filteredData.agents.filter(a => a.error).length;
         const filteredErrorRate = filteredTotal > 0 ? (filteredErrors / filteredTotal) * 100 : 0;
-        const filteredAvgRuntime = filteredData.agents.reduce((sum, a) => sum + (a.runtime || 0), 0) / (filteredTotal || 1);
+        const filteredAvgRuntime = filteredData.agents.reduce((sum, a) => sum + (a.runtime || 0), 0) / (filteredData.agents.length || 1);
 
         document.getElementById('stat-total').innerHTML = `${filteredTotal}<span class="small" style="color: var(--on-surface-variant);"> / ${globalStats.total}</span>`;
         document.getElementById('stat-running').innerHTML = `${filteredRunning}<span class="small" style="color: var(--on-surface-variant);"> / ${globalStats.running}</span>`;
         document.getElementById('stat-errors').innerHTML = `${filteredErrorRate.toFixed(1)}%<span class="small" style="color: var(--on-surface-variant);"> / ${(globalStats.error_rate * 100).toFixed(1)}%</span>`;
         document.getElementById('stat-runtime').innerHTML = `${formatDuration(filteredAvgRuntime)}<span class="small" style="color: var(--on-surface-variant);"> / ${formatDuration(globalStats.avg_runtime)}</span>`;
     } else {
-        // Show only totals
         document.getElementById('stat-total').textContent = globalStats.total;
         document.getElementById('stat-running').textContent = globalStats.running;
         document.getElementById('stat-errors').textContent = `${(globalStats.error_rate * 100).toFixed(1)}%`;
@@ -603,8 +602,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auto-refresh every 30 seconds
     refreshInterval = setInterval(loadDashboard, 30000);
 
-    // Infinite scroll for agents table
-    const tableContainer = document.querySelector('#running-agents-table')?.closest('.scroll');
+    // Infinite scroll for agents table — the scrollable div wraps the table
+    const tableContainer = document.querySelector('#running-agents-table')?.parentElement;
     if (tableContainer) {
         tableContainer.addEventListener('scroll', () => {
             if (tableContainer.scrollTop + tableContainer.clientHeight >= tableContainer.scrollHeight - 100) {
