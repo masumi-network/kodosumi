@@ -288,6 +288,7 @@ class DashboardAPI(Controller):
         current_user = await get_user_details(request.user, transaction)
         is_operator = current_user.operator
         current_user_id = str(current_user.id)
+        user_map = await self._get_user_map(transaction)
 
         msg, all_executions = self._get_executions(state)
         if msg:
@@ -343,6 +344,7 @@ class DashboardAPI(Controller):
             stats["avg_runtime"] = total_runtime / runtime_count
         if filtered_count > 0:
             stats["error_rate"] = error_count / filtered_count
+        stats["user_map"] = user_map
         return stats
 
     @get("/execution/{fid:str}/details")

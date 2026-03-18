@@ -217,20 +217,7 @@ function populateFilters(agents) {
     agentSelect.innerHTML = '<option value="">All Agents</option>' +
         agentNames.map(name => `<option value="${name}" ${name === currentAgent ? 'selected' : ''}>${name}</option>`).join('');
 
-    // Populate user filter — value=user_id, label=user_name
-    const userSelect = document.getElementById('filter-user');
-    const currentUser = userSelect.value;
-    const userEntries = [];
-    const seenUsers = new Set();
-    agents.forEach(a => {
-        if (!seenUsers.has(a.user_id)) {
-            seenUsers.add(a.user_id);
-            userEntries.push({ id: a.user_id, name: a.user_name || a.user_id });
-        }
-    });
-    userEntries.sort((a, b) => a.name.localeCompare(b.name));
-    userSelect.innerHTML = '<option value="">All Users</option>' +
-        userEntries.map(u => `<option value="${u.id}" ${u.id === currentUser ? 'selected' : ''}>${u.name}</option>`).join('');
+    // User filter is populated from agent-stats (sees all users, not just current page)
 
     // Populate status filter - only show statuses that exist in the data
     const statusSelect = document.getElementById('filter-status');
@@ -478,13 +465,14 @@ function renderTimeline(data) {
 }
 
 function renderStats(data) {
-    // Store global stats for comparison
+    // Store global stats and user_map for reuse
     globalStats = {
         total: data.total_executions,
         running: data.by_status.running || 0,
         error_rate: data.error_rate,
         avg_runtime: data.avg_runtime
     };
+    const userMap = data.user_map || {};
 
     // Update summary stats (will be updated again with filtered counts)
     updateStatsDisplay();
@@ -492,8 +480,21 @@ function renderStats(data) {
     // Render status table
     renderStatsTable('status-table-body', data.by_status);
 
-    // Render user table
-    renderStatsTable('user-table-body', data.by_user);
+    // Render user table — resolve UUIDs to names
+    const userByName = {};
+    for (const [uid, count] of Object.entries(data.by_user)) {
+        userByName[userMap[uid] || uid] = count;
+    }
+    renderStatsTable('user-table-body', userByName);
+
+    // Populate user filter from ALL users (not just current page)
+    const userSelect = document.getElementById('filter-user');
+    const currentUser = userSelect.value;
+    const allUsers = Object.entries(userMap)
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    userSelect.innerHTML = '<option value="">All Users</option>' +
+        allUsers.map(u => `<option value="${u.id}" ${u.id === currentUser ? 'selected' : ''}>${u.name}</option>`).join('');
 }
 
 function updateStatsDisplay(filteredData) {
