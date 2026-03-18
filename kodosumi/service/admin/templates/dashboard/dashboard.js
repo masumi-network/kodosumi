@@ -217,11 +217,20 @@ function populateFilters(agents) {
     agentSelect.innerHTML = '<option value="">All Agents</option>' +
         agentNames.map(name => `<option value="${name}" ${name === currentAgent ? 'selected' : ''}>${name}</option>`).join('');
 
-    // Populate user filter
+    // Populate user filter — value=user_id, label=user_name
     const userSelect = document.getElementById('filter-user');
     const currentUser = userSelect.value;
+    const userEntries = [];
+    const seenUsers = new Set();
+    agents.forEach(a => {
+        if (!seenUsers.has(a.user_id)) {
+            seenUsers.add(a.user_id);
+            userEntries.push({ id: a.user_id, name: a.user_name || a.user_id });
+        }
+    });
+    userEntries.sort((a, b) => a.name.localeCompare(b.name));
     userSelect.innerHTML = '<option value="">All Users</option>' +
-        users.map(user => `<option value="${user}" ${user === currentUser ? 'selected' : ''}>${user}</option>`).join('');
+        userEntries.map(u => `<option value="${u.id}" ${u.id === currentUser ? 'selected' : ''}>${u.name}</option>`).join('');
 
     // Populate status filter - only show statuses that exist in the data
     const statusSelect = document.getElementById('filter-status');
