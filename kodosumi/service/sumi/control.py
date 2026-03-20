@@ -708,9 +708,17 @@ async def _submit_job(
     converted_input = convert_mip003_indices_to_values(data.input_data, schema)
 
     service_id = _format_service_id(expose_name, meta_name)
-    input_hash = create_input_hash(data.input_data, data.identifier_from_purchaser)
     meta_data_dict = _parse_meta_data(meta.data)
     agent_identifier = meta_data_dict.get("agentIdentifier")
+
+    # Paid agents require identifier_from_purchaser for payment validation.
+    # Without it, anyone could start jobs on paid agents without paying.
+    if agent_identifier and not data.identifier_from_purchaser:
+        return StartJobErrorResponse(
+            error="identifier_from_purchaser is required for paid agents"
+        )
+
+    input_hash = create_input_hash(data.input_data, data.identifier_from_purchaser)
     endpoint_url = ray_serve_address.rstrip("/") + meta.url
     # Extract application root URL (without entry path) for KODOSUMI_BASE header.
     # Lock routes (/_lock_/) are registered on ServeAPI root, not under entry paths.

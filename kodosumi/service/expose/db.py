@@ -100,21 +100,37 @@ async def upsert_expose(
         existing = await cursor.fetchone()
 
         if existing:
-            # Update
+            # Update — preserve existing meta when incoming meta is empty,
+            # to avoid losing Masumi registration data (agentIdentifier,
+            # registrationId, agentPricing) on bootstrap-only updates.
             created = existing["created"]
-            await conn.execute("""
-                UPDATE expose SET
-                    display = ?,
-                    network = ?,
-                    enabled = ?,
-                    state = ?,
-                    heartbeat = ?,
-                    bootstrap = ?,
-                    meta = ?,
-                    updated = ?
-                WHERE name = ?
-            """, (display, network, int(enabled), state, heartbeat,
-                  bootstrap, meta, now, name))
+            if not meta or not meta.strip():
+                await conn.execute("""
+                    UPDATE expose SET
+                        display = ?,
+                        network = ?,
+                        enabled = ?,
+                        state = ?,
+                        heartbeat = ?,
+                        bootstrap = ?,
+                        updated = ?
+                    WHERE name = ?
+                """, (display, network, int(enabled), state, heartbeat,
+                      bootstrap, now, name))
+            else:
+                await conn.execute("""
+                    UPDATE expose SET
+                        display = ?,
+                        network = ?,
+                        enabled = ?,
+                        state = ?,
+                        heartbeat = ?,
+                        bootstrap = ?,
+                        meta = ?,
+                        updated = ?
+                    WHERE name = ?
+                """, (display, network, int(enabled), state, heartbeat,
+                      bootstrap, meta, now, name))
         else:
             # Insert
             created = now
