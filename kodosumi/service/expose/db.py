@@ -100,37 +100,33 @@ async def upsert_expose(
         existing = await cursor.fetchone()
 
         if existing:
-            # Update — preserve existing meta when incoming meta is empty,
-            # to avoid losing Masumi registration data (agentIdentifier,
-            # registrationId, agentPricing) on bootstrap-only updates.
+            # Update — preserve display, network, meta when incoming
+            # values are None/empty, so partial updates (e.g. bootstrap-only)
+            # don't wipe Masumi registration data or network config.
+            # A proper PATCH endpoint is tracked in #41.
             created = existing["created"]
-            if not meta or not meta.strip():
-                await conn.execute("""
-                    UPDATE expose SET
-                        display = ?,
-                        network = ?,
-                        enabled = ?,
-                        state = ?,
-                        heartbeat = ?,
-                        bootstrap = ?,
-                        updated = ?
-                    WHERE name = ?
-                """, (display, network, int(enabled), state, heartbeat,
-                      bootstrap, now, name))
-            else:
-                await conn.execute("""
-                    UPDATE expose SET
-                        display = ?,
-                        network = ?,
-                        enabled = ?,
-                        state = ?,
-                        heartbeat = ?,
-                        bootstrap = ?,
-                        meta = ?,
-                        updated = ?
-                    WHERE name = ?
-                """, (display, network, int(enabled), state, heartbeat,
-                      bootstrap, meta, now, name))
+            cur = await conn.execute(
+                "SELECT display, network, meta FROM expose WHERE name = ?",
+                (name,)
+            )
+            current = await cur.fetchone()
+            eff_display = display if display is not None else current["display"]
+            eff_network = network if network is not None else current["network"]
+            eff_meta = meta if meta and meta.strip() else current["meta"]
+
+            await conn.execute("""
+                UPDATE expose SET
+                    display = ?,
+                    network = ?,
+                    enabled = ?,
+                    state = ?,
+                    heartbeat = ?,
+                    bootstrap = ?,
+                    meta = ?,
+                    updated = ?
+                WHERE name = ?
+            """, (eff_display, eff_network, int(enabled), state,
+                  heartbeat, bootstrap, eff_meta, now, name))
         else:
             # Insert
             created = now
