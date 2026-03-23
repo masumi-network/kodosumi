@@ -276,17 +276,21 @@ class Runner:
                 bound_args.arguments['inputs'] = self.inputs
             if 'tracer' in sig.parameters:
                 bound_args.arguments['tracer'] = self.tracer
-            try:
-                fs = await self.tracer.fs()
-                files = await fs.ls("in/")
-            except FileNotFoundError:
-                files = None
-            # Sumi/MIP-003 jobs have no JWT — /files/ returns 401.
-            # This is expected and not an error.
-            except:
-                files = None
-            finally:
-                await fs.close()
+            # Sumi/MIP-003 jobs receive inputs via JSON, not file upload.
+            # Skip file listing entirely for Sumi jobs (identified by sumi_endpoint in extra).
+            files = None
+            is_sumi_job = self.extra and self.extra.get("sumi_endpoint")
+            if not is_sumi_job:
+                try:
+                    fs = await self.tracer.fs()
+                    files = await fs.ls("in/")
+                except FileNotFoundError:
+                    files = None
+                except:
+                    files = None
+                finally:
+                    if fs:
+                        await fs.close()
             if files:
                 data = dtypes.Upload.model_validate({
                      "files": [dtypes.File.model_validate(f) for f in files]
