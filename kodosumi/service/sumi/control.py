@@ -715,16 +715,18 @@ async def _submit_job(
     # Registration incomplete: registrationId exists but agentIdentifier missing.
     # Job must not start — payment would be skipped entirely. (#43)
     if registration_id and not agent_identifier:
-        return StartJobErrorResponse(
-            error="Agent registration is incomplete (registrationId set but agentIdentifier missing). "
-                  "Wait for on-chain confirmation or re-register."
+        raise HTTPException(
+            status_code=400,
+            detail="Agent registration is incomplete (registrationId set but agentIdentifier missing). "
+                   "Wait for on-chain confirmation or re-register."
         )
 
     # Paid agents require identifier_from_purchaser for payment validation.
     # Without it, anyone could start jobs on paid agents without paying.
     if agent_identifier and not data.identifier_from_purchaser:
-        return StartJobErrorResponse(
-            error="identifier_from_purchaser is required for paid agents"
+        raise HTTPException(
+            status_code=400,
+            detail="identifier_from_purchaser is required for paid agents"
         )
 
     input_hash = create_input_hash(data.input_data, data.identifier_from_purchaser)
