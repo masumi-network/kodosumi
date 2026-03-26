@@ -710,6 +710,15 @@ async def _submit_job(
     service_id = _format_service_id(expose_name, meta_name)
     meta_data_dict = _parse_meta_data(meta.data)
     agent_identifier = meta_data_dict.get("agentIdentifier")
+    registration_id = meta_data_dict.get("registrationId")
+
+    # Registration incomplete: registrationId exists but agentIdentifier missing.
+    # Job must not start — payment would be skipped entirely. (#43)
+    if registration_id and not agent_identifier:
+        return StartJobErrorResponse(
+            error="Agent registration is incomplete (registrationId set but agentIdentifier missing). "
+                  "Wait for on-chain confirmation or re-register."
+        )
 
     # Paid agents require identifier_from_purchaser for payment validation.
     # Without it, anyone could start jobs on paid agents without paying.
