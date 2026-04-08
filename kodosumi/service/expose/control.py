@@ -295,15 +295,14 @@ class ExposeControl(litestar.Controller):
         app_server = state["settings"].APP_SERVER
         auth_cookies = dict(request.cookies)
 
-        # Fetch all flows once
-        all_flows = await fetch_registered_flows(app_server, auth_cookies)
-
-        # Build flow lookup by path
+        # Read flows directly from DB (not via HTTP to avoid deadlock
+        # with single-worker Uvicorn calling GET /flow on itself).
+        from kodosumi.service.flow import _get_all_flows
+        all_flow_eps = await _get_all_flows()
         flow_by_path = {}
-        for flow in all_flows:
-            base_url = flow.get("base_url", "")
-            url_path = get_path_from_base_url(base_url)
-            flow_by_path[url_path] = flow
+        for ep in all_flow_eps:
+            url_path = get_path_from_base_url(ep.base_url)
+            flow_by_path[url_path] = ep.model_dump()
 
         # Get all exposes
         rows = await db.get_all_exposes()
@@ -354,15 +353,13 @@ class ExposeControl(litestar.Controller):
         app_server = state["settings"].APP_SERVER
         auth_cookies = dict(request.cookies)
 
-        # Fetch flows
-        all_flows = await fetch_registered_flows(app_server, auth_cookies)
-
-        # Build flow lookup by path
+        # Read flows directly from DB (not via HTTP to avoid deadlock).
+        from kodosumi.service.flow import _get_all_flows
+        all_flow_eps = await _get_all_flows()
         flow_by_path = {}
-        for flow in all_flows:
-            base_url = flow.get("base_url", "")
-            url_path = get_path_from_base_url(base_url)
-            flow_by_path[url_path] = flow
+        for ep in all_flow_eps:
+            url_path = get_path_from_base_url(ep.base_url)
+            flow_by_path[url_path] = ep.model_dump()
 
         now = time.time()
         result = await self._check_expose_health(
