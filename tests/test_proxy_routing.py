@@ -47,14 +47,14 @@ class TestProxyRouting:
 
     def test_simple_match(self):
         row = _make_row("myapp", [("/myapp/run", "Run Agent")])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address="http://localhost:8005")
         ep = _match_route(flows, "/-/myapp/myapp/run")
         assert ep is not None
         assert ep.summary == "Run Agent"
 
     def test_no_match(self):
         row = _make_row("myapp", [("/myapp/run", "Run Agent")])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address="http://localhost:8005")
         ep = _match_route(flows, "/-/otherapp/something")
         assert ep is None
 
@@ -63,7 +63,7 @@ class TestProxyRouting:
             ("/multi/analyze", "Analyze"),
             ("/multi/analyze/deep", "Deep Analyze"),
         ])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address="http://localhost:8005")
         # Deep path should match the longer prefix
         ep = _match_route(flows, "/-/multi/multi/analyze/deep")
         assert ep is not None
@@ -82,7 +82,7 @@ class TestProxyRouting:
 
     def test_trailing_slash(self):
         row = _make_row("myapp", [("/myapp/run", "Run")])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address="http://localhost:8005")
         ep = _match_route(flows, "/-/myapp/myapp/run/")
         assert ep is not None
         assert ep.summary == "Run"

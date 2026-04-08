@@ -10,13 +10,16 @@ import litestar
 from litestar import get, put
 from litestar.datastructures import State
 
+from kodosumi.config import InternalSettings
 from kodosumi.dtypes import EndpointResponse
 from kodosumi.service.expose import db as expose_db
 from kodosumi.service.jwt import operator_guard
 
 
-def _flows_from_expose(row: dict) -> List[EndpointResponse]:
+def _flows_from_expose(row: dict, ray_serve_address: Optional[str] = None) -> List[EndpointResponse]:
     """Extract EndpointResponse objects from an expose row's meta."""
+    if ray_serve_address is None:
+        ray_serve_address = InternalSettings().RAY_SERVE_ADDRESS
     name = row.get("name", "")
     meta_yaml = row.get("meta")
     if not meta_yaml:
@@ -53,18 +56,20 @@ def _flows_from_expose(row: dict) -> List[EndpointResponse]:
         org = author_data.get("organization") if isinstance(author_data, dict) else None
 
         proxy_url = f"/-/{name}{url}"
+        # base_url must be the full Ray Serve URL for proxy forwarding
+        full_base_url = ray_serve_address.rstrip("/") + url
         ep = EndpointResponse(
             uid=md5(proxy_url.encode()).hexdigest(),
             method="GET",
             url=proxy_url,
-            source=name,
+            source=ray_serve_address.rstrip("/") + "/" + name,
             summary=data.get("display") or name,
             description=data.get("description"),
             deprecated=False,
             author=author_name,
             organization=org,
             tags=data.get("tags") or [],
-            base_url=url,
+            base_url=full_base_url,
         )
         flows.append(ep)
     return flows

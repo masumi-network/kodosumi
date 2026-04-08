@@ -11,6 +11,8 @@ import os
 from kodosumi.service.flow import _flows_from_expose, _get_all_flows
 from kodosumi.service.expose import db as expose_db
 
+RAY_SERVE = "http://localhost:8005"
+
 
 # ─── Test Data ────────────────────────────────────────────────────────
 
@@ -58,7 +60,7 @@ class TestFlowsFromExpose:
                 "author": {"name": "Alice", "organization": "Acme"},
             })
         ])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address=RAY_SERVE)
         assert len(flows) == 1
         f = flows[0]
         assert f.summary == "My Agent"
@@ -67,7 +69,8 @@ class TestFlowsFromExpose:
         assert f.author == "Alice"
         assert f.organization == "Acme"
         assert f.url == "/-/myapp/myapp/analyze"
-        assert f.source == "myapp"
+        assert f.base_url == "http://localhost:8005/myapp/analyze"
+        assert f.source == "http://localhost:8005/myapp"
         assert f.method == "GET"
         assert f.deprecated is False
 
@@ -76,25 +79,25 @@ class TestFlowsFromExpose:
             ("/multi/analyze", {"display": "Flow A", "tags": ["a"]}),
             ("/multi/report", {"display": "Flow B", "tags": ["b"]}),
         ])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address=RAY_SERVE)
         assert len(flows) == 2
         assert {f.summary for f in flows} == {"Flow A", "Flow B"}
 
     def test_empty_meta(self):
         row = _make_row("empty", None)
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address=RAY_SERVE)
         assert flows == []
 
     def test_malformed_yaml(self):
         row = _make_row("bad")
         row["meta"] = "not: [valid: yaml: {{{"
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address=RAY_SERVE)
         assert flows == []
 
     def test_no_url(self):
         row = _make_row("nurl")
         row["meta"] = yaml.dump([{"data": "display: Test", "enabled": True}])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address=RAY_SERVE)
         assert flows == []
 
     def test_disabled_entry(self):
@@ -107,14 +110,14 @@ class TestFlowsFromExpose:
         }]
         row = _make_row("dis")
         row["meta"] = yaml.dump(meta_list)
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address=RAY_SERVE)
         assert flows == []
 
     def test_fallback_display_to_name(self):
         row = _make_row("fallback", [
             ("/fallback/run", {"description": "No display field"})
         ])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address=RAY_SERVE)
         assert len(flows) == 1
         assert flows[0].summary == "fallback"
 
@@ -122,7 +125,7 @@ class TestFlowsFromExpose:
         row = _make_row("noauthor", [
             ("/noauthor/run", {"display": "Test", "author": None})
         ])
-        flows = _flows_from_expose(row)
+        flows = _flows_from_expose(row, ray_serve_address=RAY_SERVE)
         assert len(flows) == 1
         assert flows[0].author is None
         assert flows[0].organization is None
