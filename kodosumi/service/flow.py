@@ -55,7 +55,7 @@ def _flows_from_expose(row: dict) -> List[EndpointResponse]:
         proxy_url = f"/-/{name}{url}"
         ep = EndpointResponse(
             uid=md5(proxy_url.encode()).hexdigest(),
-            method="POST",
+            method="GET",
             url=proxy_url,
             source=name,
             summary=data.get("display") or name,

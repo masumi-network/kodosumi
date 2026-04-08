@@ -68,7 +68,7 @@ class TestFlowsFromExpose:
         assert f.organization == "Acme"
         assert f.url == "/-/myapp/myapp/analyze"
         assert f.source == "myapp"
-        assert f.method == "POST"
+        assert f.method == "GET"
         assert f.deprecated is False
 
     def test_multiple_flows(self):
