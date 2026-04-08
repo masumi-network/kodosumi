@@ -207,17 +207,25 @@ def _convert_data_to_mip003(element: Dict[str, Any]) -> Optional[Dict[str, Any]]
     if element.get("value") is not None and elem_type != "boolean":
         data["default"] = element["value"]
 
-    # Select/Radio → values array (MIP-003 format)
+    # Select/Radio → options array with value+label (MIP-003 format)
     if elem_type in ("select", "radio") and element.get("option"):
-        values = []
+        options = []
         for opt in element["option"]:
             if isinstance(opt, dict):
-                # Use the option name as the value
                 opt_name = opt.get("name")
+                opt_label = opt.get("label")
                 if opt_name:
-                    values.append(opt_name)
-        if values:
-            data["values"] = values
+                    if opt_label and opt_label != opt_name:
+                        options.append({"value": opt_name, "label": opt_label})
+                    else:
+                        options.append(opt_name)
+        if options:
+            # Use "options" (with labels) if any option has a label,
+            # otherwise fall back to flat "values" array for compatibility
+            if any(isinstance(o, dict) for o in options):
+                data["options"] = options
+            else:
+                data["values"] = options
 
     # Checkbox (boolean) - option text as description
     if elem_type == "boolean" and element.get("option"):
@@ -443,14 +451,21 @@ def _convert_data_from_mip003(
     if data.get("default") is not None:
         result["value"] = data["default"]
 
-    # Option/Radio → convert values array to option list
-    if kodo_type in ("select", "radio") and data.get("values"):
+    # Option/Radio → convert values/options array to option list
+    raw_options = data.get("options") or data.get("values")
+    if kodo_type in ("select", "radio") and raw_options:
         options = []
         default_val = data.get("default")
-        for val in data["values"]:
+        for item in raw_options:
+            if isinstance(item, dict):
+                val = item.get("value", "")
+                lbl = item.get("label", val)
+            else:
+                val = item
+                lbl = item
             options.append({
                 "name": val,
-                "label": val,
+                "label": lbl,
                 "value": val == default_val,
             })
         result["option"] = options
@@ -616,8 +631,15 @@ def convert_mip003_inputs_to_kodosumi(
         if field.type not in ("option", "radio"):
             continue
 
-        # Get the values array from field data
-        values = (field.data or {}).get("values", [])
+        # Get the values array from field data (supports both flat and labeled formats)
+        field_data = field.data or {}
+        raw = field_data.get("options") or field_data.get("values", [])
+        values = []
+        for item in raw:
+            if isinstance(item, dict):
+                values.append(item.get("value", ""))
+            else:
+                values.append(item)
         if not values:
             continue
 

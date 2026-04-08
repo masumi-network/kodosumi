@@ -598,8 +598,9 @@ class Select(FormElement):
         option: List[InputOption],
         label: Optional[str] = None,
         value: Optional[str] = None,
+        required: bool = False,
         error: Optional[List[str]] = None):
-        super().__init__(name, label, value, required=False, text=None, 
+        super().__init__(name, label, value, required=required, text=None,
                          error=error)
         self.option = []
         for opt in option:
