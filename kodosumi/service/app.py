@@ -28,7 +28,6 @@ from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
                                     create_async_engine)
 
 import kodosumi.core
-import kodosumi.service.endpoint as endpoint
 from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.const import TOKEN_KEY
@@ -37,7 +36,6 @@ from kodosumi.log import app_logger, logger
 from kodosumi.service.admin.panel import AdminControl
 from kodosumi.service.auth import LoginControl
 from kodosumi.service.dashboard import DashboardAPI
-from kodosumi.service.deploy import DeployControl, ServeControl
 from kodosumi.service.execution_index import ExecutionIndex, start_refresh_loop
 from kodosumi.service.files import FileControl
 from kodosumi.service.flow import FlowControl
@@ -141,7 +139,6 @@ async def _build_execution_index(app: Litestar):
 async def startup(app: Litestar):
     import asyncio
     helper.ray_init()
-    await endpoint.init(app.state)
     await expose_db.init_database()
     ensure_serve_config()
     # Start execution index build non-blocking — dashboard shows
@@ -155,7 +152,6 @@ async def shutdown(app):
     task = app.state.get("index_refresh_task")
     if task and not task.done():
         task.cancel()
-    await endpoint.destroy(app.state)
     helper.ray_shutdown()
 
 
@@ -213,8 +209,6 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/outputs", route_handlers=[OutputsController]),
             Router(path="/timeline", route_handlers=[TimelineController]),
             Router(path="/api/dashboard", route_handlers=[DashboardAPI]),
-            Router(path="/deploy", route_handlers=[DeployControl]),
-            Router(path="/serve", route_handlers=[ServeControl]),
             Router(path="/files", route_handlers=[FileControl]),
             Router(path="/health", route_handlers=[HealthControl]),
             Router(path="/", route_handlers=[SumiControl, SumiLockControl, ExposeControl, ExposeUIControl, BootControl, BootUIControl, MaintenanceControl, ExchangeControl, ExchangeUIControl, AuditLogControl, RegistryControl, WalletsControl]),

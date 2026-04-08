@@ -7,9 +7,9 @@ from litestar.datastructures import State
 from litestar.exceptions import HTTPException, NotFoundException
 from litestar.response import Redirect, Response
 
-import kodosumi.service.endpoint as endpoint
 from kodosumi import helper
 from kodosumi.const import KODOSUMI_LAUNCH, NAMESPACE
+from kodosumi.service.flow import _get_all_flows
 from kodosumi.helper import ProxyRequest, proxy_forward
 from kodosumi.log import logger
 from kodosumi.service.inputs.forms import Model
@@ -68,11 +68,7 @@ class ProxyControl(litestar.Controller):
         target = None
         base = None
 
-        checkup = []
-        for endpoints in endpoint.items(state):
-            for ep in endpoints:
-                checkup.append(ep)
-        
+        checkup = await _get_all_flows()
         checkup.sort(key=lambda c: c.url, reverse=True)
 
         for ep in checkup:
