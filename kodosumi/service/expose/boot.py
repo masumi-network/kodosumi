@@ -632,8 +632,8 @@ def check_fields_match(
     missing_fields = []
     details = {}
 
-    # Check name/display - meta should have 'name' field
-    meta_name = meta_data.get("name", "")
+    # Check name/display - meta uses 'display', flow uses 'summary'
+    meta_name = meta_data.get("display") or meta_data.get("name", "")
     flow_summary = flow_data.get("summary", "")
     if not meta_name and flow_summary:
         missing_fields.append("name")

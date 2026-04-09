@@ -816,6 +816,11 @@ function updateRegistryVisibility() {
         if (!network) {
             section.style.opacity = '0.5';
             section.style.pointerEvents = 'none';
+            var badge = document.getElementById('reg_badge_' + idx);
+            if (badge) {
+                badge.className = 'registry-badge reg-not-registered';
+                badge.textContent = 'No Network';
+            }
             if (info) {
                 info.style.display = 'block';
                 info.textContent = 'Set network in Basic Information to enable registry.';
