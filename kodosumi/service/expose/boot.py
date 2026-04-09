@@ -1607,65 +1607,7 @@ async def _step_register_flows(
         )
         return
 
-    # Use /-/routes endpoint which handles ALL apps at once
-    routes_url = f"{ray_serve_address.rstrip('/')}/-/routes"
-    register_url = f"{app_server.rstrip('/')}/flow/register"
-
-    yield BootMessage(
-        step=BootStep.REGISTER,
-        msg_type=MessageType.ACTIVITY,
-        message=f"POST {register_url}",
-        result=routes_url,
-        progress=progress
-    )
-
-    num_registered = 0
-    try:
-        async with httpx.AsyncClient(timeout=30.0, cookies=auth_cookies) as client:
-            response = await client.post(
-                register_url,
-                json={"url": routes_url}
-            )
-
-            progress.activities_done += 1
-
-            if response.status_code in (200, 201):
-                registered = response.json()
-                num_registered = len(registered) if isinstance(registered, list) else 0
-
-                yield BootMessage(
-                    step=BootStep.REGISTER,
-                    msg_type=MessageType.RESULT,
-                    message=f"Registered {num_registered} flow(s) via /-/routes",
-                    progress=progress
-                )
-            else:
-                yield BootMessage(
-                    step=BootStep.REGISTER,
-                    msg_type=MessageType.WARNING,
-                    message=f"Registration failed: {response.status_code}",
-                    result=response.text[:100] if response.text else "No details",
-                    progress=progress
-                )
-
-    except httpx.TimeoutException:
-        progress.activities_done += 1
-        yield BootMessage(
-            step=BootStep.REGISTER,
-            msg_type=MessageType.WARNING,
-            message="Registration request timed out",
-            progress=progress
-        )
-    except Exception as e:
-        progress.activities_done += 1
-        yield BootMessage(
-            step=BootStep.REGISTER,
-            msg_type=MessageType.WARNING,
-            message=f"Registration failed: {e}",
-            progress=progress
-        )
-
-    # Now discover flows from each app's OpenAPI for step D (retrieve)
+    # Discover flows from each app's OpenAPI for step D (retrieve)
     all_flows: List[DiscoveredFlow] = []
 
     for app_name in running_apps:
@@ -2479,47 +2421,6 @@ async def _run_cleanup_shutdown(
                 progress=progress
             )
 
-        # Refresh flow register to clear flows
-        if app_server:
-            yield BootMessage(
-                step=BootStep.REGISTER,
-                msg_type=MessageType.ACTIVITY,
-                message="PUT /flow/register",
-                target="Clearing flow registry",
-                progress=progress
-            )
-
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=30.0, cookies=auth_cookies) as client:
-                    register_url = f"{app_server.rstrip('/')}/flow/register"
-                    response = await client.put(register_url)
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        urls = result.get("urls", set())
-                        yield BootMessage(
-                            step=BootStep.REGISTER,
-                            msg_type=MessageType.RESULT,
-                            message="Flow registry refreshed",
-                            result=f"{len(urls)} flows remaining",
-                            progress=progress
-                        )
-                    else:
-                        yield BootMessage(
-                            step=BootStep.REGISTER,
-                            msg_type=MessageType.WARNING,
-                            message=f"Flow register refresh returned {response.status_code}",
-                            progress=progress
-                        )
-            except Exception as e:
-                yield BootMessage(
-                    step=BootStep.REGISTER,
-                    msg_type=MessageType.WARNING,
-                    message=f"Failed to refresh flow register: {str(e)}",
-                    progress=progress
-                )
-
     except Exception as e:
         yield BootMessage(
             step=BootStep.DEPLOY,
@@ -2750,43 +2651,6 @@ async def run_shutdown(
             )
 
         audit.info(f"SHUTDOWN - set {len(expose_names)} exposes to DEAD: {', '.join(expose_names) if expose_names else 'none'}")
-
-        # Refresh flow register to clear flows (Ray Serve is down, so no flows will be found)
-        if app_server:
-            yield BootMessage(
-                step=BootStep.REGISTER,
-                msg_type=MessageType.ACTIVITY,
-                message="PUT /flow/register",
-                target="Clearing flow registry"
-            )
-
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=30.0, cookies=auth_cookies) as client:
-                    register_url = f"{app_server.rstrip('/')}/flow/register"
-                    response = await client.put(register_url)
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        urls = result.get("urls", set())
-                        yield BootMessage(
-                            step=BootStep.REGISTER,
-                            msg_type=MessageType.RESULT,
-                            message="Flow registry refreshed",
-                            result=f"{len(urls)} flows remaining"
-                        )
-                    else:
-                        yield BootMessage(
-                            step=BootStep.REGISTER,
-                            msg_type=MessageType.WARNING,
-                            message=f"Flow register refresh returned {response.status_code}"
-                        )
-            except Exception as e:
-                yield BootMessage(
-                    step=BootStep.REGISTER,
-                    msg_type=MessageType.WARNING,
-                    message=f"Failed to refresh flow register: {str(e)}"
-                )
 
         audit.info(f"SHUTDOWN END by {owner} - success")
         yield BootMessage(
