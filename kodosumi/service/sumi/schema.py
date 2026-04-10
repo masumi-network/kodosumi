@@ -207,25 +207,18 @@ def _convert_data_to_mip003(element: Dict[str, Any]) -> Optional[Dict[str, Any]]
     if element.get("value") is not None and elem_type != "boolean":
         data["default"] = element["value"]
 
-    # Select/Radio → options array with value+label (MIP-003 format)
+    # Select/Radio → flat values array (MIP-003 Attachment 01 compliant)
+    # Note: labels are lost in MIP-003 serialization — the spec only
+    # defines "values" as a flat string array, not {value, label} objects.
     if elem_type in ("select", "radio") and element.get("option"):
-        options = []
+        values = []
         for opt in element["option"]:
             if isinstance(opt, dict):
                 opt_name = opt.get("name")
-                opt_label = opt.get("label")
                 if opt_name:
-                    if opt_label and opt_label != opt_name:
-                        options.append({"value": opt_name, "label": opt_label})
-                    else:
-                        options.append(opt_name)
-        if options:
-            # Use "options" (with labels) if any option has a label,
-            # otherwise fall back to flat "values" array for compatibility
-            if any(isinstance(o, dict) for o in options):
-                data["options"] = options
-            else:
-                data["values"] = options
+                    values.append(opt_name)
+        if values:
+            data["values"] = values
 
     # Checkbox (boolean) - option text as description
     if elem_type == "boolean" and element.get("option"):
