@@ -158,24 +158,38 @@ class MasumiClient:
         """
         async with httpx.AsyncClient() as client:
             try:
-                resp = await client.get(
-                    f"{self.base_url}/payment/",
-                    headers=self._get_headers(),
-                    params={
-                        "limit": 10,
+                cursor_id = None
+                while True:
+                    params = {
+                        "limit": 100,
                         "network": network,
                         "includeHistory": "false"
-                    },
-                    timeout=30.0
-                )
-                resp.raise_for_status()
-                data = resp.json()
+                    }
+                    if cursor_id:
+                        params["cursorId"] = cursor_id
 
-                payments = data.get("data", {}).get("Payments", [])
-                for payment in payments:
-                    if payment.get("blockchainIdentifier") == blockchain_identifier:
-                        return payment
-                return None
+                    resp = await client.get(
+                        f"{self.base_url}/payment/",
+                        headers=self._get_headers(),
+                        params=params,
+                        timeout=30.0
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    payments = data.get("data", {}).get("Payments", [])
+                    for payment in payments:
+                        if payment.get("blockchainIdentifier") == blockchain_identifier:
+                            return payment
+
+                    # No more pages if fewer results than limit
+                    if len(payments) < 100:
+                        return None
+
+                    # Paginate using last payment's ID
+                    cursor_id = payments[-1].get("id")
+                    if not cursor_id:
+                        return None
 
             except (httpx.HTTPStatusError, httpx.RequestError):
                 return None
