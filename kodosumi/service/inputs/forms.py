@@ -621,6 +621,7 @@ class Select(FormElement):
             "name": self.name,
             "label": self.label,
             "value": self.value,
+            "required": self.required,
             "option": [opt.to_dict() for opt in self.option],
             "error": self.error
         }
