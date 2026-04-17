@@ -15,6 +15,7 @@ from kodosumi.service.inputs.forms import (
     InputDateTime,
     InputEmail,
     InputFiles,
+    InputFileUrl,
     InputHidden,
     InputMonth,
     InputNumber,
@@ -105,6 +106,14 @@ class TestTypeMappings:
     def test_option_maps_to_select(self):
         """MIP-003 'option' should map back to Kodosumi 'select'."""
         assert TYPE_MAP_FROM_MIP003["option"] == "select"
+
+    def test_file_url_maps_to_file(self):
+        """Kodosumi 'file_url' should map forward to MIP-003 'file'."""
+        assert TYPE_MAP_TO_MIP003["file_url"] == "file"
+
+    def test_file_url_not_in_reverse_map(self):
+        """MIP-003 has no 'file_url' type; reverse mapping is intentionally absent."""
+        assert "file_url" not in TYPE_MAP_FROM_MIP003
 
 
 # =============================================================================
@@ -356,6 +365,63 @@ class TestKodosumiToMIP003:
         assert field.data["multiple"] == True
         assert field.data["outputFormat"] == "url"
 
+    def test_file_url_input_basic(self):
+        """InputFileUrl should project onto MIP-003 'file' with outputFormat=url."""
+        element = InputFileUrl(name="doc", label="Doc URL").to_dict()
+        field = convert_element_to_mip003(element)
+
+        assert field.type == "file"
+        assert field.data["outputFormat"] == "url"
+        # Not required by default → optional=true
+        assert has_validation(field.validations, "optional", "true")
+        # No URL format validation (MIP-003 side is a file upload)
+        assert get_validation(field.validations, "format") is None
+        # No length validations
+        assert get_validation(field.validations, "min") is None
+        assert get_validation(field.validations, "max") is None
+
+    def test_file_url_input_required(self):
+        """Required file_url should omit the optional validation."""
+        element = InputFileUrl(name="doc", label="Doc URL", required=True).to_dict()
+        field = convert_element_to_mip003(element)
+
+        assert field.type == "file"
+        assert not has_validation(field.validations, "optional", "true")
+
+    def test_file_url_input_with_accept_and_max_size(self):
+        """accept and max_size should be forwarded to MIP-003 data."""
+        element = InputFileUrl(
+            name="doc",
+            label="Doc URL",
+            accept="image/*",
+            max_size=5242880,
+        ).to_dict()
+        field = convert_element_to_mip003(element)
+
+        assert field.type == "file"
+        assert field.data["outputFormat"] == "url"
+        assert field.data["accept"] == "image/*"
+        assert field.data["maxSize"] == 5242880
+
+    def test_file_url_input_placeholder_propagates(self):
+        """Placeholder should propagate to MIP-003 data.placeholder."""
+        element = InputFileUrl(
+            name="doc",
+            label="Doc URL",
+            placeholder="https://example.com/file.pdf",
+        ).to_dict()
+        field = convert_element_to_mip003(element)
+
+        assert field.data["placeholder"] == "https://example.com/file.pdf"
+
+    def test_file_url_input_pattern_produces_no_format(self):
+        """A pattern on file_url must not emit a format validation."""
+        element = InputFileUrl(name="doc", label="Doc URL", pattern=r"\S+").to_dict()
+        field = convert_element_to_mip003(element)
+
+        assert field.type == "file"
+        assert get_validation(field.validations, "format") is None
+
     def test_display_info(self):
         """DisplayInfo (none type) conversion."""
         element = DisplayInfo(text="This is information", label="Info").to_dict()
@@ -521,6 +587,24 @@ class TestMIP003ToKodosumi:
         assert element["type"] == "file"
         assert element["multiple"] == True
 
+    def test_file_reverses_to_inputfiles_not_file_url(self):
+        """MIP-003 'file' always reverses to Kodosumi 'file', never 'file_url'.
+
+        Documents the forward-only asymmetry: InputFileUrl is a Kodosumi
+        convenience that projects onto MIP-003 'file', but the reverse
+        direction produces InputFiles.
+        """
+        mip_field = {
+            "id": "doc",
+            "type": "file",
+            "name": "Doc URL",
+            "data": {"outputFormat": "url", "accept": "image/*"},
+        }
+        element = convert_mip003_to_element(mip_field)
+
+        assert element["type"] == "file"
+        assert element["type"] != "file_url"
+
 
 # =============================================================================
 # Full Model Conversion Tests
@@ -561,6 +645,62 @@ class TestModelConversion:
         assert elements[0]["type"] == "text"
         assert elements[0]["name"] == "name"
         assert elements[1]["type"] == "email"
+
+    def test_model_with_file_url(self):
+        """A Model containing InputFileUrl projects it as a MIP-003 'file' field."""
+        model = Model(
+            InputText(name="name", label="Name", required=True),
+            InputFileUrl(
+                name="doc",
+                label="Upload Doc",
+                accept="application/pdf",
+                max_size=1048576,
+            ),
+            Submit("Run"),
+        )
+
+        schema = convert_model_to_schema(model.get_model())
+
+        assert schema.input_data is not None
+        assert len(schema.input_data) == 2  # Submit is skipped
+        doc_field = schema.input_data[1]
+        assert doc_field.id == "doc"
+        assert doc_field.type == "file"
+        assert doc_field.data["outputFormat"] == "url"
+        assert doc_field.data["accept"] == "application/pdf"
+        assert doc_field.data["maxSize"] == 1048576
+
+    def test_file_url_model_validate_roundtrip(self):
+        """Model.model_validate should reconstruct InputFileUrl instances."""
+        original = Model(
+            InputFileUrl(
+                name="doc",
+                label="Doc URL",
+                placeholder="https://example.com/file.pdf",
+                accept="application/pdf",
+                max_size=1024,
+            )
+        )
+
+        elements = original.get_model()
+        restored = Model.model_validate(elements)
+
+        assert len(restored.children) == 1
+        child = restored.children[0]
+        assert isinstance(child, InputFileUrl)
+        assert child.name == "doc"
+        assert child.label == "Doc URL"
+        assert child.placeholder == "https://example.com/file.pdf"
+        assert child.accept == "application/pdf"
+        assert child.max_size == 1024
+
+    def test_file_url_render_emits_url_input(self):
+        """Render should output type="url" (valid HTML), not type="file_url"."""
+        html = InputFileUrl(name="doc", label="Doc").render()
+
+        assert 'type="url"' in html
+        assert 'type="file_url"' not in html
+        assert 'name="doc"' in html
 
 
 # =============================================================================

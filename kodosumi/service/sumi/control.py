@@ -57,6 +57,23 @@ def _parse_meta_data(data_yaml: Optional[str]) -> dict:
         return {}
 
 
+def _sumi_debug(*lines: str) -> None:
+    """Append timestamped lines to the Sumi debug log.
+
+    Path is configurable via KODO_SUMI_DEBUG_LOG_FILE (default: ./data/sumi_debug.log).
+    Failures are swallowed — debug logging must never break a request.
+    """
+    try:
+        from kodosumi.config import Settings
+        path = Settings().SUMI_DEBUG_LOG_FILE
+        ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        with open(path, "a") as f:
+            for line in lines:
+                f.write(f"[{ts}] {line}\n")
+    except Exception:
+        pass
+
+
 def _extract_result_string(result_dict) -> Optional[str]:
     """
     Extract string result from various response formats.
@@ -697,10 +714,11 @@ async def _submit_job(
         JobStatusResponse on success, StartJobErrorResponse on failure
     """
     # DEBUG: Log incoming request BEFORE forwarding to agent
-    with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] start_job: {expose_name}/{meta_name}\n")
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] identifier_from_purchaser: {data.identifier_from_purchaser}\n")
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+    _sumi_debug(
+        f"start_job: {expose_name}/{meta_name}",
+        f"identifier_from_purchaser: {data.identifier_from_purchaser}",
+        f"input_data: {json.dumps(data.input_data, default=str)}",
+    )
 
     # Convert MIP-003 index arrays to string values for option/radio fields
     # Masumi sends [1] for second option, agents expect "Man"
@@ -775,10 +793,11 @@ async def _submit_job(
         resp = await proxy_forward(proxy_config)
 
         # DEBUG: Log agent response
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent response: status={resp.status_code}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent headers: {dict(resp.headers)}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent body: {resp.content.decode()[:2000]}\n")
+        _sumi_debug(
+            f"agent response: status={resp.status_code}",
+            f"agent headers: {dict(resp.headers)}",
+            f"agent body: {resp.content.decode()[:2000]}",
+        )
 
         if resp.status_code != 200:
             return _error_response(
@@ -1257,10 +1276,11 @@ class SumiControl(Controller):
         fid = data.job_id
 
         # DEBUG: Log incoming provide_input request
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input (MIP-003): job_id={fid}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_schema_hash: {data.input_schema_hash}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+        _sumi_debug(
+            f"provide_input (MIP-003): job_id={fid}",
+            f"input_schema_hash: {data.input_schema_hash}",
+            f"input_data: {json.dumps(data.input_data, default=str)}",
+        )
 
         if not data.input_data:
             return ProvideInputResponse(status="error", input_hash=None)
@@ -1275,13 +1295,11 @@ class SumiControl(Controller):
             locks_data.setdefault(lid, {})[field_id] = value
 
         if not locks_data:
-            with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input ERROR: no lock-prefixed keys found\n")
+            _sumi_debug("provide_input ERROR: no lock-prefixed keys found")
             return ProvideInputResponse(status="error", input_hash=None)
 
         # DEBUG: Log parsed lock groups
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input locks: {list(locks_data.keys())}\n")
+        _sumi_debug(f"provide_input locks: {list(locks_data.keys())}")
 
         # Release each lock via Kodosumi core (find_lock + POST + lease)
         errors = []
@@ -1337,11 +1355,14 @@ class SumiControl(Controller):
                 errors.append(f"Lock {lid}: {type(e).__name__}: {e}")
 
         # DEBUG: Log result
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            status = "error" if errors else "success"
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input result: {status}\n")
-            if errors:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input errors: {errors}\n")
+        status = "error" if errors else "success"
+        if errors:
+            _sumi_debug(
+                f"provide_input result: {status}",
+                f"provide_input errors: {errors}",
+            )
+        else:
+            _sumi_debug(f"provide_input result: {status}")
 
         if errors and len(errors) == len(locks_data):
             # All locks failed — return HTTP 400
@@ -1675,9 +1696,10 @@ class SumiLockControl(Controller):
             data: ProvideInputRequest with input data
         """
         # DEBUG: Log incoming HITL input
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input: {fid}/{lid}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+        _sumi_debug(
+            f"provide_input: {fid}/{lid}",
+            f"input_data: {json.dumps(data.input_data, default=str)}",
+        )
 
         try:
             lock, actor = find_lock(fid, lid)
