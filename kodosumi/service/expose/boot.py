@@ -1178,6 +1178,7 @@ async def _step_deploy(
             continue
 
         # Check for newly finalized apps
+        needs_resubmit = False
         for name in list(deployed_apps.keys()):
             if name in final_statuses:
                 continue
@@ -1199,14 +1200,24 @@ async def _step_deploy(
                         result=status, progress=progress
                     )
                 else:
+                    # Failed app — remove from deployed_apps so Ray doesn't
+                    # retry it on every subsequent serve deploy call.
+                    # It will be re-added in the final deploy at the end.
+                    del deployed_apps[name]
+                    needs_resubmit = True
                     yield BootMessage(
                         step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
-                        message=message or "Deployment failed", target=name,
-                        result=status, progress=progress
+                        message=message or "Deployment failed — removed from window",
+                        target=name, result=status, progress=progress
                     )
 
+        # If we removed failed apps, resubmit so Ray stops retrying them
+        if needs_resubmit and deployed_apps:
+            await _submit_current_window()
+
         # Fill window — add new apps when slots are free
-        in_flight = len(deployed_apps) - len(final_statuses)
+        # in_flight = apps in deployed_apps that haven't reached final state
+        in_flight = sum(1 for n in deployed_apps if n not in final_statuses)
         added = 0
         while pending_new and in_flight < BOOT_BATCH_SIZE:
             app_config = pending_new.pop(0)
@@ -1231,8 +1242,28 @@ async def _step_deploy(
                 progress=progress
             )
 
+    # Final deploy: re-add all apps (including failed ones) so Ray has
+    # the complete desired state. Failed apps may retry but that's fine —
+    # the boot is over and we don't wait for them.
+    all_app_configs = {app["name"]: app for app in existing_apps + new_apps}
+    if set(all_app_configs.keys()) != set(deployed_apps.keys()):
+        deployed_apps = all_app_configs
+        error = await _submit_current_window()
+        if error:
+            yield BootMessage(
+                step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
+                message=f"Final deploy (re-adding failed apps) failed: {error}",
+                progress=progress
+            )
+        else:
+            yield BootMessage(
+                step=BootStep.DEPLOY, msg_type=MessageType.ACTIVITY,
+                message=f"Final deploy: all {len(deployed_apps)} apps submitted",
+                progress=progress
+            )
+
     # Summary
-    deployed_names = list(deployed_apps.keys())
+    deployed_names = list(all_app_configs.keys())
     running = sum(1 for s in final_statuses.values() if s["status"] == "RUNNING")
     total = len(deployed_names)
 
