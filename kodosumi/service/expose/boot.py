@@ -1046,27 +1046,35 @@ async def _step_deploy(
 
     # -------------------------------------------------------------------------
     # Phase 2: Sliding window deployment
+    #
+    # Strategy:
+    #   1. Query Ray Serve for currently RUNNING apps
+    #   2. Split parsed apps into "existing" (already in Ray) and "new"
+    #   3. First deploy call: all existing apps (preserves them, Ray updates
+    #      changed ones). Poll until in_flight < BOOT_BATCH_SIZE.
+    #   4. Then add new apps via sliding window — each deploy call is
+    #      cumulative (existing + already-submitted new + next batch of new).
+    #
+    # This ensures:
+    #   - Existing unchanged apps are never removed (always in the YAML)
+    #   - Changed existing apps are updated first before new ones start
+    #   - Max BOOT_BATCH_SIZE apps are DEPLOYING at any time
     # -------------------------------------------------------------------------
-    # deployed_apps  — name → app_config (already submitted to Ray Serve)
-    # final_statuses — name → status dict (reached a terminal Ray state)
+
+    # deployed_apps  — name → app_config (in the cumulative YAML)
+    # final_statuses — name → status dict (reached RUNNING/FAILED/UNHEALTHY)
     deployed_apps: Dict[str, dict] = {}
     final_statuses: Dict[str, dict] = {}
     deploy_start_time = time.time()
 
     # Helper: write cumulative config + call serve deploy
     async def _submit_current_window() -> Optional[str]:
-        """Write temp YAML for all currently deployed_apps and run serve deploy.
-
-        Returns an error string on failure, None on success.
-        """
+        """Write temp YAML for all deployed_apps and run serve deploy."""
         window_config = dict(base_config)
         window_config["applications"] = list(deployed_apps.values())
         try:
             with tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".yaml",
-                delete=False,
-                prefix="serve_deploy_"
+                mode="w", suffix=".yaml", delete=False, prefix="serve_deploy_"
             ) as f:
                 yaml.dump(window_config, f, default_flow_style=False)
                 cfg_path = f.name
@@ -1089,60 +1097,72 @@ async def _step_deploy(
             return stderr.strip() if stderr else f"Exit code {returncode}"
         return None
 
-    while pending or (len(deployed_apps) > len(final_statuses)):
-        # --- Overall timeout guard ---
+    # --- Discover which apps are already deployed in Ray Serve ---
+    existing_names: set = set()
+    if ray_dashboard:
+        try:
+            current_status = await query_ray_serve_status(ray_dashboard)
+            existing_names = set(current_status.keys())
+        except Exception:
+            pass  # Can't query — treat all as new
+
+    # --- Split into existing (deploy first) and new (sliding window) ---
+    all_by_name = {app["name"]: app for app in pending}
+    existing_apps = [all_by_name[n] for n in all_by_name if n in existing_names]
+    new_apps = [all_by_name[n] for n in all_by_name if n not in existing_names]
+
+    yield BootMessage(
+        step=BootStep.DEPLOY,
+        msg_type=MessageType.ACTIVITY,
+        message=f"Split: {len(existing_apps)} existing + {len(new_apps)} new",
+        progress=progress
+    )
+
+    # --- Step 1: Deploy all existing apps in one call ---
+    if existing_apps:
+        for app in existing_apps:
+            deployed_apps[app["name"]] = app
+
+        error = await _submit_current_window()
+        if error:
+            yield BootMessage(
+                step=BootStep.DEPLOY,
+                msg_type=MessageType.ERROR,
+                message=f"serve deploy failed: {error}",
+                progress=progress
+            )
+            return
+
+        yield BootMessage(
+            step=BootStep.DEPLOY,
+            msg_type=MessageType.ACTIVITY,
+            message=f"Submitted {len(existing_apps)} existing apps to Ray Serve",
+            progress=progress
+        )
+
+    # --- Step 2: Poll + sliding window for new apps ---
+    pending_new = list(new_apps)
+
+    while pending_new or (len(deployed_apps) > len(final_statuses)):
+        # Overall timeout
         elapsed = time.time() - deploy_start_time
         if elapsed >= boot_timeout:
             for name in list(deployed_apps.keys()):
                 if name not in final_statuses:
                     final_statuses[name] = {
-                        "name": name,
-                        "status": "TIMEOUT",
+                        "name": name, "status": "TIMEOUT",
                         "message": f"Timed out after {boot_timeout}s",
                     }
                     yield BootMessage(
-                        step=BootStep.DEPLOY,
-                        msg_type=MessageType.WARNING,
-                        message="Deploy timeout",
-                        target=name,
-                        result="TIMEOUT",
-                        progress=progress
+                        step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
+                        message="Deploy timeout", target=name,
+                        result="TIMEOUT", progress=progress
                     )
                     await db.update_expose_state(name, "UNHEALTHY", time.time())
             break
 
-        # --- Fill window up to BOOT_BATCH_SIZE ---
-        in_flight = len(deployed_apps) - len(final_statuses)
-        while pending and in_flight < BOOT_BATCH_SIZE:
-            app_config = pending.pop(0)
-            name = app_config["name"]
-            deployed_apps[name] = app_config
-            in_flight += 1
-
-            # Submit the updated cumulative config to Ray Serve
-            error = await _submit_current_window()
-            if error:
-                yield BootMessage(
-                    step=BootStep.DEPLOY,
-                    msg_type=MessageType.ERROR,
-                    message=f"serve deploy failed: {error}",
-                    progress=progress
-                )
-                return
-
-            yield BootMessage(
-                step=BootStep.DEPLOY,
-                msg_type=MessageType.ACTIVITY,
-                message=f"Submitted to Ray Serve ({len(deployed_apps)} total, {len(pending)} pending)",
-                target=name,
-                result="submitted",
-                progress=progress
-            )
-
-        # --- Poll Ray Serve status ---
+        # Poll Ray Serve status
         if not ray_dashboard:
-            # No dashboard URL — fall back to old behaviour: no per-deploy polling.
-            # final_statuses will remain empty; _step_health_check handles it.
             break
 
         await asyncio.sleep(BOOT_DEPLOY_POLL_INTERVAL)
@@ -1151,13 +1171,13 @@ async def _step_deploy(
             current_status = await query_ray_serve_status(ray_dashboard)
         except Exception as e:
             yield BootMessage(
-                step=BootStep.DEPLOY,
-                msg_type=MessageType.WARNING,
+                step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
                 message=f"Failed to query Ray Serve status: {e}",
                 progress=progress
             )
             continue
 
+        # Check for newly finalized apps
         for name in list(deployed_apps.keys()):
             if name in final_statuses:
                 continue
@@ -1169,37 +1189,47 @@ async def _step_deploy(
 
             if is_final_state(status):
                 final_statuses[name] = current_status[name]
-
                 db_state = "RUNNING" if status == "RUNNING" else "UNHEALTHY"
                 await db.update_expose_state(name, db_state, time.time())
 
                 if status == "RUNNING":
                     yield BootMessage(
-                        step=BootStep.DEPLOY,
-                        msg_type=MessageType.RESULT,
-                        message="Reached final state",
-                        target=name,
-                        result=status,
-                        progress=progress
+                        step=BootStep.DEPLOY, msg_type=MessageType.RESULT,
+                        message="Reached final state", target=name,
+                        result=status, progress=progress
                     )
                 else:
                     yield BootMessage(
-                        step=BootStep.DEPLOY,
-                        msg_type=MessageType.WARNING,
-                        message=message or f"Deployment failed",
-                        target=name,
-                        result=status,
-                        progress=progress
+                        step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
+                        message=message or "Deployment failed", target=name,
+                        result=status, progress=progress
                     )
-            else:
+
+        # Fill window — add new apps when slots are free
+        in_flight = len(deployed_apps) - len(final_statuses)
+        added = 0
+        while pending_new and in_flight < BOOT_BATCH_SIZE:
+            app_config = pending_new.pop(0)
+            name = app_config["name"]
+            deployed_apps[name] = app_config
+            in_flight += 1
+            added += 1
+
+        if added > 0:
+            error = await _submit_current_window()
+            if error:
                 yield BootMessage(
-                    step=BootStep.DEPLOY,
-                    msg_type=MessageType.ACTIVITY,
-                    message=f"Status: {status}",
-                    target=name,
-                    result=message if message else None,
+                    step=BootStep.DEPLOY, msg_type=MessageType.ERROR,
+                    message=f"serve deploy failed: {error}",
                     progress=progress
                 )
+                return
+
+            yield BootMessage(
+                step=BootStep.DEPLOY, msg_type=MessageType.ACTIVITY,
+                message=f"Added {added} new app(s) ({len(deployed_apps)} total, {len(pending_new)} pending)",
+                progress=progress
+            )
 
     # Summary
     deployed_names = list(deployed_apps.keys())
