@@ -69,7 +69,7 @@ logging_config:
 BOOT_HEALTH_TIMEOUT_DEFAULT = 1800  # seconds (30 minutes) - fallback if not configured
 BOOT_HEALTH_TIMEOUT = BOOT_HEALTH_TIMEOUT_DEFAULT  # Alias for tests
 BOOT_POLL_INTERVAL = 2  # seconds - interval between status polls during boot
-BOOT_BATCH_SIZE = 5  # Max concurrent deployments in sliding window
+BOOT_BATCH_SIZE = 4  # Max concurrent deployments in sliding window
 BOOT_DEPLOY_POLL_INTERVAL = 5  # Seconds between status polls during sliding-window deploy
 
 # Total number of main steps for progress tracking
