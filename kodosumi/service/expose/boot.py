@@ -1758,30 +1758,50 @@ async def _step_register_flows(
         )
         return
 
-    # Discover flows from each app's OpenAPI for step D (retrieve)
+    # Discover flows from each app's OpenAPI — parallel (batch of 4)
     all_flows: List[DiscoveredFlow] = []
+    batch_size = BOOT_BATCH_SIZE  # reuse same concurrency limit
 
-    for app_name in running_apps:
-        spec, openapi_url, error = await fetch_openapi_spec(ray_serve_address, app_name)
-        progress.activities_done += 1
+    for i in range(0, len(running_apps), batch_size):
+        batch = running_apps[i:i + batch_size]
+        results = await asyncio.gather(
+            *[fetch_openapi_spec(ray_serve_address, name) for name in batch],
+            return_exceptions=True
+        )
 
-        if spec is None:
-            yield BootMessage(
-                step=BootStep.REGISTER,
-                msg_type=MessageType.ACTIVITY,
-                message=f"OpenAPI not available",
-                target=app_name,
-                result=error or "skipped",
-                progress=progress
-            )
-            continue
+        for app_name, result in zip(batch, results):
+            progress.activities_done += 1
 
-        # Extract flows for step D
-        flows = extract_kodosumi_endpoints(spec, app_name)
-        if flows:
-            all_flows.extend(flows)
-            yield BootMessage(
-                step=BootStep.REGISTER,
+            if isinstance(result, Exception):
+                yield BootMessage(
+                    step=BootStep.REGISTER,
+                    msg_type=MessageType.ACTIVITY,
+                    message=f"OpenAPI not available",
+                    target=app_name,
+                    result=str(result),
+                    progress=progress
+                )
+                continue
+
+            spec, openapi_url, error = result
+
+            if spec is None:
+                yield BootMessage(
+                    step=BootStep.REGISTER,
+                    msg_type=MessageType.ACTIVITY,
+                    message=f"OpenAPI not available",
+                    target=app_name,
+                    result=error or "skipped",
+                    progress=progress
+                )
+                continue
+
+            # Extract flows for step D
+            flows = extract_kodosumi_endpoints(spec, app_name)
+            if flows:
+                all_flows.extend(flows)
+                yield BootMessage(
+                    step=BootStep.REGISTER,
                 msg_type=MessageType.ACTIVITY,
                 message=f"Discovered {len(flows)} flow endpoint(s)",
                 target=app_name,
