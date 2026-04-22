@@ -1649,7 +1649,7 @@ async def _step_register_flows(
     yield BootMessage(
         step=BootStep.REGISTER,
         msg_type=MessageType.STEP_END,
-        message=f"Flow registration complete ({num_registered} registered, {len(all_flows)} discovered)",
+        message=f"Flow registration complete ({len(all_flows)} discovered)",
         progress=progress,
         data={"discovered_flows": all_flows}
     )
