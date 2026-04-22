@@ -2058,22 +2058,37 @@ async def _step_update_meta(
         progress=progress
     )
 
-    # Fetch all registered flows from GET /flow
-    yield BootMessage(
-        step=BootStep.UPDATE,
-        msg_type=MessageType.ACTIVITY,
-        message="Fetching registered flows",
-        target="GET /flow",
-        progress=progress
-    )
+    # Build flow data directly from Step D results (flow_statuses).
+    # This avoids the chicken-and-egg problem where GET /flow only returns
+    # exposes that already have meta — new agents would never get meta.
+    flow_state_lookup: Dict[str, tuple] = {}
+    flows_by_expose: Dict[str, List[dict]] = {}
 
-    all_flows = await fetch_registered_flows(app_server, auth_cookies)
+    for app_name, statuses in flow_statuses.items():
+        for status in statuses:
+            flow = status.flow
+            flow_state_lookup[flow.path] = (status.state, status.checked_at)
 
-    if not all_flows:
+            # Convert DiscoveredFlow to dict matching EndpointResponse format
+            flow_dict = {
+                "base_url": flow.path,
+                "summary": flow.summary,
+                "description": flow.description,
+                "tags": flow.tags,
+                "author": flow.author,
+                "organization": flow.organization,
+            }
+            if app_name not in flows_by_expose:
+                flows_by_expose[app_name] = []
+            flows_by_expose[app_name].append(flow_dict)
+
+    all_flow_count = sum(len(v) for v in flows_by_expose.values())
+
+    if not flows_by_expose:
         yield BootMessage(
             step=BootStep.UPDATE,
             msg_type=MessageType.WARNING,
-            message="No flows returned from GET /flow",
+            message="No flows discovered in Step D",
             progress=progress
         )
         yield BootMessage(
@@ -2088,26 +2103,9 @@ async def _step_update_meta(
         step=BootStep.UPDATE,
         msg_type=MessageType.RESULT,
         message="Retrieved flows",
-        result=f"{len(all_flows)} flows",
+        result=f"{all_flow_count} flows",
         progress=progress
     )
-
-    # Build lookup for flow states from Step D
-    # Map path -> (state, checked_at) from Step D health checks
-    flow_state_lookup: Dict[str, tuple] = {}
-    for app_name, statuses in flow_statuses.items():
-        for status in statuses:
-            flow_state_lookup[status.flow.path] = (status.state, status.checked_at)
-
-    # Group flows by expose name (using base_url)
-    flows_by_expose: Dict[str, List[dict]] = {}
-    for flow in all_flows:
-        base_url = flow.get("base_url", "")
-        expose_name = get_expose_name_from_base_url(base_url)
-        if expose_name:
-            if expose_name not in flows_by_expose:
-                flows_by_expose[expose_name] = []
-            flows_by_expose[expose_name].append(flow)
 
     progress.activities_total = len(flows_by_expose) + 1  # +1 for initial fetch
     progress.activities_done = 1  # Already did the fetch
