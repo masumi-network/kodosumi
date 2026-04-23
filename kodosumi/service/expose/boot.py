@@ -1099,22 +1099,30 @@ async def _step_deploy(
 
     # --- Discover which apps are already deployed in Ray Serve ---
     existing_names: set = set()
+    query_failed = False
     if ray_dashboard:
         try:
             current_status = await query_ray_serve_status(ray_dashboard)
             existing_names = set(current_status.keys())
         except Exception:
-            pass  # Can't query — treat all as new
+            query_failed = True
+            # IMPORTANT: treat all as existing (not new!) so the first deploy
+            # call includes ALL apps. Otherwise serve deploy with only 4 new
+            # apps would delete all 26 previously running apps.
+            existing_names = {app["name"] for app in pending}
 
     # --- Split into existing (deploy first) and new (sliding window) ---
     all_by_name = {app["name"]: app for app in pending}
     existing_apps = [all_by_name[n] for n in all_by_name if n in existing_names]
     new_apps = [all_by_name[n] for n in all_by_name if n not in existing_names]
 
+    split_msg = f"Split: {len(existing_apps)} existing + {len(new_apps)} new"
+    if query_failed:
+        split_msg += " (Ray query failed — treating all as existing for safety)"
     yield BootMessage(
         step=BootStep.DEPLOY,
-        msg_type=MessageType.ACTIVITY,
-        message=f"Split: {len(existing_apps)} existing + {len(new_apps)} new",
+        msg_type=MessageType.WARNING if query_failed else MessageType.ACTIVITY,
+        message=split_msg,
         progress=progress
     )
 
