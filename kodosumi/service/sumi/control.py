@@ -1439,14 +1439,29 @@ async def _get_job_status_from_db(
             # Fallback: return raw string on parse failure
             final_result = row[0] if isinstance(row[0], str) else str(row[0])
 
-    # Get error if any
+    # Get error if any — sanitize traceback for external consumers.
+    # The full traceback is preserved in the monitor DB for admin debugging,
+    # but external Sumi consumers only see the exception message (last line).
     cursor.execute("""
         SELECT message FROM monitor WHERE kind = 'error'
         ORDER BY timestamp DESC, id DESC
         LIMIT 1
     """)
     row = cursor.fetchone()
-    error_msg = row[0] if row else None
+    error_msg = None
+    if row and row[0]:
+        raw_error = row[0]
+        lines = [l.strip() for l in raw_error.strip().split("\n") if l.strip()]
+        if lines:
+            last_line = lines[-1]
+            # Remove exception class prefix (e.g. "kodosumi.error.KodosumiError: ")
+            for sep in (": ",):
+                if sep in last_line:
+                    _, _, msg = last_line.partition(sep)
+                    error_msg = msg
+                    break
+            else:
+                error_msg = last_line
 
     # Get meta for identifier_from_purchaser
     cursor.execute("""
