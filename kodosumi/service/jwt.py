@@ -1,6 +1,7 @@
 import uuid
 
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError
 from litestar.connection import ASGIConnection
 from litestar.exceptions import NotAuthorizedException
 from litestar.handlers.base import BaseRouteHandler
@@ -16,9 +17,9 @@ from kodosumi.dtypes import Role, Token
 def decode_jwt_token(encoded_token: str) -> Token:
     try:
         payload = jwt.decode(
-            token=encoded_token, key=JWT_SECRET, algorithms=[ALGORITHM])
+            encoded_token, JWT_SECRET, algorithms=[ALGORITHM])
         return Token(**payload)
-    except JWTError as e:
+    except InvalidTokenError as e:
         raise NotAuthorizedException("Invalid token") from e
 
 
