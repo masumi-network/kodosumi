@@ -149,6 +149,9 @@ class MasumiClient:
         """
         Get the status of a payment by blockchain identifier.
 
+        Uses POST /payment/resolve-blockchain-identifier for direct O(1) lookup
+        instead of paginating through GET /payment.
+
         Args:
             blockchain_identifier: The blockchain identifier from init_payment
             network: "Preprod" or "Mainnet"
@@ -158,38 +161,19 @@ class MasumiClient:
         """
         async with httpx.AsyncClient() as client:
             try:
-                cursor_id = None
-                while True:
-                    params = {
-                        "limit": 100,
+                resp = await client.post(
+                    f"{self.base_url}/payment/resolve-blockchain-identifier",
+                    headers=self._get_headers(),
+                    json={
+                        "blockchainIdentifier": blockchain_identifier,
                         "network": network,
-                        "includeHistory": "false"
-                    }
-                    if cursor_id:
-                        params["cursorId"] = cursor_id
-
-                    resp = await client.get(
-                        f"{self.base_url}/payment/",
-                        headers=self._get_headers(),
-                        params=params,
-                        timeout=30.0
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-
-                    payments = data.get("data", {}).get("Payments", [])
-                    for payment in payments:
-                        if payment.get("blockchainIdentifier") == blockchain_identifier:
-                            return payment
-
-                    # No more pages if fewer results than limit
-                    if len(payments) < 100:
-                        return None
-
-                    # Paginate using last payment's ID
-                    cursor_id = payments[-1].get("id")
-                    if not cursor_id:
-                        return None
+                    },
+                    timeout=30.0
+                )
+                if resp.status_code == 404:
+                    return None
+                resp.raise_for_status()
+                return resp.json().get("data")
 
             except (httpx.HTTPStatusError, httpx.RequestError):
                 return None
