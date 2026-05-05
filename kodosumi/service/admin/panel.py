@@ -129,3 +129,9 @@ class AdminControl(litestar.Controller):
                             request: Request) -> Template:
         return Template("dashboard/dashboard.html", context={})
 
+    @get("/masumi", include_in_schema=False)
+    async def view_masumi(self,
+                         state: State,
+                         request: Request) -> Template:
+        return Template("masumi/masumi.html", context={})
+

@@ -45,7 +45,7 @@ from kodosumi.service.health import HealthControl
 from kodosumi.service.inputs.inputs import InputsController
 from kodosumi.service.inputs.outputs import OutputsController
 from kodosumi.service.inputs.timeline.controller import TimelineController
-from kodosumi.service.jwt import JWTAuthenticationMiddleware
+from kodosumi.service.jwt import JWTAuthenticationMiddleware, operator_guard
 from kodosumi.service.proxy import LockController, ProxyControl
 from kodosumi.service.expose.control import (
     ExposeControl, ExposeUIControl, BootControl, BootUIControl,
@@ -54,6 +54,7 @@ from kodosumi.service.expose.control import (
 )
 from kodosumi.service.expose import db as expose_db
 from kodosumi.service.role import RoleControl, ProfileControl
+from kodosumi.service.masumi.control import MasumiDashboardAPI
 from kodosumi.service.sumi.control import SumiControl, SumiLockControl
 
 
@@ -215,6 +216,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/api/dashboard", route_handlers=[DashboardAPI]),
             Router(path="/deploy", route_handlers=[DeployControl]),
             Router(path="/serve", route_handlers=[ServeControl]),
+            Router(path="/api/masumi", route_handlers=[MasumiDashboardAPI], guards=[operator_guard]),
             Router(path="/files", route_handlers=[FileControl]),
             Router(path="/health", route_handlers=[HealthControl]),
             Router(path="/", route_handlers=[SumiControl, SumiLockControl, ExposeControl, ExposeUIControl, BootControl, BootUIControl, MaintenanceControl, ExchangeControl, ExchangeUIControl, AuditLogControl, RegistryControl, WalletsControl]),

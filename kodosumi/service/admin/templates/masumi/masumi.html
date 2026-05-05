@@ -1,0 +1,452 @@
+{% extends "_frame.html" %}
+
+{% block styles %}
+<style>
+/* ── Network & content tabs ───────────────────────────────────────── */
+nav.tabs {
+  display: flex;
+}
+nav.tabs > a {
+  flex: 1;
+  text-align: center;
+  justify-content: center;
+}
+
+/* ── Summary cards ───────────────────────────────────────────────── */
+.masumi-card {
+  min-height: 100px;
+}
+.masumi-card .card-icon {
+  font-size: 2rem;
+  opacity: .75;
+  overflow: visible;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+}
+.masumi-card h6 {
+  margin: 0 0 2px 0;
+  font-size: .75rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  opacity: .7;
+}
+.masumi-card .card-value {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.masumi-card .card-sub {
+  margin: 2px 0 0 0;
+  font-size: .8rem;
+  opacity: .65;
+}
+
+/* ── Rate badge ──────────────────────────────────────────────────── */
+.rate-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--on-primary);
+  white-space: nowrap;
+}
+
+/* ── Failure bar ──────────────────────────────────────────────────── */
+.failure-bar {
+  display: flex;
+  height: 24px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.failure-bar > div {
+  height: 100%;
+  transition: flex .4s;
+  min-width: 2px;
+}
+
+/* ── Responsibility row ───────────────────────────────────────────── */
+.resp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .85rem;
+  margin-bottom: 6px;
+}
+.resp-row i {
+  font-size: 1rem;
+}
+
+/* ── Legend swatch ───────────────────────────────────────────────── */
+.legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Tab pages ────────────────────────────────────────────────────── */
+.tab-content {
+  display: none;
+}
+.tab-content.active {
+  display: block;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────── */
+.masumi-table th {
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.masumi-table th:hover {
+  color: var(--primary);
+}
+.masumi-table th .sort-arrow {
+  font-size: .75rem;
+  opacity: .5;
+  margin-left: 2px;
+}
+.masumi-table th.sort-active .sort-arrow {
+  opacity: 1;
+  color: var(--primary);
+}
+.masumi-table td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* ── Address cell ─────────────────────────────────────────────────── */
+.addr-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+}
+.addr-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+  font-size: .78rem;
+}
+.copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+  padding: 2px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.copy-btn:hover {
+  color: var(--primary);
+}
+
+/* ── Low balance warning ──────────────────────────────────────────── */
+.warn-ada {
+  color: #f59e0b;
+}
+
+/* ── D3 chart ─────────────────────────────────────────────────────── */
+#trend-chart-svg {
+  width: 100%;
+  overflow: visible;
+}
+.trend-axis text {
+  fill: var(--on-surface);
+  font-size: 11px;
+}
+.trend-axis line,
+.trend-axis path {
+  stroke: var(--outline-variant);
+}
+.trend-grid line {
+  stroke: var(--outline-variant);
+  stroke-dasharray: 3 3;
+  opacity: .4;
+}
+
+/* ── Loading indicator ────────────────────────────────────────────── */
+.masumi-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 0;
+  justify-content: center;
+  color: var(--on-surface-variant);
+}
+
+/* ── Period table ─────────────────────────────────────────────────── */
+#period-table td,
+#period-table th {
+  padding: 10px 14px;
+}
+
+/* ── Wallet section heading ───────────────────────────────────────── */
+.wallet-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 8px;
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  opacity: .6;
+}
+.wallet-section-head:first-child {
+  margin-top: 0;
+}
+</style>
+{% endblock %}
+
+{% block script %}
+{% include "masumi/masumi.js" %}
+{% endblock %}
+
+{% block menu %}
+<h5>Masumi Payment Dashboard</h5>
+<div class="max"></div>
+<button class="transparent circle" onclick="refreshData()" title="Refresh">
+  <i>refresh</i>
+</button>
+{% endblock %}
+
+{% block details %}
+<!-- Network selector tabs -->
+<div style="margin-bottom: 12px;">
+  <nav class="tabs" id="network-tabs">
+    <a class="active" data-network="Mainnet" onclick="switchNetwork('Mainnet')">
+      <i>public</i><span>Mainnet</span>
+    </a>
+    <a data-network="Preprod" onclick="switchNetwork('Preprod')">
+      <i>science</i><span>Preprod</span>
+    </a>
+  </nav>
+</div>
+
+<!-- Summary cards -->
+<div class="grid" id="summary-cards">
+  <div class="s12 m6 l3">
+    <article class="border small-padding masumi-card" id="card-revenue-art">
+      <div class="row middle-align">
+        <i class="card-icon" style="color: var(--primary);">toll</i>
+        <div class="max" style="margin-left: 12px;">
+          <h6>Revenue</h6>
+          <p class="card-value" id="card-revenue">—</p>
+          <p class="card-sub" id="card-revenue-sub">0 USDM</p>
+        </div>
+      </div>
+    </article>
+  </div>
+  <div class="s12 m6 l3">
+    <article class="border small-padding masumi-card" id="card-rate-art">
+      <div class="row middle-align">
+        <i class="card-icon" style="color: var(--secondary);">speed</i>
+        <div class="max" style="margin-left: 12px;">
+          <h6>Delivery Rate</h6>
+          <p class="card-value" id="card-rate">—</p>
+          <p class="card-sub" id="card-rate-sub">All time</p>
+        </div>
+      </div>
+    </article>
+  </div>
+  <div class="s12 m6 l3">
+    <article class="border small-padding masumi-card">
+      <div class="row middle-align">
+        <i class="card-icon" style="color: var(--error);">output</i>
+        <div class="max" style="margin-left: 12px;">
+          <h6>Lost Revenue</h6>
+          <p class="card-value" id="card-lost">—</p>
+          <p class="card-sub" id="card-lost-sub">UTxO + timeout</p>
+        </div>
+      </div>
+    </article>
+  </div>
+  <div class="s12 m6 l3">
+    <article class="border small-padding masumi-card">
+      <div class="row middle-align">
+        <i class="card-icon" style="color: var(--tertiary);">pending</i>
+        <div class="max" style="margin-left: 12px;">
+          <h6>Pending</h6>
+          <p class="card-value" id="card-pending">—</p>
+          <p class="card-sub" id="card-pending-sub">Awaiting result</p>
+        </div>
+      </div>
+    </article>
+  </div>
+</div>
+{% endblock %}
+
+{% block page %}
+<!-- Content tabs navigation -->
+<nav class="tabs" id="content-tabs">
+  <a class="active" data-tab="overview" onclick="showTab('overview')">
+    <i>monitoring</i><span>Overview</span>
+  </a>
+  <a data-tab="agents" onclick="showTab('agents')">
+    <i>group</i><span>Agents</span>
+  </a>
+  <a data-tab="trend" onclick="showTab('trend')">
+    <i>trending_up</i><span>Trend</span>
+  </a>
+  <a data-tab="wallets" onclick="showTab('wallets')">
+    <i>wallet</i><span>Wallets</span>
+  </a>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 1 — Overview
+     ══════════════════════════════════════════════════════════════════ -->
+<div id="tab-overview" class="tab-content active">
+
+  <!-- Period summary table -->
+  <article class="border small-margin" style="padding: 16px 20px;">
+    <h6 style="margin-bottom: 12px;">Period Summary</h6>
+    <div id="period-table-wrap" style="overflow-x: auto;">
+      <div class="masumi-loading" id="period-loading">
+        <progress class="circle small"></progress>
+        <span>Loading…</span>
+      </div>
+      <table class="border masumi-table" id="period-table" style="display: none; width: 100%;">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th class="right-align">Revenue</th>
+            <th class="right-align">Delivered</th>
+            <th class="right-align">UTxO Fail</th>
+            <th class="right-align">Timeout</th>
+            <th class="right-align">Buyer Err</th>
+            <th class="center-align">Rate</th>
+          </tr>
+        </thead>
+        <tbody id="period-tbody"></tbody>
+      </table>
+    </div>
+  </article>
+
+  <!-- Failure breakdown -->
+  <article class="border small-margin" style="padding: 16px 20px;" id="failure-article">
+    <h6 style="margin-bottom: 12px;">Failure Breakdown</h6>
+    <div id="failure-loading" class="masumi-loading">
+      <progress class="circle small"></progress>
+      <span>Loading…</span>
+    </div>
+    <div id="failure-content" style="display: none;">
+      <div class="failure-bar" id="failure-bar"></div>
+      <div class="grid" id="failure-legend" style="margin-bottom: 14px;"></div>
+      <div id="failure-resp"></div>
+    </div>
+  </article>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 2 — Agents
+     ══════════════════════════════════════════════════════════════════ -->
+<div id="tab-agents" class="tab-content">
+  <article class="border small-margin" style="padding: 16px 20px;">
+    <div class="row" style="margin-bottom: 12px; align-items: center;">
+      <h6 style="margin: 0;">Agent Performance</h6>
+      <div class="max"></div>
+      <nav class="tabs" style="flex: 0; gap: 0;">
+        <a data-period="today" onclick="switchPeriod('today')" class="small">Today</a>
+        <a data-period="yesterday" onclick="switchPeriod('yesterday')" class="small">Yesterday</a>
+        <a data-period="7d" onclick="switchPeriod('7d')" class="active small">7 Days</a>
+        <a data-period="30d" onclick="switchPeriod('30d')" class="small">30 Days</a>
+        <a data-period="total" onclick="switchPeriod('total')" class="small">All Time</a>
+      </nav>
+    </div>
+    <div id="agents-loading" class="masumi-loading">
+      <progress class="circle small"></progress>
+      <span>Loading…</span>
+    </div>
+    <div style="overflow-x: auto;" id="agents-table-wrap" style="display: none;">
+      <table class="border masumi-table" id="agents-table" style="width: 100%; display: none;">
+        <thead>
+          <tr>
+            <th data-col="name" onclick="sortAgents('name')">
+              Agent <span class="sort-arrow">↕</span>
+            </th>
+            <th data-col="revenue" onclick="sortAgents('revenue')" class="right-align sort-active">
+              Revenue <span class="sort-arrow">↓</span>
+            </th>
+            <th data-col="delivered" onclick="sortAgents('delivered')" class="right-align">
+              Delivered <span class="sort-arrow">↕</span>
+            </th>
+            <th data-col="utxo_fail" onclick="sortAgents('utxo_fail')" class="right-align">
+              UTxO Fails <span class="sort-arrow">↕</span>
+            </th>
+            <th data-col="timeout" onclick="sortAgents('timeout')" class="right-align">
+              Timeouts <span class="sort-arrow">↕</span>
+            </th>
+            <th data-col="buyer_invalid" onclick="sortAgents('buyer_invalid')" class="right-align">
+              Ext. Fails <span class="sort-arrow">↕</span>
+            </th>
+            <th data-col="rate" onclick="sortAgents('rate')" class="center-align">
+              Rate <span class="sort-arrow">↕</span>
+            </th>
+            <th data-col="lost_revenue" onclick="sortAgents('lost_revenue')" class="right-align">
+              Lost <span class="sort-arrow">↕</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody id="agents-tbody"></tbody>
+      </table>
+    </div>
+  </article>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 3 — Trend
+     ══════════════════════════════════════════════════════════════════ -->
+<div id="tab-trend" class="tab-content">
+  <article class="border small-margin" style="padding: 16px 20px;">
+    <h6 style="margin-bottom: 12px;">Weekly Delivery Trend</h6>
+    <div id="trend-loading" class="masumi-loading">
+      <progress class="circle small"></progress>
+      <span>Loading…</span>
+    </div>
+    <div id="trend-chart-container" style="display: none; position: relative;">
+      <svg id="trend-chart-svg"></svg>
+    </div>
+    <div class="row" style="gap: 16px; margin-top: 12px; flex-wrap: wrap;" id="trend-legend" style="display: none;">
+      <div class="row" style="align-items: center; gap: 6px;">
+        <span class="legend-swatch" style="background: var(--primary);"></span>
+        <span class="small">Delivered</span>
+      </div>
+      <div class="row" style="align-items: center; gap: 6px;">
+        <span class="legend-swatch" style="background: var(--error);"></span>
+        <span class="small">UTxO Fail</span>
+      </div>
+      <div class="row" style="align-items: center; gap: 6px;">
+        <span class="legend-swatch" style="background: var(--tertiary);"></span>
+        <span class="small">Timeout</span>
+      </div>
+      <div class="row" style="align-items: center; gap: 6px;">
+        <span class="legend-swatch" style="background: var(--secondary); opacity: .6;"></span>
+        <span class="small">Delivery Rate %</span>
+      </div>
+    </div>
+  </article>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB 4 — Wallets
+     ══════════════════════════════════════════════════════════════════ -->
+<div id="tab-wallets" class="tab-content">
+  <article class="border small-margin" style="padding: 16px 20px;">
+    <div id="wallets-loading" class="masumi-loading">
+      <progress class="circle small"></progress>
+      <span>Loading…</span>
+    </div>
+    <div id="wallets-content" style="display: none;"></div>
+  </article>
+</div>
+
+{% endblock %}
