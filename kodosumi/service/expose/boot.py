@@ -2309,9 +2309,10 @@ async def _step_update_meta(
             existing_metas = await get_existing_meta(expose_name)
 
             # Build lookup by URL path (meta stores path like /app/endpoint)
+            # Normalize paths (strip trailing slashes) for robust matching
             existing_by_path: Dict[str, ExposeMetaModel] = {}
             for meta in existing_metas:
-                existing_by_path[meta.url] = meta
+                existing_by_path[meta.url.rstrip("/")] = meta
 
             # Merge flows with existing meta
             merged_metas: List[ExposeMetaModel] = []
@@ -2326,8 +2327,8 @@ async def _step_update_meta(
                 # Step D uses the flow.path which should match our url_path
                 state, checked_at = flow_state_lookup.get(url_path, ("alive", time.time()))
 
-                # Find existing meta by path
-                existing = existing_by_path.get(url_path)
+                # Find existing meta by path (normalize trailing slash)
+                existing = existing_by_path.get(url_path.rstrip("/"))
 
                 # Merge
                 merged = merge_flow_with_meta(flow, existing, state, checked_at)
@@ -2340,6 +2341,21 @@ async def _step_update_meta(
 
                 if state == "alive":
                     total_alive += 1
+
+            # Preserve existing meta entries that have registry data
+            # (agentIdentifier, registrationId) but weren't matched by path
+            matched_urls = {m.url.rstrip("/") for m in merged_metas}
+            for meta in existing_metas:
+                if meta.url.rstrip("/") not in matched_urls and meta.data:
+                    import yaml as _yaml
+                    try:
+                        data = _yaml.safe_load(meta.data)
+                        if isinstance(data, dict) and (
+                            data.get("agentIdentifier") or data.get("registrationId")
+                        ):
+                            merged_metas.append(meta)
+                    except Exception:
+                        pass
 
             # Save to database
             meta_yaml = meta_to_yaml(merged_metas)
