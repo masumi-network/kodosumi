@@ -764,7 +764,30 @@ function renderWalletTable() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
+async function loadNetworks() {
+  try {
+    const data = await fetchJSON('/api/masumi/networks');
+    const nav = document.getElementById('network-tabs');
+    const nets = data.networks || [];
+    if (nets.length === 0) {
+      nav.innerHTML = '<span style="opacity:.5; padding: 8px;">No Masumi networks configured</span>';
+      return;
+    }
+    const icons = { 'Mainnet': 'public', 'Preprod': 'science' };
+    nav.innerHTML = nets.map((n, i) => {
+      const icon = icons[n.registry_network] || 'lan';
+      const active = i === 0 ? ' class="active"' : '';
+      return `<a${active} data-network="${n.registry_network}" onclick="switchNetwork('${n.registry_network}')">` +
+        `<i>${icon}</i><span>${n.name}</span></a>`;
+    }).join('');
+    currentNetwork = nets[0].registry_network;
+  } catch (e) {
+    console.error('Failed to load networks:', e);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadNetworks();
   loadSummary();
 });
 
