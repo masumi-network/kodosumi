@@ -125,6 +125,26 @@ async def provide_transaction(
             ) from exc
 
    
+async def _masumi_sync_loop(app: Litestar):
+    """Periodically sync Masumi payment data into the local cache."""
+    import asyncio
+    from kodosumi.service.masumi.cache import get_cache
+    settings = app.state["settings"]
+    cache = get_cache(settings.EXEC_DIR)
+    await cache.init_db()
+    while True:
+        for name, cfg in settings.masumi_networks.items():
+            try:
+                count = await cache.sync_payments(
+                    cfg.base_url, cfg.token, cfg.registry_network
+                )
+                if count > 0:
+                    logger.info("Masumi sync %s: %d new payments", cfg.registry_network, count)
+            except Exception as e:
+                logger.warning("Masumi sync %s failed: %s", name, e)
+        await asyncio.sleep(300)
+
+
 async def _build_execution_index(app: Litestar):
     """Build execution index in background thread, then start refresh loop."""
     import asyncio
@@ -150,10 +170,18 @@ async def startup(app: Litestar):
     exec_dir = Path(app.state["settings"].EXEC_DIR)
     app.state["execution_index"] = ExecutionIndex(exec_dir, refresh_interval=60)
     asyncio.create_task(_build_execution_index(app))
+    if app.state["settings"].masumi_networks:
+        app.state["masumi_sync_task"] = asyncio.create_task(
+            _masumi_sync_loop(app))
+        logger.info("Masumi sync loop started (%d networks)",
+                    len(app.state["settings"].masumi_networks))
 
 
 async def shutdown(app):
     task = app.state.get("index_refresh_task")
+    if task and not task.done():
+        task.cancel()
+    task = app.state.get("masumi_sync_task")
     if task and not task.done():
         task.cancel()
     await endpoint.destroy(app.state)
