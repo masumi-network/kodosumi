@@ -667,6 +667,70 @@ async def _fetch_lock_input_schemas(
     return AwaitingInputSchema(input_groups=groups)
 
 
+async def _heal_agent_identifier(
+    expose_name: str,
+    meta: ExposeMeta,
+    meta_data_dict: dict,
+    state,
+) -> Optional[str]:
+    """Query Masumi registry for agentIdentifier and persist it in expose meta."""
+    from kodosumi.service.expose.registry import get_registration_status
+    from kodosumi.service.expose.db import get_expose, update_expose_meta
+
+    registration_id = meta_data_dict.get("registrationId", "")
+    network = meta_data_dict.get("network") or ""
+    if not network:
+        row = await get_expose(expose_name)
+        network = (row or {}).get("network", "")
+    if not network or not registration_id:
+        return None
+
+    try:
+        settings = state["settings"]
+        masumi_cfg = settings.get_masumi(network)
+    except (ValueError, KeyError):
+        return None
+
+    try:
+        reg = await get_registration_status(
+            masumi_cfg, registration_id=registration_id
+        )
+    except Exception:
+        return None
+
+    if not reg:
+        return None
+    agent_id = reg.get("agentIdentifier", "")
+    if not agent_id:
+        return None
+
+    # Persist back to expose meta
+    try:
+        row = await get_expose(expose_name)
+        if row and row.get("meta"):
+            import yaml
+            outer = yaml.safe_load(row["meta"])
+            if isinstance(outer, list):
+                for entry in outer:
+                    if not isinstance(entry, dict):
+                        continue
+                    data_str = entry.get("data", "")
+                    if not data_str:
+                        continue
+                    inner = yaml.safe_load(data_str)
+                    if isinstance(inner, dict) and inner.get("registrationId") == registration_id:
+                        inner["agentIdentifier"] = agent_id
+                        entry["data"] = yaml.dump(inner, default_flow_style=False, allow_unicode=True)
+                        new_meta = yaml.dump(outer, default_flow_style=False, allow_unicode=True)
+                        await update_expose_meta(expose_name, new_meta)
+                        logger.info("Self-healed agentIdentifier for %s", expose_name)
+                        break
+    except Exception as e:
+        logger.warning("Failed to persist healed agentIdentifier for %s: %s", expose_name, e)
+
+    return agent_id
+
+
 async def _submit_job(
     expose_name: str,
     meta_name: str,
@@ -712,14 +776,18 @@ async def _submit_job(
     agent_identifier = meta_data_dict.get("agentIdentifier")
     registration_id = meta_data_dict.get("registrationId")
 
-    # Registration incomplete: registrationId exists but agentIdentifier missing.
-    # Job must not start — payment would be skipped entirely. (#43)
+    # Self-heal: if registrationId exists but agentIdentifier is missing,
+    # query the Masumi registry live and persist the result (#58).
     if registration_id and not agent_identifier:
-        raise HTTPException(
-            status_code=400,
-            detail="Agent registration is incomplete (registrationId set but agentIdentifier missing). "
-                   "Wait for on-chain confirmation or re-register."
+        agent_identifier = await _heal_agent_identifier(
+            expose_name, meta, meta_data_dict, state
         )
+        if not agent_identifier:
+            raise HTTPException(
+                status_code=400,
+                detail="Agent registration is incomplete (registrationId set but agentIdentifier missing). "
+                       "Wait for on-chain confirmation or re-register."
+            )
 
     # Paid agents require identifier_from_purchaser for payment validation.
     # Without it, anyone could start jobs on paid agents without paying.
