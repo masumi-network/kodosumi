@@ -120,12 +120,13 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
               help='Execution directory.')
 @click.option('--reload', is_flag=True, 
               help='App server reload on file change.')
-@click.option("--register", multiple=True, help="Register endpoints")
-@click.option("--ssl-keyfile", default=None, 
+@click.option("--register", multiple=True, hidden=True,
+              help="Deprecated, ignored.")
+@click.option("--ssl-keyfile", default=None,
               help="SSL key file path.")
-@click.option("--ssl-certfile", default=None, 
+@click.option("--ssl-certfile", default=None,
               help="SSL cert file path.")
-@click.option("--ssl-keyfile-password", default=None,   
+@click.option("--ssl-keyfile-password", default=None,
               help="SSL key file password.")
 @click.option("--ssl-version", default=None, type=int,
               help="SSL version.")
@@ -133,15 +134,17 @@ def spooler(ray_server, log_file, log_file_level, level, exec_dir, interval,
               help="SSL cert reqs.")
 @click.option("--ssl-ca-certs", default=None, type=str,
               help="SSL ca certs.")
-@click.option("--ssl-ciphers", default=None, 
+@click.option("--ssl-ciphers", default=None,
               help="SSL ciphers.")
-@click.option("--app-workers", default=1, type=int, 
+@click.option("--app-workers", default=1, type=int,
               help="Number of workers.")
 
 def server(address, log_file, log_file_level, level, exec_dir, reload,
            uvicorn_level, register, ssl_keyfile, ssl_certfile,
-           ssl_keyfile_password, ssl_version, ssl_cert_reqs, ssl_ca_certs, 
+           ssl_keyfile_password, ssl_version, ssl_cert_reqs, ssl_ca_certs,
            ssl_ciphers, app_workers):
+    if register:
+        click.echo("WARNING: --register is deprecated and will be ignored", err=True)
     kw = {}
     if address: kw["APP_SERVER"] = address
     if log_file: kw["APP_LOG_FILE"] = log_file
@@ -194,9 +197,19 @@ def server(address, log_file, log_file_level, level, exec_dir, reload,
               help="SSL ca certs.")
 @click.option("--ssl-ciphers", default=None, 
               help="SSL ciphers.")
+<<<<<<< HEAD
 def start(address, log_file, log_file_level, level, uvicorn_level, 
           exec_dir, register, ssl_keyfile, ssl_certfile, ssl_keyfile_password, 
           ssl_version, ssl_cert_reqs, ssl_ca_certs, ssl_ciphers):
+=======
+@click.option("--register", hidden=True, default=None,
+              help="Deprecated, ignored.")
+def start(address, log_file, log_file_level, level, uvicorn_level,
+          exec_dir, ssl_keyfile, ssl_certfile, ssl_keyfile_password,
+          ssl_version, ssl_cert_reqs, ssl_ca_certs, ssl_ciphers, register):
+    if register is not None:
+        click.echo("WARNING: --register is deprecated and will be ignored", err=True)
+>>>>>>> 939e1f2 (fix: accept deprecated --register option without crashing (#57))
     kw = {}
     if address: kw["APP_SERVER"] = address
     if log_file: kw["APP_LOG_FILE"] = log_file
