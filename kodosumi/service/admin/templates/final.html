@@ -98,7 +98,10 @@
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         let dt = new Date({{ timestamp }} * 1000);
-        document.getElementById('timestamp').innerText = dt.toISOString().replace("T", " ").replace("Z", "");
+        const y = dt.getFullYear(), mo = String(dt.getMonth()+1).padStart(2,'0'),
+              d = String(dt.getDate()).padStart(2,'0'), h = String(dt.getHours()).padStart(2,'0'),
+              mi = String(dt.getMinutes()).padStart(2,'0'), s = String(dt.getSeconds()).padStart(2,'0');
+        document.getElementById('timestamp').innerText = `${y}-${mo}-${d} ${h}:${mi}:${s}`;
         dt = new Date({{ runtime }} * 1000);
         document.getElementById('runtime').innerText = dt.toISOString().substr(11, 8);
     });
