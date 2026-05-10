@@ -197,19 +197,13 @@ def server(address, log_file, log_file_level, level, exec_dir, reload,
               help="SSL ca certs.")
 @click.option("--ssl-ciphers", default=None, 
               help="SSL ciphers.")
-<<<<<<< HEAD
-def start(address, log_file, log_file_level, level, uvicorn_level, 
-          exec_dir, register, ssl_keyfile, ssl_certfile, ssl_keyfile_password, 
-          ssl_version, ssl_cert_reqs, ssl_ca_certs, ssl_ciphers):
-=======
-@click.option("--register", hidden=True, default=None,
+@click.option("--register", multiple=True, hidden=True,
               help="Deprecated, ignored.")
 def start(address, log_file, log_file_level, level, uvicorn_level,
-          exec_dir, ssl_keyfile, ssl_certfile, ssl_keyfile_password,
-          ssl_version, ssl_cert_reqs, ssl_ca_certs, ssl_ciphers, register):
-    if register is not None:
+          exec_dir, register, ssl_keyfile, ssl_certfile, ssl_keyfile_password,
+          ssl_version, ssl_cert_reqs, ssl_ca_certs, ssl_ciphers):
+    if register:
         click.echo("WARNING: --register is deprecated and will be ignored", err=True)
->>>>>>> 939e1f2 (fix: accept deprecated --register option without crashing (#57))
     kw = {}
     if address: kw["APP_SERVER"] = address
     if log_file: kw["APP_LOG_FILE"] = log_file
