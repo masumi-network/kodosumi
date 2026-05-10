@@ -162,7 +162,18 @@ class Settings(BaseSettings):
 
     # Masumi payment integration
     # Format: "Name URL key [pay_by_time] [submit_result_by_time] [poll_interval]"
+    # MASUMI0..MASUMI9 support multiple networks (e.g. Preprod + Mainnet)
     MASUMI: str = ""
+    MASUMI0: str = ""
+    MASUMI1: str = ""
+    MASUMI2: str = ""
+    MASUMI3: str = ""
+    MASUMI4: str = ""
+    MASUMI5: str = ""
+    MASUMI6: str = ""
+    MASUMI7: str = ""
+    MASUMI8: str = ""
+    MASUMI9: str = ""
     
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -226,3 +237,8 @@ class InternalSettings(Settings):
             if env_var in os.environ and field not in kwargs:
                 kwargs[field] = json.loads(os.environ[env_var])
         super().__init__(**kwargs)
+        for field in self.__class__.model_fields:
+            if _MASUMI_RE.match(field):
+                val = getattr(self, field, "")
+                if val:
+                    os.environ.setdefault(f"KODO_{field}", val)
