@@ -103,12 +103,24 @@ class ServeAPI(FastAPI):
                     if isinstance(element, InputFiles):
                         upload = js_data.get(element_name)
                         if upload:
-                            js_upload = json.loads(upload)
-                            items = js_upload["items"]
-                            batch_id = js_upload["batchId"]
-                            submitted_value = set([
-                                i["filename"] for i in items.values()
-                            ])
+                            if isinstance(upload, str) and upload.startswith(("http://", "https://")):
+                                submitted_value = upload
+                            elif isinstance(upload, list) and all(
+                                isinstance(u, str) for u in upload
+                            ):
+                                submitted_value = upload
+                            else:
+                                try:
+                                    if isinstance(upload, str):
+                                        upload = json.loads(upload)
+                                    js_upload = upload
+                                    items = js_upload["items"]
+                                    batch_id = js_upload["batchId"]
+                                    submitted_value = set([
+                                        i["filename"] for i in items.values()
+                                    ])
+                                except (json.JSONDecodeError, KeyError, TypeError):
+                                    submitted_value = upload
                     elif element_name in js_data:
                         submitted_value = js_data[element_name]
                     elif isinstance(element, Checkbox):
