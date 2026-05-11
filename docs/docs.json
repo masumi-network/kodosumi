@@ -121,7 +121,7 @@
     "decoration": "grid"
   },
   "banner": {
-    "content": "Kodosumi and it's documentation are in active development. Please report any issues or feedback to the [GitHub repository](https://github.com/masumi-network/kodosumi).",
+    "content": "Kodosumi and its documentation are in active development. Please report any issues or feedback to the [GitHub repository](https://github.com/masumi-network/kodosumi).",
     "dismissible": true
   },
   "contextual": {
