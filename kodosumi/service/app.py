@@ -165,6 +165,20 @@ def create_app(**kwargs) -> Litestar:
         create_all=True,
         before_send_handler="autocommit",
     )
+
+    initial_state = {
+        "settings": settings,
+        "register": None,
+        "session_maker_class": session_maker,
+        "exec_reader": None,
+    }
+
+    if settings.EXECUTION_DATABASE:
+        from kodosumi.storage import PostgresExecutionReader
+        exec_reader = PostgresExecutionReader(settings.EXECUTION_DATABASE)
+        initial_state["exec_reader"] = exec_reader
+        logger.info(f"execution events via PostgreSQL")
+
     admin_console = Path(kodosumi.service.admin.__file__).parent.joinpath
     app = Litestar(
         cors_config=CORSConfig(allow_origins=settings.CORS_ORIGINS,
@@ -185,7 +199,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/files", route_handlers=[FileControl]),
             Router(path="/health", route_handlers=[HealthControl]),
             create_static_files_router(
-                path="/static", 
+                path="/static",
                 directories=[admin_console("static"),],
                 opt={"no_auth": True}
             ),
@@ -205,23 +219,21 @@ def create_app(**kwargs) -> Litestar:
             title="Kodosumi API",
             description="API documentation for the Kodosumi Panel API.",
             version=kodosumi.__version__,
-            render_plugins=[SwaggerRenderPlugin(), 
+            render_plugins=[SwaggerRenderPlugin(),
                             JsonRenderPlugin()]
         ),
         exception_handlers={Exception: app_exception_handler},
         debug=False,  # obsolete with app_exception_handler
         on_startup=[startup],
         on_shutdown=[shutdown],
-        state=State({
-            "settings": settings,
-            "register": None,
-            "session_maker_class": session_maker, 
-        })
+        state=State(initial_state)
     )
     app_logger(settings)
     logger.info(f"app server started at {settings.APP_SERVER}")
     logger.info(f"exec source path {settings.EXEC_DIR}")
     logger.debug(f"admin database at {settings.ADMIN_DATABASE}")
+    if settings.EXECUTION_DATABASE:
+        logger.debug(f"execution database at {settings.EXECUTION_DATABASE}")
     logger.debug(f"screen log level: {settings.APP_STD_LEVEL}, "
                  f"file log level: {settings.APP_LOG_FILE_LEVEL}, "
                  f"uvicorn log level: {settings.UVICORN_LEVEL}")

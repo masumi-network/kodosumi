@@ -16,6 +16,7 @@ import kodosumi.config
 from kodosumi import helper
 from kodosumi.const import DB_FILE, NAMESPACE, SPOOLER_NAME
 from kodosumi.log import logger, spooler_logger
+from kodosumi.storage import SpoolerWriter, create_spooler_writer
 
 
 @ray.remote
@@ -41,52 +42,27 @@ class SpoolerLock:
         self.total = total
 
 class Spooler:
-    def __init__(self, 
+    def __init__(self,
                  exec_dir: Union[str, Path],
                  interval: float=1.,
                  batch_size: int=10,
-                 batch_timeout: float=0.1):
+                 batch_timeout: float=0.1,
+                 writer: SpoolerWriter = None):
         self.exec_dir = Path(exec_dir)
         self.exec_dir.mkdir(parents=True, exist_ok=True)
-        self.interval = interval  
+        self.interval = interval
         self.batch_size = batch_size
         self.batch_timeout = batch_timeout
         self.shutdown_event = asyncio.Event()
-        self.monitor: dict = {}  
+        self.monitor: dict = {}
         self.lock = None
+        self.writer = writer
 
     def setup_database(self, username: str, fid: str):
-        dir_path = self.exec_dir.joinpath(username, fid)
-        dir_path.mkdir(parents=True, exist_ok=True)
-        db_path = dir_path.joinpath(DB_FILE)
-        conn = sqlite3.connect(
-            str(db_path), isolation_level=None, autocommit=True)
-        conn.execute('pragma journal_mode=wal;')
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS monitor (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp REAL NOT NULL,
-                kind TEXT NOT NULL,
-                message TEXT NOT NULL
-            )
-        """)
-        return conn
-    
-    def save(self, conn: sqlite3.Connection, fid: str, payload: List[Dict]):
-        if not payload:
-            return
-        try:
-            cursor = conn.cursor()
-            for val in payload:
-                cursor.execute(
-                    """
-                    INSERT INTO monitor (timestamp, kind, message) VALUES (?, ?, ?)
-                    """, (val.get("timestamp"), val.get("kind"), val.get("payload"))
-                )
-                logger.debug(f"saved {val.get('kind')}: {val} for {fid}")
-        except Exception:
-            logger.critical(f"failed to save {fid}", exc_info=True)
+        return self.writer.setup(username, fid)
+
+    def save(self, conn, fid: str, payload: List[Dict]):
+        self.writer.save(conn, fid, payload)
 
     async def retrieve(self, runner: ActorHandle, state: ActorState):
         if state.name is None:
@@ -126,7 +102,7 @@ class Spooler:
                 f"failed to retrieve from {fid} after {n} records",
                 exc_info=True)
         finally:
-            conn.close()
+            self.writer.close(conn)
 
     async def start(self):
         try:
@@ -195,11 +171,13 @@ def cleanup(settings: kodosumi.config.Settings):
 
 def main(settings: kodosumi.config.Settings):
     cleanup(settings)
+    writer = create_spooler_writer(settings)
     spooler = Spooler(
-        exec_dir=settings.EXEC_DIR, 
-        interval=settings.SPOOLER_INTERVAL, 
-        batch_size=settings.SPOOLER_BATCH_SIZE, 
-        batch_timeout=settings.SPOOLER_BATCH_TIMEOUT)
+        exec_dir=settings.EXEC_DIR,
+        interval=settings.SPOOLER_INTERVAL,
+        batch_size=settings.SPOOLER_BATCH_SIZE,
+        batch_timeout=settings.SPOOLER_BATCH_TIMEOUT,
+        writer=writer)
     try:
         spooler_logger(settings)
         helper.ray_init(settings)

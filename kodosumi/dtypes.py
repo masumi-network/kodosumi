@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 import uuid
 from enum import Enum
 from typing import Any, Dict, Generic, List, Literal, Optional, Self, TypeVar
@@ -8,6 +9,7 @@ from bcrypt import checkpw
 from litestar.datastructures import UploadFile
 from pydantic import (BaseModel, EmailStr, RootModel, field_validator,
                       model_validator)
+from sqlalchemy import Index, String, Text
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -142,6 +144,29 @@ class Role(Base):
     active: Mapped[bool] = mapped_column(default=True)
     password: Mapped[str] = mapped_column(nullable=False)
     operator: Mapped[bool] = mapped_column(default=False)
+
+
+class ExecutionEvent(Base):
+    """Centralized execution event storage.
+
+    Used when EXECUTION_DATABASE is set (e.g. PostgreSQL).
+    Mirrors the per-user SQLite 'monitor' table schema but with
+    fid and username columns for centralized multi-tenant storage.
+    """
+    __tablename__ = "execution_events"
+    __table_args__ = (
+        Index("ix_execution_events_fid", "fid"),
+        Index("ix_execution_events_username", "username"),
+        Index("ix_execution_events_fid_kind", "fid", "kind"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    fid: Mapped[str] = mapped_column(String(64), nullable=False)
+    username: Mapped[str] = mapped_column(String(255), nullable=False)
+    timestamp: Mapped[float] = mapped_column(nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[float] = mapped_column(default=time.time)
 
     def verify_password(self, password: str) -> bool:
         return checkpw(password.encode(), self.password.encode('utf-8'))

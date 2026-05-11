@@ -274,5 +274,57 @@ def deploy(file: str, run: bool, dry: bool, shutdown: bool, status: bool, json: 
                 print("- inactive")
 
 
+@cli.command("db")
+@click.option("--create-tables", is_flag=True, default=False,
+              help="Create database tables (admin + execution events).")
+@click.option("--database", default=None,
+              help="Override ADMIN_DATABASE URL.")
+@click.option("--execution-database", default=None,
+              help="Override EXECUTION_DATABASE URL.")
+def db(create_tables, database, execution_database):
+    """Database management for PostgreSQL deployments."""
+    import asyncio
+
+    kw = {}
+    if database:
+        kw["ADMIN_DATABASE"] = database
+    if execution_database:
+        kw["EXECUTION_DATABASE"] = execution_database
+    settings = Settings(**kw)
+
+    if create_tables:
+        async def _create():
+            from sqlalchemy.ext.asyncio import create_async_engine
+            from kodosumi.dtypes import Base
+
+            admin_url = settings.ADMIN_DATABASE
+            click.echo(f"Creating admin tables at {admin_url}")
+            engine = create_async_engine(admin_url, future=True, echo=False)
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            await engine.dispose()
+            click.echo("Admin tables created.")
+
+            if settings.EXECUTION_DATABASE:
+                exec_url = settings.EXECUTION_DATABASE
+                click.echo(f"Creating execution tables at {exec_url}")
+                exec_engine = create_async_engine(
+                    exec_url, future=True, echo=False)
+                async with exec_engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                await exec_engine.dispose()
+                click.echo("Execution tables created.")
+            else:
+                click.echo("No EXECUTION_DATABASE set, skipping "
+                           "(using per-user SQLite files).")
+
+        asyncio.run(_create())
+    else:
+        click.echo("Use --create-tables to initialize database schema.")
+        click.echo(f"  ADMIN_DATABASE: {settings.ADMIN_DATABASE}")
+        click.echo(f"  EXECUTION_DATABASE: "
+                   f"{settings.EXECUTION_DATABASE or '(not set, using SQLite)'}")
+
+
 if __name__ == "__main__":
     cli()

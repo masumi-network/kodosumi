@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@example.com"
     ADMIN_PASSWORD: str = "admin"
 
+    EXECUTION_DATABASE: Optional[str] = None
+
     REGISTER_FLOW: list[str] = []
     PROXY_TIMEOUT: int = 30
 
