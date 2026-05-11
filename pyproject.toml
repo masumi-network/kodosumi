@@ -21,6 +21,7 @@ Repository = "https://github.com/masumi-network/kodosumi"
 Issues = "https://github.com/masumi-network/kodosumi/issues"
 
 [project.optional-dependencies]
+temporal = [ "temporalio>=1.7.0",]
 tests = [ "pytest", "pytest-asyncio", "pytest-httpserver", "isort", "autopep8", "debugpy", "pytest_httpserver", "toml", "build", "twine",]
 
 [project.scripts]

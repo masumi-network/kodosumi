@@ -61,6 +61,13 @@ class Settings(BaseSettings):
 
     APP_WORKERS: int = 1
 
+    EXECUTION_MODE: str = "direct"
+    TEMPORAL_HOST: str = "localhost:7233"
+    TEMPORAL_NAMESPACE: str = "default"
+    TEMPORAL_TASK_QUEUE: str = "kodosumi-agents"
+    TEMPORAL_WORKFLOW_ID_PREFIX: str = "kodo-"
+    TEMPORAL_EXECUTION_TIMEOUT: int = 3600
+
     LOCK_EXPIRES: float = 60 * 60 * 3
     CHUNK_SIZE: int = 5 * 1024 * 1024
     SAVE_CHUNK_SIZE: int = 1024 * 1024

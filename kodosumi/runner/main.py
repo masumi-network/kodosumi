@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import kodosumi
+from kodosumi.config import InternalSettings
 from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                             EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                             KODOSUMI_LAUNCH, NAMESPACE, STATUS_END,
@@ -275,7 +276,7 @@ def create_runner(username: str,
     return fid, actor
 
 def Launch(request: Any,
-           entry_point: Union[Callable, str], 
+           entry_point: Union[Callable, str],
            inputs: Any=None,
            reference: Optional[Callable] = None,
            summary: Optional[str] = None,
@@ -294,14 +295,80 @@ def Launch(request: Any,
         extra["summary"] = summary
     if description is not None:
         extra["description"] = description
+
+    settings = InternalSettings()
+    if settings.EXECUTION_MODE == "temporal":
+        return _launch_temporal(
+            request, entry_point, inputs, extra, settings)
+
     fid, runner = create_runner(
-        username=request.state.user, 
-        app_url=request.state.prefix, 
-        entry_point=entry_point, 
-        inputs=inputs, 
+        username=request.state.user,
+        app_url=request.state.prefix,
+        entry_point=entry_point,
+        inputs=inputs,
         extra=extra,
         jwt=request.cookies.get(TOKEN_KEY) or request.headers.get(HEADER_KEY),
         panel_url=str(request.headers.get(KODOSUMI_URL))
     )
     runner.run.remote()  # type: ignore
     return JSONResponse(content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})
+
+
+def _launch_temporal(request, entry_point, inputs, extra, settings):
+    """Start an agent execution via Temporal workflow."""
+    import concurrent.futures
+
+    fid = str(ObjectId())
+
+    # Convert entry_point to string for Temporal serialization
+    if not isinstance(entry_point, str):
+        module = getattr(entry_point, "__module__", "")
+        name = getattr(entry_point, "__name__", repr(entry_point))
+        entry_point_str = f"{module}:{name}"
+    else:
+        entry_point_str = entry_point
+
+    # Convert inputs to dict for serialization
+    if hasattr(inputs, "model_dump"):
+        inputs_dict = inputs.model_dump()
+    elif isinstance(inputs, dict):
+        inputs_dict = inputs
+    else:
+        inputs_dict = None
+
+    async def _start_workflow():
+        from temporalio.client import Client
+
+        from kodosumi.workflows import AgentJobInput
+
+        client = await Client.connect(
+            settings.TEMPORAL_HOST,
+            namespace=settings.TEMPORAL_NAMESPACE)
+
+        job_input = AgentJobInput(
+            fid=fid,
+            username=request.state.user,
+            app_url=request.state.prefix,
+            entry_point=entry_point_str,
+            panel_url=str(request.headers.get(KODOSUMI_URL)),
+            jwt=request.cookies.get(TOKEN_KEY) or request.headers.get(
+                HEADER_KEY),
+            inputs=inputs_dict,
+            extra=extra,
+            execution_timeout=settings.TEMPORAL_EXECUTION_TIMEOUT,
+        )
+
+        await client.start_workflow(
+            "AgentWorkflow",
+            job_input,
+            id=f"{settings.TEMPORAL_WORKFLOW_ID_PREFIX}{fid}",
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        )
+
+    # Run async Temporal client in a separate thread to keep Launch() sync
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(asyncio.run, _start_workflow())
+        future.result(timeout=10)
+
+    return JSONResponse(
+        content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})

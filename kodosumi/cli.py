@@ -228,6 +228,34 @@ def start(address, log_file, log_file_level, level, uvicorn_level,
         
 
 
+@cli.command("temporal-worker")
+@click.option("--temporal-host", default=None,
+              help="Temporal server address (host:port).")
+@click.option("--temporal-namespace", default=None,
+              help="Temporal namespace.")
+@click.option("--temporal-task-queue", default=None,
+              help="Temporal task queue name.")
+@click.option("--ray-server", default=None,
+              help="Ray server URL.")
+def temporal_worker(temporal_host, temporal_namespace, temporal_task_queue,
+                    ray_server):
+    """Run a Temporal worker for durable agent execution."""
+    import kodosumi.temporal_worker
+
+    kw = {}
+    if temporal_host:
+        kw["TEMPORAL_HOST"] = temporal_host
+    if temporal_namespace:
+        kw["TEMPORAL_NAMESPACE"] = temporal_namespace
+    if temporal_task_queue:
+        kw["TEMPORAL_TASK_QUEUE"] = temporal_task_queue
+    if ray_server:
+        kw["RAY_SERVER"] = ray_server
+
+    settings = Settings(**kw)
+    kodosumi.temporal_worker.main(settings)
+
+
 @cli.command("deploy")
 @click.option('-f', '--file', type=str, required=False, default=None, help='config YAML file')
 @click.option('-r', '--run', is_flag=True, default=False, help='run deployment')
