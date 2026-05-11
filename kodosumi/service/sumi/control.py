@@ -6,6 +6,7 @@ Provides discovery, availability, and job management for external systems.
 
 import asyncio
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import List, Literal, Optional, Union
 
 import yaml
+
+logger = logging.getLogger(__name__)
 from litestar import Controller, get, post, Request
 from litestar.datastructures import State
 from litestar.exceptions import HTTPException, NotFoundException, NotAuthorizedException
