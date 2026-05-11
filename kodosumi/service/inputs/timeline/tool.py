@@ -12,7 +12,8 @@ from kodosumi import const
 from kodosumi.dtypes import DynamicModel
 from kodosumi.log import logger
 
-fromUnix = datetime.datetime.fromtimestamp
+def fromUnix(ts):
+    return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
 
 # Pydantic Enum für MODES
 class MODES(str, PyEnum):
