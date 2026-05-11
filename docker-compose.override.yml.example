@@ -1,0 +1,29 @@
+# Copy this file to docker-compose.override.yml and customize.
+# Values here override docker-compose.yml automatically.
+#
+# cp docker-compose.override.yml.example docker-compose.override.yml
+
+services:
+
+  panel:
+    environment:
+      # --- PostgreSQL for admin DB ---
+      KODO_ADMIN_DATABASE: "postgresql+asyncpg://kodosumi:kodosumi@postgres:5432/kodosumi"
+
+      # --- PostgreSQL for execution events ---
+      KODO_EXECUTION_DATABASE: "postgresql+asyncpg://kodosumi:kodosumi@postgres:5432/kodosumi"
+
+      # --- Redis Streams transport ---
+      KODO_EVENT_TRANSPORT: "redis"
+      KODO_REDIS_URL: "redis://redis:6379"
+
+      # --- Security ---
+      KODO_SECRET_KEY: "change-me-in-production"
+      KODO_ADMIN_EMAIL: "admin@example.com"
+      KODO_ADMIN_PASSWORD: "change-me"
+
+  spooler:
+    environment:
+      KODO_EVENT_TRANSPORT: "redis"
+      KODO_REDIS_URL: "redis://redis:6379"
+      KODO_EXECUTION_DATABASE: "postgresql+asyncpg://kodosumi:kodosumi@postgres:5432/kodosumi"

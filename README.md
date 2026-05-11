@@ -5,6 +5,8 @@
     <p align="center">Documentation for Kodosumi is located at <a href="https://docs.kodosumi.io/" target="_blank">docs.kodosumi.io</a>.</p>
 </div>
 
+> **Fork note:** This is a fork of [masumi-network/kodosumi](https://github.com/masumi-network/kodosumi) adding production scaling capabilities (PostgreSQL, Redis Streams, Temporal durable execution, Docker Compose). All additions are opt-in and backwards-compatible. See **[SCALING.md](./SCALING.md)** for full details.
+
 ## Quick Start
 
 See the [Installation Guide](./docs/installation.mdx) to get started with kodosumi.

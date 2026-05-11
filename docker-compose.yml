@@ -1,0 +1,149 @@
+# Full stack: panel + spooler + ray + PostgreSQL + Redis
+# Usage: docker compose up
+# With Temporal: docker compose --profile temporal up
+#
+# All kodosumi features are opt-in via environment variables.
+# Default config (no .env override) uses SQLite + Ray queues (existing behavior).
+
+services:
+
+  # --- Ray head node ---
+  ray-head:
+    image: rayproject/ray:2.41.0-py311
+    ports:
+      - "6379:6379"       # Ray GCS
+      - "8265:8265"       # Ray Dashboard
+    command: >
+      ray start --head
+      --port=6379
+      --dashboard-host=0.0.0.0
+      --dashboard-port=8265
+      --block
+    healthcheck:
+      test: ["CMD", "ray", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- PostgreSQL (admin + execution events) ---
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kodosumi
+      POSTGRES_PASSWORD: kodosumi
+      POSTGRES_DB: kodosumi
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kodosumi"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --- Redis (event transport) ---
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --- Kodosumi panel (web UI + API) ---
+  panel:
+    build: .
+    ports:
+      - "3370:3370"
+    environment:
+      KODO_APP_SERVER: "http://0.0.0.0:3370"
+      KODO_RAY_SERVER: "ray-head:6379"
+      KODO_EXEC_DIR: "/app/data/execution"
+      KODO_ADMIN_DATABASE: "sqlite+aiosqlite:///./data/admin.db"
+      # Uncomment for PostgreSQL admin DB:
+      # KODO_ADMIN_DATABASE: "postgresql+asyncpg://kodosumi:kodosumi@postgres:5432/kodosumi"
+      # Uncomment for PostgreSQL execution events:
+      # KODO_EXECUTION_DATABASE: "postgresql+asyncpg://kodosumi:kodosumi@postgres:5432/kodosumi"
+      # Uncomment for Redis transport:
+      # KODO_EVENT_TRANSPORT: "redis"
+      # KODO_REDIS_URL: "redis://redis:6379"
+    volumes:
+      - appdata:/app/data
+    depends_on:
+      ray-head:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["koco", "serve", "--address", "http://0.0.0.0:3370"]
+
+  # --- Kodosumi spooler (event writer) ---
+  spooler:
+    build: .
+    environment:
+      KODO_RAY_SERVER: "ray-head:6379"
+      KODO_EXEC_DIR: "/app/data/execution"
+      # Uncomment for Redis transport:
+      # KODO_EVENT_TRANSPORT: "redis"
+      # KODO_REDIS_URL: "redis://redis:6379"
+      # Uncomment for PostgreSQL execution events:
+      # KODO_EXECUTION_DATABASE: "postgresql+asyncpg://kodosumi:kodosumi@postgres:5432/kodosumi"
+    volumes:
+      - appdata:/app/data
+    depends_on:
+      ray-head:
+        condition: service_healthy
+    command: ["koco", "spool", "--block"]
+
+  # --- Temporal server (optional, use --profile temporal) ---
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    profiles: ["temporal"]
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgresql
+      - POSTGRES_SEEDS=postgres
+      - POSTGRES_USER=kodosumi
+      - POSTGRES_PWD=kodosumi
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # --- Temporal UI (optional) ---
+  temporal-ui:
+    image: temporalio/ui:2.32.0
+    profiles: ["temporal"]
+    ports:
+      - "8233:8080"
+    environment:
+      TEMPORAL_ADDRESS: "temporal:7233"
+    depends_on:
+      - temporal
+
+  # --- Temporal worker (optional) ---
+  temporal-worker:
+    build: .
+    profiles: ["temporal"]
+    environment:
+      KODO_RAY_SERVER: "ray-head:6379"
+      KODO_TEMPORAL_HOST: "temporal:7233"
+      KODO_EXECUTION_MODE: "temporal"
+    depends_on:
+      ray-head:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    command: ["koco", "temporal-worker"]
+
+volumes:
+  pgdata:
+  redisdata:
+  appdata:
