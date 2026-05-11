@@ -118,6 +118,9 @@ class Settings(BaseSettings):
     AUDIT_LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB per file
     AUDIT_LOG_BACKUP_COUNT: int = 5  # Keep 5 backup files
 
+    # Sumi protocol debug log (request/response tracing)
+    SUMI_DEBUG_LOG_FILE: str = "./data/sumi_debug.log"
+
     APP_SERVER: str = "http://localhost:3370"
     SUMI_ADDRESS: str = ""  # Public URL for Sumi API (fallback to APP_SERVER if empty)
     APP_RELOAD: bool = False
@@ -188,7 +191,7 @@ class Settings(BaseSettings):
             Path(v).mkdir(parents=True, exist_ok=True)
         return v
 
-    @field_validator("SPOOLER_LOG_FILE", "YAML_BASE", "AUDIT_LOG_FILE", mode="before")
+    @field_validator("SPOOLER_LOG_FILE", "YAML_BASE", "AUDIT_LOG_FILE", "SUMI_DEBUG_LOG_FILE", mode="before")
     def make_parent(cls, v):
         if v:
             Path(v).parent.mkdir(parents=True, exist_ok=True)
