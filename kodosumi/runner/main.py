@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import json
+import os
 from traceback import format_exc
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -316,6 +317,8 @@ class Runner:
                     pay_by_time=payment["pay_data"].get("payByTime"),
                 )
             await self._put_async(EVENT_STATUS, STATUS_RUNNING)
+            os.environ["KODOSUMI_FID"] = self.fid
+            os.environ["KODOSUMI_USER_ID"] = self.username
 
             # Execute the job
             if inspect.iscoroutinefunction(obj):
