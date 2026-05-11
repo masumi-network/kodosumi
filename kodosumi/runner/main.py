@@ -14,8 +14,10 @@ from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL,
                             KODOSUMI_LAUNCH, NAMESPACE, STATUS_END,
                             STATUS_ERROR, STATUS_RUNNING, STATUS_STARTING,
                             TOKEN_KEY, EVENT_UPLOAD, KODOSUMI_URL, HEADER_KEY)
+from kodosumi.config import InternalSettings
 from kodosumi.helper import now, serialize
 from kodosumi.runner.tracer import Tracer
+from kodosumi.transport import create_producer
 from kodosumi import dtypes
 
 def parse_entry_point(entry_point: str) -> Callable:
@@ -41,7 +43,10 @@ class Runner:
                  jwt: str,
                  panel_url: str,
                  inputs: Any=None,
-                 extra: Optional[dict]=None):
+                 extra: Optional[dict]=None,
+                 event_transport: str = "ray",
+                 redis_url: Optional[str] = None,
+                 redis_stream_prefix: str = "kodo:events:"):
         self.fid = fid
         self.username = username
         self.app_url = app_url.rstrip("/")
@@ -51,8 +56,13 @@ class Runner:
         self.extra = extra
         self.active = True
         self._locks: dict = {}
-        self.message_queue = ray.util.queue.Queue()
-        self.tracer = Tracer(self.fid, self.message_queue, self.panel_url, jwt)
+        self.event_transport = event_transport
+        self._producer, self.message_queue = create_producer(
+            fid=fid,
+            event_transport=event_transport,
+            redis_url=redis_url,
+            redis_stream_prefix=redis_stream_prefix)
+        self.tracer = Tracer(self.fid, self._producer, self.panel_url, jwt)
         self.tracer.init()
 
     async def get_username(self):
@@ -76,18 +86,18 @@ class Runner:
             await self.shutdown()
 
     async def _put_async(self, kind: str, payload: Any):
-        await self.message_queue.put_async({
-            "timestamp": now(), 
-            "kind": kind, 
+        await self._producer.put_async({
+            "timestamp": now(),
+            "kind": kind,
             "payload": payload
-        })  
+        })
 
     def _put(self, kind: str, payload: Any):
-        self.message_queue.put({
-            "timestamp": now(), 
-            "kind": kind, 
+        self._producer.put_sync({
+            "timestamp": now(),
+            "kind": kind,
             "payload": payload
-        })  
+        })
 
     async def start(self):
         await self._put_async(EVENT_STATUS, STATUS_STARTING)
@@ -193,19 +203,20 @@ class Runner:
 
     async def shutdown(self):
         try:
-            queue_actor = self.message_queue.actor
-            while True:
-                done, _ = ray.wait([
-                    queue_actor.empty.remote()], timeout=0.01)
-                if done:
-                    ret = await asyncio.gather(*done)
-                    if ret:
-                        if ret[0] == True:
-                            break
-                await asyncio.sleep(0.1)
+            if self.event_transport == "ray" and self.message_queue:
+                queue_actor = self.message_queue.actor
+                while True:
+                    done, _ = ray.wait([
+                        queue_actor.empty.remote()], timeout=0.01)
+                    if done:
+                        ret = await asyncio.gather(*done)
+                        if ret:
+                            if ret[0] == True:
+                                break
+                    await asyncio.sleep(0.1)
             self.tracer.shutdown()
-            self.message_queue.shutdown()
-        except: 
+            self._producer.shutdown()
+        except:
             pass
         self.active = False
         return "Runner shutdown complete."
@@ -255,7 +266,10 @@ def create_runner(username: str,
                   extra: Optional[dict] = None,
                   jwt: Optional[str] = None,
                   panel_url: Optional[str] = None,
-                  fid: Optional[str]= None) -> Tuple[str, Runner]:
+                  fid: Optional[str] = None,
+                  event_transport: str = "ray",
+                  redis_url: Optional[str] = None,
+                  redis_stream_prefix: str = "kodo:events:") -> Tuple[str, Runner]:
     if fid is None:
         fid = str(ObjectId())
     actor = Runner.options(  # type: ignore
@@ -270,12 +284,15 @@ def create_runner(username: str,
             inputs=inputs,
             extra=extra,
             jwt=jwt,
-            panel_url=panel_url
+            panel_url=panel_url,
+            event_transport=event_transport,
+            redis_url=redis_url,
+            redis_stream_prefix=redis_stream_prefix,
     )
     return fid, actor
 
 def Launch(request: Any,
-           entry_point: Union[Callable, str], 
+           entry_point: Union[Callable, str],
            inputs: Any=None,
            reference: Optional[Callable] = None,
            summary: Optional[str] = None,
@@ -294,14 +311,18 @@ def Launch(request: Any,
         extra["summary"] = summary
     if description is not None:
         extra["description"] = description
+    settings = InternalSettings()
     fid, runner = create_runner(
-        username=request.state.user, 
-        app_url=request.state.prefix, 
-        entry_point=entry_point, 
-        inputs=inputs, 
+        username=request.state.user,
+        app_url=request.state.prefix,
+        entry_point=entry_point,
+        inputs=inputs,
         extra=extra,
         jwt=request.cookies.get(TOKEN_KEY) or request.headers.get(HEADER_KEY),
-        panel_url=str(request.headers.get(KODOSUMI_URL))
+        panel_url=str(request.headers.get(KODOSUMI_URL)),
+        event_transport=settings.EVENT_TRANSPORT,
+        redis_url=settings.REDIS_URL,
+        redis_stream_prefix=settings.REDIS_STREAM_PREFIX,
     )
     runner.run.remote()  # type: ignore
     return JSONResponse(content={"fid": fid}, headers={KODOSUMI_LAUNCH: fid})

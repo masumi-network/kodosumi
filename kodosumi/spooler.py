@@ -16,6 +16,7 @@ import kodosumi.config
 from kodosumi import helper
 from kodosumi.const import DB_FILE, NAMESPACE, SPOOLER_NAME
 from kodosumi.log import logger, spooler_logger
+from kodosumi.transport import create_consumer
 
 
 @ray.remote
@@ -41,18 +42,28 @@ class SpoolerLock:
         self.total = total
 
 class Spooler:
-    def __init__(self, 
+    def __init__(self,
                  exec_dir: Union[str, Path],
                  interval: float=1.,
                  batch_size: int=10,
-                 batch_timeout: float=0.1):
+                 batch_timeout: float=0.1,
+                 event_transport: str = "ray",
+                 redis_url: str = None,
+                 redis_stream_prefix: str = "kodo:events:",
+                 redis_consumer_group: str = "kodo-spooler",
+                 redis_block_ms: int = 1000):
         self.exec_dir = Path(exec_dir)
         self.exec_dir.mkdir(parents=True, exist_ok=True)
-        self.interval = interval  
+        self.interval = interval
         self.batch_size = batch_size
         self.batch_timeout = batch_timeout
+        self.event_transport = event_transport
+        self.redis_url = redis_url
+        self.redis_stream_prefix = redis_stream_prefix
+        self.redis_consumer_group = redis_consumer_group
+        self.redis_block_ms = redis_block_ms
         self.shutdown_event = asyncio.Event()
-        self.monitor: dict = {}  
+        self.monitor: dict = {}
         self.lock = None
 
     def setup_database(self, username: str, fid: str):
@@ -94,6 +105,13 @@ class Spooler:
         fid: str = str(state.name)
         username = await runner.get_username.remote()
         conn = self.setup_database(username, fid)
+        if self.event_transport == "redis":
+            await self._retrieve_redis(runner, fid, conn)
+        else:
+            await self._retrieve_ray(runner, fid, conn)
+
+    async def _retrieve_ray(self, runner: ActorHandle, fid: str, conn):
+        """Original Ray queue polling path."""
         while True:
             done, _ = ray.wait(
                 [runner.get_queue.remote()], timeout=0.01)
@@ -104,7 +122,7 @@ class Spooler:
             await asyncio.sleep(0.01)
         n = 0
         try:
-            while not self.shutdown_event.is_set(): 
+            while not self.shutdown_event.is_set():
                 done, _ = ray.wait(
                     [runner.is_active.remote()], timeout=0.01)
                 if done:
@@ -126,6 +144,52 @@ class Spooler:
                 f"failed to retrieve from {fid} after {n} records",
                 exc_info=True)
         finally:
+            conn.close()
+
+    async def _retrieve_redis(self, runner: ActorHandle, fid: str, conn):
+        """Redis Streams consumer path (XREADGROUP with blocking)."""
+        consumer = create_consumer(
+            fid=fid,
+            event_transport="redis",
+            redis_url=self.redis_url,
+            redis_stream_prefix=self.redis_stream_prefix,
+            redis_consumer_group=self.redis_consumer_group)
+        n = 0
+        try:
+            while not self.shutdown_event.is_set():
+                done, _ = ray.wait(
+                    [runner.is_active.remote()], timeout=0.01)
+                if done:
+                    ret = await asyncio.gather(*done)
+                    if ret:
+                        if ret[0] == False:
+                            # Drain remaining messages after runner finishes
+                            remaining = await consumer.read_batch(
+                                self.batch_size, block_ms=500)
+                            if remaining:
+                                msg_ids = [mid for mid, _ in remaining]
+                                events = [evt for _, evt in remaining]
+                                self.save(conn, fid, events)
+                                await consumer.ack(msg_ids)
+                                n += len(events)
+                            break
+                batch = await consumer.read_batch(
+                    self.batch_size, block_ms=self.redis_block_ms)
+                if batch:
+                    msg_ids = [mid for mid, _ in batch]
+                    events = [evt for _, evt in batch]
+                    self.save(conn, fid, events)
+                    await consumer.ack(msg_ids)
+                    logger.debug(f"saved {len(events)} records for {fid}")
+                    n += len(events)
+            ray.kill(runner)
+            logger.info(f"finished {fid} with {n} records (redis)")
+        except Exception as e:
+            logger.critical(
+                f"failed to retrieve from {fid} after {n} records",
+                exc_info=True)
+        finally:
+            await consumer.shutdown()
             conn.close()
 
     async def start(self):
@@ -196,10 +260,15 @@ def cleanup(settings: kodosumi.config.Settings):
 def main(settings: kodosumi.config.Settings):
     cleanup(settings)
     spooler = Spooler(
-        exec_dir=settings.EXEC_DIR, 
-        interval=settings.SPOOLER_INTERVAL, 
-        batch_size=settings.SPOOLER_BATCH_SIZE, 
-        batch_timeout=settings.SPOOLER_BATCH_TIMEOUT)
+        exec_dir=settings.EXEC_DIR,
+        interval=settings.SPOOLER_INTERVAL,
+        batch_size=settings.SPOOLER_BATCH_SIZE,
+        batch_timeout=settings.SPOOLER_BATCH_TIMEOUT,
+        event_transport=settings.EVENT_TRANSPORT,
+        redis_url=settings.REDIS_URL,
+        redis_stream_prefix=settings.REDIS_STREAM_PREFIX,
+        redis_consumer_group=settings.REDIS_CONSUMER_GROUP,
+        redis_block_ms=settings.REDIS_BLOCK_MS)
     try:
         spooler_logger(settings)
         helper.ray_init(settings)

@@ -61,6 +61,13 @@ class Settings(BaseSettings):
 
     APP_WORKERS: int = 1
 
+    EVENT_TRANSPORT: str = "ray"
+    REDIS_URL: Optional[str] = None
+    REDIS_STREAM_PREFIX: str = "kodo:events:"
+    REDIS_CONSUMER_GROUP: str = "kodo-spooler"
+    REDIS_BLOCK_MS: int = 1000
+    REDIS_MAX_STREAM_LEN: int = 10000
+
     LOCK_EXPIRES: float = 60 * 60 * 3
     CHUNK_SIZE: int = 5 * 1024 * 1024
     SAVE_CHUNK_SIZE: int = 1024 * 1024

@@ -12,6 +12,7 @@ from kodosumi.const import (EVENT_ACTION, EVENT_DEBUG, EVENT_LEASE, EVENT_LOCK,
                             NAMESPACE)
 from kodosumi.helper import now, serialize
 from kodosumi.runner.files import AsyncFileSystem, SyncFileSystem
+from kodosumi.transport import EventProducer
 
 
 class StdoutHandler:
@@ -43,21 +44,19 @@ class StderrHandler(StdoutHandler):
 
 
 class Tracer:
-    def __init__(self, 
-                 fid: str, 
-                 queue: ray.util.queue.Queue, 
+    def __init__(self,
+                 fid: str,
+                 producer: EventProducer,
                  panel_url: str,
                  jwt: str):
         self.fid = fid
-        self.queue = queue
+        self.producer = producer
         self.panel_url = panel_url.rstrip("/")
         self.jwt = jwt
         self._init = False
 
     def __reduce__(self):
-        deserializer = Tracer
-        serialized_data = (self.fid, self.queue, self.panel_url, self.jwt)
-        return deserializer, serialized_data
+        return (Tracer, (self.fid, self.producer, self.panel_url, self.jwt))
 
     def init(self):
         if not self._init:
@@ -74,20 +73,19 @@ class Tracer:
 
     async def _put_async(self, kind: str, payload: Any):
         self.init()
-        await self.queue.put_async({
-            "timestamp": now(), 
-            "kind": kind, 
+        await self.producer.put_async({
+            "timestamp": now(),
+            "kind": kind,
             "payload": payload
-        })  
+        })
 
     def _put(self, kind: str, payload: Any):
         self.init()
-        data = {
-            "timestamp": now(), 
-            "kind": kind, 
+        self.producer.put_sync({
+            "timestamp": now(),
+            "kind": kind,
             "payload": payload
-        }
-        self.queue.actor.put.remote(data)  # type: ignore
+        })
 
     async def debug(self, *message: str):
         await self._put_async(EVENT_DEBUG, "\n".join(message))
