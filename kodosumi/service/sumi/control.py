@@ -740,6 +740,7 @@ async def _submit_job(
     app_server: str,
     ray_serve_address: str,
     request: Request,
+    state = None,
 ) -> Union[JobStatusResponse, StartJobErrorResponse]:
     """
     Submit a job to a service endpoint.
@@ -1114,7 +1115,7 @@ class SumiControl(Controller):
         network = row.get("network") or "Preprod"
         app_server = state["settings"].sumi_address
         ray_serve_address = state["settings"].RAY_SERVE_ADDRESS
-        return await _submit_job(expose_name, meta_name, meta, network, data, app_server, ray_serve_address, request)
+        return await _submit_job(expose_name, meta_name, meta, network, data, app_server, ray_serve_address, request, state)
 
     @post(
         "/{expose_name:str}/start_job",
