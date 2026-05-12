@@ -69,6 +69,8 @@ logging_config:
 BOOT_HEALTH_TIMEOUT_DEFAULT = 1800  # seconds (30 minutes) - fallback if not configured
 BOOT_HEALTH_TIMEOUT = BOOT_HEALTH_TIMEOUT_DEFAULT  # Alias for tests
 BOOT_POLL_INTERVAL = 2  # seconds - interval between status polls during boot
+BOOT_BATCH_SIZE = 4  # Max concurrent deployments in sliding window
+BOOT_DEPLOY_POLL_INTERVAL = 5  # Seconds between status polls during sliding-window deploy
 
 # Total number of main steps for progress tracking
 BOOT_TOTAL_STEPS = 5  # A, B, C, D, E
@@ -907,16 +909,22 @@ async def run_serve_deploy(config_path: str) -> tuple[int, str, str]:
 
 
 async def _step_deploy(
-    progress: BootProgress
+    progress: BootProgress,
+    ray_dashboard: str = "",
+    boot_timeout: int = BOOT_HEALTH_TIMEOUT_DEFAULT,
 ) -> AsyncGenerator[BootMessage, None]:
     """
-    Step A: Deploy Ray Serve applications.
+    Step A: Deploy Ray Serve applications using a sliding window.
 
-    1. Load global config from serve_config.yaml
-    2. Get enabled exposes with bootstrap from database
-    3. Parse each bootstrap and add to applications list
-    4. Write merged config to temp file
-    5. Run 'serve deploy' command
+    Phase 1 — Parse all bootstraps from expose.db and build the applications list.
+    Phase 2 — Sliding window deployment:
+      - Submit up to BOOT_BATCH_SIZE apps concurrently to Ray Serve.
+      - Poll every BOOT_DEPLOY_POLL_INTERVAL seconds; free a slot only when an
+        app reaches a final state (RUNNING, DEPLOY_FAILED, UNHEALTHY).
+      - Overall timeout guard: mark remaining apps as timed out and stop.
+
+    The STEP_END message carries both ``deployed_names`` and ``final_statuses``
+    so that the caller (_real_boot_process) can skip _step_health_check.
 
     Yields BootMessage objects for progress tracking.
     """
@@ -935,7 +943,7 @@ async def _step_deploy(
     # Setup progress tracking
     progress.current_step = 0
     progress.step_name = "Deploy"
-    progress.activities_total = len(enabled_exposes) + 2  # +2 for load config and deploy command
+    progress.activities_total = len(enabled_exposes) + 1  # +1 for load config
     progress.activities_done = 0
 
     yield BootMessage(
@@ -961,9 +969,9 @@ async def _step_deploy(
         )
         return
 
-    # Load global serve config
+    # Load global serve config (base config — reused for every incremental deploy)
     try:
-        config = load_serve_config()
+        base_config = load_serve_config()
         progress.activities_done += 1
         yield BootMessage(
             step=BootStep.DEPLOY,
@@ -982,9 +990,10 @@ async def _step_deploy(
         )
         return
 
-    # Parse each expose's bootstrap and build applications list
-    applications = []
-    deployed_names = []
+    # -------------------------------------------------------------------------
+    # Phase 1: Parse all bootstraps → build pending list
+    # -------------------------------------------------------------------------
+    pending: List[dict] = []   # list of app_config dicts waiting to be submitted
     audit = get_audit_logger()
 
     for expose in enabled_exposes:
@@ -999,8 +1008,7 @@ async def _step_deploy(
 
         try:
             app_config = parse_bootstrap(bootstrap, name)
-            applications.append(app_config)
-            deployed_names.append(name)
+            pending.append(app_config)
 
             progress.activities_done += 1
             yield BootMessage(
@@ -1021,7 +1029,7 @@ async def _step_deploy(
                 progress=progress
             )
 
-    if not applications:
+    if not pending:
         yield BootMessage(
             step=BootStep.DEPLOY,
             msg_type=MessageType.WARNING,
@@ -1036,96 +1044,247 @@ async def _step_deploy(
         )
         return
 
-    # Merge applications into config
-    config["applications"] = applications
+    # -------------------------------------------------------------------------
+    # Phase 2: Sliding window deployment
+    #
+    # Strategy:
+    #   1. Query Ray Serve for currently RUNNING apps
+    #   2. Split parsed apps into "existing" (already in Ray) and "new"
+    #   3. First deploy call: all existing apps (preserves them, Ray updates
+    #      changed ones). Poll until in_flight < BOOT_BATCH_SIZE.
+    #   4. Then add new apps via sliding window — each deploy call is
+    #      cumulative (existing + already-submitted new + next batch of new).
+    #
+    # This ensures:
+    #   - Existing unchanged apps are never removed (always in the YAML)
+    #   - Changed existing apps are updated first before new ones start
+    #   - Max BOOT_BATCH_SIZE apps are DEPLOYING at any time
+    # -------------------------------------------------------------------------
 
-    # Write merged config to temp file
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".yaml",
-            delete=False,
-            prefix="serve_deploy_"
-        ) as f:
-            yaml.dump(config, f, default_flow_style=False)
-            temp_config_path = f.name
+    # deployed_apps  — name → app_config (in the cumulative YAML)
+    # final_statuses — name → status dict (reached RUNNING/FAILED/UNHEALTHY)
+    deployed_apps: Dict[str, dict] = {}
+    final_statuses: Dict[str, dict] = {}
+    deploy_start_time = time.time()
 
-        yield BootMessage(
-            step=BootStep.DEPLOY,
-            msg_type=MessageType.ACTIVITY,
-            message="Created merged deployment config",
-            target=temp_config_path,
-            progress=progress
-        )
-    except Exception as e:
-        yield BootMessage(
-            step=BootStep.DEPLOY,
-            msg_type=MessageType.ERROR,
-            message=f"Failed to write temp config: {e}",
-            progress=progress
-        )
-        return
+    # Helper: write cumulative config + call serve deploy
+    async def _submit_current_window() -> Optional[str]:
+        """Write temp YAML for all deployed_apps and run serve deploy."""
+        window_config = dict(base_config)
+        window_config["applications"] = list(deployed_apps.values())
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False, prefix="serve_deploy_"
+            ) as f:
+                yaml.dump(window_config, f, default_flow_style=False)
+                cfg_path = f.name
+        except Exception as e:
+            return f"Failed to write temp config: {e}"
 
-    # Run serve deploy
+        try:
+            returncode, stdout, stderr = await run_serve_deploy(cfg_path)
+        except FileNotFoundError:
+            return "'serve' command not found. Is Ray Serve installed?"
+        except Exception as e:
+            return f"serve deploy raised: {e}"
+        finally:
+            try:
+                Path(cfg_path).unlink()
+            except Exception:
+                pass
+
+        if returncode != 0:
+            return stderr.strip() if stderr else f"Exit code {returncode}"
+        return None
+
+    # --- Discover which apps are already deployed in Ray Serve ---
+    existing_names: set = set()
+    query_failed = False
+    if ray_dashboard:
+        try:
+            current_status = await query_ray_serve_status(ray_dashboard)
+            existing_names = set(current_status.keys())
+        except Exception:
+            query_failed = True
+            # IMPORTANT: treat all as existing (not new!) so the first deploy
+            # call includes ALL apps. Otherwise serve deploy with only 4 new
+            # apps would delete all 26 previously running apps.
+            existing_names = {app["name"] for app in pending}
+
+    # --- Split into existing (deploy first) and new (sliding window) ---
+    all_by_name = {app["name"]: app for app in pending}
+    existing_apps = [all_by_name[n] for n in all_by_name if n in existing_names]
+    new_apps = [all_by_name[n] for n in all_by_name if n not in existing_names]
+
+    split_msg = f"Split: {len(existing_apps)} existing + {len(new_apps)} new"
+    if query_failed:
+        split_msg += " (Ray query failed — treating all as existing for safety)"
     yield BootMessage(
         step=BootStep.DEPLOY,
-        msg_type=MessageType.ACTIVITY,
-        message=f"Running serve deploy ({len(applications)} applications)",
-        target="serve",
+        msg_type=MessageType.WARNING if query_failed else MessageType.ACTIVITY,
+        message=split_msg,
         progress=progress
     )
 
-    try:
-        returncode, stdout, stderr = await run_serve_deploy(temp_config_path)
+    # --- Step 1: Deploy all existing apps in one call ---
+    if existing_apps:
+        for app in existing_apps:
+            deployed_apps[app["name"]] = app
 
-        # Clean up temp file
-        try:
-            Path(temp_config_path).unlink()
-        except:
-            pass
-
-        if returncode != 0:
-            error_msg = stderr.strip() if stderr else f"Exit code {returncode}"
+        error = await _submit_current_window()
+        if error:
             yield BootMessage(
                 step=BootStep.DEPLOY,
                 msg_type=MessageType.ERROR,
-                message=f"serve deploy failed: {error_msg}",
+                message=f"serve deploy failed: {error}",
                 progress=progress
             )
             return
 
-        progress.activities_done += 1
         yield BootMessage(
             step=BootStep.DEPLOY,
-            msg_type=MessageType.RESULT,
-            message="serve deploy command",
-            result="success",
+            msg_type=MessageType.ACTIVITY,
+            message=f"Submitted {len(existing_apps)} existing apps to Ray Serve",
             progress=progress
         )
 
-    except FileNotFoundError:
-        yield BootMessage(
-            step=BootStep.DEPLOY,
-            msg_type=MessageType.ERROR,
-            message="'serve' command not found. Is Ray Serve installed?",
-            progress=progress
-        )
-        return
-    except Exception as e:
-        yield BootMessage(
-            step=BootStep.DEPLOY,
-            msg_type=MessageType.ERROR,
-            message=f"serve deploy failed: {e}",
-            progress=progress
-        )
-        return
+    # --- Step 2: Poll + sliding window for new apps ---
+    pending_new = list(new_apps)
+
+    while pending_new or (len(deployed_apps) > len(final_statuses)):
+        # Overall timeout
+        elapsed = time.time() - deploy_start_time
+        if elapsed >= boot_timeout:
+            for name in list(deployed_apps.keys()):
+                if name not in final_statuses:
+                    final_statuses[name] = {
+                        "name": name, "status": "TIMEOUT",
+                        "message": f"Timed out after {boot_timeout}s",
+                    }
+                    yield BootMessage(
+                        step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
+                        message="Deploy timeout", target=name,
+                        result="TIMEOUT", progress=progress
+                    )
+                    await db.update_expose_state(name, "UNHEALTHY", time.time())
+            break
+
+        # Poll Ray Serve status
+        if not ray_dashboard:
+            break
+
+        await asyncio.sleep(BOOT_DEPLOY_POLL_INTERVAL)
+
+        try:
+            current_status = await query_ray_serve_status(ray_dashboard)
+        except Exception as e:
+            yield BootMessage(
+                step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
+                message=f"Failed to query Ray Serve status: {e}",
+                progress=progress
+            )
+            continue
+
+        # Check for newly finalized apps
+        needs_resubmit = False
+        for name in list(deployed_apps.keys()):
+            if name in final_statuses:
+                continue
+            if name not in current_status:
+                continue
+
+            status = current_status[name]["status"]
+            message = current_status[name].get("message", "")
+
+            if is_final_state(status):
+                final_statuses[name] = current_status[name]
+                db_state = "RUNNING" if status == "RUNNING" else "UNHEALTHY"
+                await db.update_expose_state(name, db_state, time.time())
+
+                if status == "RUNNING":
+                    yield BootMessage(
+                        step=BootStep.DEPLOY, msg_type=MessageType.RESULT,
+                        message="Reached final state", target=name,
+                        result=status, progress=progress
+                    )
+                else:
+                    # Failed app — remove from deployed_apps so Ray doesn't
+                    # retry it on every subsequent serve deploy call.
+                    # It will be re-added in the final deploy at the end.
+                    del deployed_apps[name]
+                    needs_resubmit = True
+                    yield BootMessage(
+                        step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
+                        message=message or "Deployment failed — removed from window",
+                        target=name, result=status, progress=progress
+                    )
+
+        # If we removed failed apps, resubmit so Ray stops retrying them
+        if needs_resubmit and deployed_apps:
+            await _submit_current_window()
+
+        # Fill window — add new apps when slots are free
+        # in_flight = apps in deployed_apps that haven't reached final state
+        in_flight = sum(1 for n in deployed_apps if n not in final_statuses)
+        added = 0
+        while pending_new and in_flight < BOOT_BATCH_SIZE:
+            app_config = pending_new.pop(0)
+            name = app_config["name"]
+            deployed_apps[name] = app_config
+            in_flight += 1
+            added += 1
+
+        if added > 0:
+            error = await _submit_current_window()
+            if error:
+                yield BootMessage(
+                    step=BootStep.DEPLOY, msg_type=MessageType.ERROR,
+                    message=f"serve deploy failed: {error}",
+                    progress=progress
+                )
+                return
+
+            yield BootMessage(
+                step=BootStep.DEPLOY, msg_type=MessageType.ACTIVITY,
+                message=f"Added {added} new app(s) ({len(deployed_apps)} total, {len(pending_new)} pending)",
+                progress=progress
+            )
+
+    # Final deploy: re-add all apps (including failed ones) so Ray has
+    # the complete desired state. Failed apps may retry but that's fine —
+    # the boot is over and we don't wait for them.
+    all_app_configs = {app["name"]: app for app in existing_apps + new_apps}
+    if set(all_app_configs.keys()) != set(deployed_apps.keys()):
+        deployed_apps = all_app_configs
+        error = await _submit_current_window()
+        if error:
+            yield BootMessage(
+                step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
+                message=f"Final deploy (re-adding failed apps) failed: {error}",
+                progress=progress
+            )
+        else:
+            yield BootMessage(
+                step=BootStep.DEPLOY, msg_type=MessageType.ACTIVITY,
+                message=f"Final deploy: all {len(deployed_apps)} apps submitted",
+                progress=progress
+            )
+
+    # Summary
+    deployed_names = list(all_app_configs.keys())
+    running = sum(1 for s in final_statuses.values() if s["status"] == "RUNNING")
+    total = len(deployed_names)
 
     yield BootMessage(
         step=BootStep.DEPLOY,
         msg_type=MessageType.STEP_END,
-        message=f"Deployment initiated ({len(applications)} applications)",
+        message=f"Deployment complete ({running}/{total} running)" if final_statuses
+                else f"Deployment initiated ({total} applications)",
         progress=progress,
-        data={"deployed_names": deployed_names}
+        data={
+            "deployed_names": deployed_names,
+            "final_statuses": final_statuses,
+        }
     )
 
 
@@ -1607,88 +1766,50 @@ async def _step_register_flows(
         )
         return
 
-    # Use /-/routes endpoint which handles ALL apps at once
-    routes_url = f"{ray_serve_address.rstrip('/')}/-/routes"
-    register_url = f"{app_server.rstrip('/')}/flow/register"
+    # Discover flows from each app's OpenAPI — parallel (batch of 4)
+    all_flows: List[DiscoveredFlow] = []
+    batch_size = BOOT_BATCH_SIZE  # reuse same concurrency limit
 
-    yield BootMessage(
-        step=BootStep.REGISTER,
-        msg_type=MessageType.ACTIVITY,
-        message=f"POST {register_url}",
-        result=routes_url,
-        progress=progress
-    )
+    for i in range(0, len(running_apps), batch_size):
+        batch = running_apps[i:i + batch_size]
+        results = await asyncio.gather(
+            *[fetch_openapi_spec(ray_serve_address, name) for name in batch],
+            return_exceptions=True
+        )
 
-    num_registered = 0
-    try:
-        async with httpx.AsyncClient(timeout=30.0, cookies=auth_cookies) as client:
-            response = await client.post(
-                register_url,
-                json={"url": routes_url}
-            )
-
+        for app_name, result in zip(batch, results):
             progress.activities_done += 1
 
-            if response.status_code in (200, 201):
-                registered = response.json()
-                num_registered = len(registered) if isinstance(registered, list) else 0
-
+            if isinstance(result, Exception):
                 yield BootMessage(
                     step=BootStep.REGISTER,
-                    msg_type=MessageType.RESULT,
-                    message=f"Registered {num_registered} flow(s) via /-/routes",
+                    msg_type=MessageType.ACTIVITY,
+                    message=f"OpenAPI not available",
+                    target=app_name,
+                    result=str(result),
                     progress=progress
                 )
-            else:
+                continue
+
+            spec, openapi_url, error = result
+
+            if spec is None:
                 yield BootMessage(
                     step=BootStep.REGISTER,
-                    msg_type=MessageType.WARNING,
-                    message=f"Registration failed: {response.status_code}",
-                    result=response.text[:100] if response.text else "No details",
+                    msg_type=MessageType.ACTIVITY,
+                    message=f"OpenAPI not available",
+                    target=app_name,
+                    result=error or "skipped",
                     progress=progress
                 )
+                continue
 
-    except httpx.TimeoutException:
-        progress.activities_done += 1
-        yield BootMessage(
-            step=BootStep.REGISTER,
-            msg_type=MessageType.WARNING,
-            message="Registration request timed out",
-            progress=progress
-        )
-    except Exception as e:
-        progress.activities_done += 1
-        yield BootMessage(
-            step=BootStep.REGISTER,
-            msg_type=MessageType.WARNING,
-            message=f"Registration failed: {e}",
-            progress=progress
-        )
-
-    # Now discover flows from each app's OpenAPI for step D (retrieve)
-    all_flows: List[DiscoveredFlow] = []
-
-    for app_name in running_apps:
-        spec, openapi_url, error = await fetch_openapi_spec(ray_serve_address, app_name)
-        progress.activities_done += 1
-
-        if spec is None:
-            yield BootMessage(
-                step=BootStep.REGISTER,
-                msg_type=MessageType.ACTIVITY,
-                message=f"OpenAPI not available",
-                target=app_name,
-                result=error or "skipped",
-                progress=progress
-            )
-            continue
-
-        # Extract flows for step D
-        flows = extract_kodosumi_endpoints(spec, app_name)
-        if flows:
-            all_flows.extend(flows)
-            yield BootMessage(
-                step=BootStep.REGISTER,
+            # Extract flows for step D
+            flows = extract_kodosumi_endpoints(spec, app_name)
+            if flows:
+                all_flows.extend(flows)
+                yield BootMessage(
+                    step=BootStep.REGISTER,
                 msg_type=MessageType.ACTIVITY,
                 message=f"Discovered {len(flows)} flow endpoint(s)",
                 target=app_name,
@@ -1707,7 +1828,7 @@ async def _step_register_flows(
     yield BootMessage(
         step=BootStep.REGISTER,
         msg_type=MessageType.STEP_END,
-        message=f"Flow registration complete ({num_registered} registered, {len(all_flows)} discovered)",
+        message=f"Flow registration complete ({len(all_flows)} discovered)",
         progress=progress,
         data={"discovered_flows": all_flows}
     )
@@ -2116,22 +2237,37 @@ async def _step_update_meta(
         progress=progress
     )
 
-    # Fetch all registered flows from GET /flow
-    yield BootMessage(
-        step=BootStep.UPDATE,
-        msg_type=MessageType.ACTIVITY,
-        message="Fetching registered flows",
-        target="GET /flow",
-        progress=progress
-    )
+    # Build flow data directly from Step D results (flow_statuses).
+    # This avoids the chicken-and-egg problem where GET /flow only returns
+    # exposes that already have meta — new agents would never get meta.
+    flow_state_lookup: Dict[str, tuple] = {}
+    flows_by_expose: Dict[str, List[dict]] = {}
 
-    all_flows = await fetch_registered_flows(app_server, auth_cookies)
+    for app_name, statuses in flow_statuses.items():
+        for status in statuses:
+            flow = status.flow
+            flow_state_lookup[flow.path] = (status.state, status.checked_at)
 
-    if not all_flows:
+            # Convert DiscoveredFlow to dict matching EndpointResponse format
+            flow_dict = {
+                "base_url": flow.path,
+                "summary": flow.summary,
+                "description": flow.description,
+                "tags": flow.tags,
+                "author": flow.author,
+                "organization": flow.organization,
+            }
+            if app_name not in flows_by_expose:
+                flows_by_expose[app_name] = []
+            flows_by_expose[app_name].append(flow_dict)
+
+    all_flow_count = sum(len(v) for v in flows_by_expose.values())
+
+    if not flows_by_expose:
         yield BootMessage(
             step=BootStep.UPDATE,
             msg_type=MessageType.WARNING,
-            message="No flows returned from GET /flow",
+            message="No flows discovered in Step D",
             progress=progress
         )
         yield BootMessage(
@@ -2146,26 +2282,9 @@ async def _step_update_meta(
         step=BootStep.UPDATE,
         msg_type=MessageType.RESULT,
         message="Retrieved flows",
-        result=f"{len(all_flows)} flows",
+        result=f"{all_flow_count} flows",
         progress=progress
     )
-
-    # Build lookup for flow states from Step D
-    # Map path -> (state, checked_at) from Step D health checks
-    flow_state_lookup: Dict[str, tuple] = {}
-    for app_name, statuses in flow_statuses.items():
-        for status in statuses:
-            flow_state_lookup[status.flow.path] = (status.state, status.checked_at)
-
-    # Group flows by expose name (using base_url)
-    flows_by_expose: Dict[str, List[dict]] = {}
-    for flow in all_flows:
-        base_url = flow.get("base_url", "")
-        expose_name = get_expose_name_from_base_url(base_url)
-        if expose_name:
-            if expose_name not in flows_by_expose:
-                flows_by_expose[expose_name] = []
-            flows_by_expose[expose_name].append(flow)
 
     progress.activities_total = len(flows_by_expose) + 1  # +1 for initial fetch
     progress.activities_done = 1  # Already did the fetch
@@ -2495,47 +2614,6 @@ async def _run_cleanup_shutdown(
                 progress=progress
             )
 
-        # Refresh flow register to clear flows
-        if app_server:
-            yield BootMessage(
-                step=BootStep.REGISTER,
-                msg_type=MessageType.ACTIVITY,
-                message="PUT /flow/register",
-                target="Clearing flow registry",
-                progress=progress
-            )
-
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=30.0, cookies=auth_cookies) as client:
-                    register_url = f"{app_server.rstrip('/')}/flow/register"
-                    response = await client.put(register_url)
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        urls = result.get("urls", set())
-                        yield BootMessage(
-                            step=BootStep.REGISTER,
-                            msg_type=MessageType.RESULT,
-                            message="Flow registry refreshed",
-                            result=f"{len(urls)} flows remaining",
-                            progress=progress
-                        )
-                    else:
-                        yield BootMessage(
-                            step=BootStep.REGISTER,
-                            msg_type=MessageType.WARNING,
-                            message=f"Flow register refresh returned {response.status_code}",
-                            progress=progress
-                        )
-            except Exception as e:
-                yield BootMessage(
-                    step=BootStep.REGISTER,
-                    msg_type=MessageType.WARNING,
-                    message=f"Failed to refresh flow register: {str(e)}",
-                    progress=progress
-                )
-
     except Exception as e:
         yield BootMessage(
             step=BootStep.DEPLOY,
@@ -2573,16 +2651,19 @@ async def _real_boot_process(
     deployed_names: List[str] = []
 
     # =========================================================================
-    # Step A: Deploy
+    # Step A: Deploy (sliding window — also polls until final state)
     # =========================================================================
-    async for msg in _step_deploy(progress):
+    step_a_final_statuses: Dict[str, dict] = {}
+    async for msg in _step_deploy(progress, ray_dashboard=ray_dashboard, boot_timeout=boot_timeout):
         yield msg
         if msg.msg_type == MessageType.ERROR:
             audit.error(f"BOOT STEP A FAILED - deploy error: {msg.message}")
             return
-        # Capture deployed names for subsequent steps
+        # Capture deployed names and any final statuses already known from Step A
         if msg.data and "deployed_names" in msg.data:
             deployed_names = msg.data["deployed_names"]
+        if msg.data and "final_statuses" in msg.data:
+            step_a_final_statuses = msg.data["final_statuses"]
 
     # Audit: Step A complete
     audit.info(f"BOOT STEP A - deployed {len(deployed_names)} exposes: {', '.join(deployed_names) if deployed_names else 'none'}")
@@ -2607,16 +2688,26 @@ async def _real_boot_process(
 
     # =========================================================================
     # Step B: Health Check
+    # Skip if Step A already resolved all final statuses via sliding-window polling
     # =========================================================================
     final_statuses: Dict[str, dict] = {}
-    async for msg in _step_health_check(ray_dashboard, deployed_names, progress, boot_timeout):
-        yield msg
-        if msg.msg_type == MessageType.ERROR:
-            audit.error(f"BOOT STEP B FAILED - health check error: {msg.message}")
-            return
-        # Capture final statuses for subsequent steps
-        if msg.data and "final_statuses" in msg.data:
-            final_statuses = msg.data["final_statuses"]
+    if step_a_final_statuses and set(step_a_final_statuses.keys()) >= set(deployed_names):
+        # All apps reached a final state during Step A — no need to poll again
+        final_statuses = step_a_final_statuses
+        audit.info("BOOT STEP B - skipped (all statuses resolved in Step A)")
+    else:
+        # Either ray_dashboard was not available or some apps were not yet resolved
+        remaining = [n for n in deployed_names if n not in step_a_final_statuses]
+        async for msg in _step_health_check(ray_dashboard, remaining, progress, boot_timeout):
+            yield msg
+            if msg.msg_type == MessageType.ERROR:
+                audit.error(f"BOOT STEP B FAILED - health check error: {msg.message}")
+                return
+            # Capture final statuses for subsequent steps
+            if msg.data and "final_statuses" in msg.data:
+                final_statuses = msg.data["final_statuses"]
+        # Merge Step A partial results with Step B results
+        final_statuses = {**step_a_final_statuses, **final_statuses}
 
     # Filter to only running apps for subsequent steps
     running_apps = [name for name, info in final_statuses.items() if info.get("status") == "RUNNING"]
@@ -2766,43 +2857,6 @@ async def run_shutdown(
             )
 
         audit.info(f"SHUTDOWN - set {len(expose_names)} exposes to DEAD: {', '.join(expose_names) if expose_names else 'none'}")
-
-        # Refresh flow register to clear flows (Ray Serve is down, so no flows will be found)
-        if app_server:
-            yield BootMessage(
-                step=BootStep.REGISTER,
-                msg_type=MessageType.ACTIVITY,
-                message="PUT /flow/register",
-                target="Clearing flow registry"
-            )
-
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=30.0, cookies=auth_cookies) as client:
-                    register_url = f"{app_server.rstrip('/')}/flow/register"
-                    response = await client.put(register_url)
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        urls = result.get("urls", set())
-                        yield BootMessage(
-                            step=BootStep.REGISTER,
-                            msg_type=MessageType.RESULT,
-                            message="Flow registry refreshed",
-                            result=f"{len(urls)} flows remaining"
-                        )
-                    else:
-                        yield BootMessage(
-                            step=BootStep.REGISTER,
-                            msg_type=MessageType.WARNING,
-                            message=f"Flow register refresh returned {response.status_code}"
-                        )
-            except Exception as e:
-                yield BootMessage(
-                    step=BootStep.REGISTER,
-                    msg_type=MessageType.WARNING,
-                    message=f"Failed to refresh flow register: {str(e)}"
-                )
 
         audit.info(f"SHUTDOWN END by {owner} - success")
         yield BootMessage(

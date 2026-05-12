@@ -134,7 +134,6 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@example.com"
     ADMIN_PASSWORD: str = "admin"
 
-    REGISTER_FLOW: list[str] = []
     PROXY_TIMEOUT: int = 30  # seconds - HTTP proxy request timeout
 
     # Boot process timeout - how long to wait for Ray Serve deployments
@@ -194,7 +193,7 @@ class Settings(BaseSettings):
             Path(v).parent.mkdir(parents=True, exist_ok=True)
         return v
 
-    @field_validator("CORS_ORIGINS", "REGISTER_FLOW", mode="before")
+    @field_validator("CORS_ORIGINS", mode="before")
     def string_to_list(cls, v):
         if isinstance(v, str):
             return [s.strip() for s in v.split(',')]

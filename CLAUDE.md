@@ -44,9 +44,8 @@ pytest tests/test_flow.py -v  # single test file
 | `koco start` | Start admin panel with spooler (production mode) |
 | `koco serve` | Start development server (use `--reload` for auto-reload) |
 | `koco spool` | Manage spooler independently (`--start`, `--stop`, `--status`) |
-| `koco deploy` | **(Deprecated)** Used internally for Ray Serve management |
 
-**Note:** Deployments are now managed through the Admin Panel UI (`/admin/expose/`) or the `/boot/` API endpoints instead of `koco deploy`.
+**Note:** Deployments are managed through the Admin Panel UI (`/admin/expose/`) or the `/boot/` API endpoints. The legacy `koco deploy` command has been removed.
 
 ## Architecture
 

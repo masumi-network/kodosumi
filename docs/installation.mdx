@@ -178,28 +178,15 @@ runtime_env:
     - lorem-text
 ```
 
-Test this deployment set with
+Deployments are managed through the **Expose/Boot** system in the Admin Panel. See [Expose Management](/expose) for the full workflow.
+
+Start the admin panel:
 
 ```bash
-koco deploy --dry-run --file ./data/config/config.yaml
+koco start
 ```
 
-With success, stop `ray serve` and perform a Ray serve deployment
-
-```bash
-serve shutdown --yes  # this is equivalent to koco deploy --stop
-koco deploy --run --file ./data/config/config.yaml
-```
-
-Restart `koco start` with the Ray serve endpoint http://localhost:8001/-/routes as configured in `config.yaml`.
-
-```bash
-koco start --register http://localhost:8001/-/routes
-```
-
-If one or more Ray serve applications are not yet available when kodosumi starts, you need to refresh the list of registered flows. Visit **[control screen](http://localhost:3370/admin/routes)** in the **[admin panel](http://localhost:3370/)** and click **RECONNECT**.
-
-Adding and removing deployments is operationalized with config files in `./data/config`. All files alongside `config.yaml` are deployed. You can test your deployment setup with `koco deploy --dry-run --file ./data/config/config.yaml`.
+Then use the Admin Panel at `http://localhost:3370/admin/expose/` to create exposes and boot your services.
 
 **Where to get from here?**
 

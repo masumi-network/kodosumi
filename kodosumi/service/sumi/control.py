@@ -506,7 +506,7 @@ async def _check_availability(
     # Perform GET request to verify endpoint is responding
     try:
         async with HTTPXClient() as client:
-            resp = await client.get(endpoint_url, timeout=5.0)
+            resp = await client.get(endpoint_url, timeout=30.0)
 
         if resp.status_code < 400:
             return AvailabilityResponse(
