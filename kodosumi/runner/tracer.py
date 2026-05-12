@@ -168,3 +168,28 @@ class Tracer:
 
     def fs_sync(self):
         return SyncFileSystem(self.fid, self.panel_url, self.jwt)
+
+
+class TracerMock:
+    """No-op Tracer for local testing without Ray."""
+
+    def __init__(self, fid: str = "mock"):
+        self.fid = fid
+
+    async def debug(self, *message): pass
+    def debug_sync(self, *message): pass
+    async def result(self, *message): pass
+    def result_sync(self, *message): pass
+    async def action(self, *message): pass
+    def action_sync(self, *message): pass
+    async def markdown(self, *message): pass
+    def markdown_sync(self, *message): pass
+    async def html(self, *message): pass
+    def html_sync(self, *message): pass
+    async def text(self, *message): pass
+    def text_sync(self, *message): pass
+    async def warning(self, *message, exc_info=False): pass
+    def warning_sync(self, *message, exc_info=False): pass
+    async def lock(self, name, data=None, timeout=None): return {}
+    async def fs(self): return None
+    def fs_sync(self): return None
