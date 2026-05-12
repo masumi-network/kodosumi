@@ -112,18 +112,48 @@ async def _resolve_unknown_agents(
     cache_db_path: Path,
     masumi_configs: dict,
 ) -> Dict[str, str]:
-    """Look up unknown agentIdentifier prefixes in the Masumi Registry."""
+    """Look up unknown agentIdentifier prefixes in the Masumi Registry.
+
+    Results are cached in a 'resolved_agents' table so the Registry
+    is only queried once per unknown prefix.
+    """
     from kodosumi.service.expose.registry import get_registration_status
 
     resolved: Dict[str, str] = {}
     if not unknown_prefixes or not masumi_configs:
         return resolved
 
-    # Get full identifiers from cache
+    try:
+        async with aiosqlite.connect(str(cache_db_path)) as conn:
+            await conn.execute(
+                "CREATE TABLE IF NOT EXISTS resolved_agents "
+                "(prefix TEXT PRIMARY KEY, name TEXT)"
+            )
+            await conn.commit()
+
+            # Check cache first
+            still_unknown = []
+            for prefix in unknown_prefixes[:20]:
+                async with conn.execute(
+                    "SELECT name FROM resolved_agents WHERE prefix = ?",
+                    (prefix,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        resolved[prefix] = row[0]
+                    else:
+                        still_unknown.append(prefix)
+    except Exception:
+        still_unknown = unknown_prefixes[:20]
+
+    if not still_unknown:
+        return resolved
+
+    # Get full identifiers for uncached prefixes
     full_ids: Dict[str, str] = {}
     try:
         async with aiosqlite.connect(str(cache_db_path)) as conn:
-            for prefix in unknown_prefixes[:20]:
+            for prefix in still_unknown:
                 async with conn.execute(
                     "SELECT DISTINCT agent_identifier FROM payments "
                     "WHERE agent_identifier LIKE ? LIMIT 1",
@@ -135,6 +165,7 @@ async def _resolve_unknown_agents(
     except Exception:
         return resolved
 
+    # Query Registry for each unknown
     for prefix, full_id in full_ids.items():
         for cfg in masumi_configs.values():
             try:
@@ -147,7 +178,17 @@ async def _resolve_unknown_agents(
                         meta = reg.get("Metadata", {})
                         name = meta.get("name", "")
                     if name:
-                        resolved[prefix] = f"{name} (Legacy)"
+                        label = f"{name} (Legacy)"
+                        resolved[prefix] = label
+                        try:
+                            async with aiosqlite.connect(str(cache_db_path)) as conn:
+                                await conn.execute(
+                                    "INSERT OR REPLACE INTO resolved_agents (prefix, name) VALUES (?, ?)",
+                                    (prefix, label),
+                                )
+                                await conn.commit()
+                        except Exception:
+                            pass
                         break
             except Exception:
                 continue
@@ -516,7 +557,7 @@ class MasumiDashboardAPI(Controller):
             for prefix in agent_map:
                 if agent_id.startswith(prefix) and len(prefix) > len(best):
                     best = prefix
-            return best or "unknown"
+            return best or agent_id[:60]
 
         buckets: Dict[str, Dict[str, Any]] = {}
         # Pre-seed with configured agents so they show up even at zero
@@ -526,7 +567,7 @@ class MasumiDashboardAPI(Controller):
         for row in rows:
             key = _match_agent(row.get("agent_identifier"))
             if key not in buckets:
-                name = agent_map.get(key, key if key != "unknown" else "Unknown")
+                name = agent_map.get(key, "Unknown")
                 buckets[key] = _empty_bucket(key, name)
 
             bucket = buckets[key]
@@ -572,7 +613,7 @@ class MasumiDashboardAPI(Controller):
         # Resolve "Unknown" agents via Masumi Registry lookup
         unknown_prefixes = [
             a["expose_name"] for a in agents_out
-            if a["name"] in ("Unknown", "unknown") and a["expose_name"] != "unknown"
+            if a["name"] == "Unknown" and len(a["expose_name"]) > 20
         ]
         if unknown_prefixes:
             try:
