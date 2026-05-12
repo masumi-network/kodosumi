@@ -107,6 +107,54 @@ async def _get_agent_map(expose_db_path: Path) -> Dict[str, str]:
     return mapping
 
 
+async def _resolve_unknown_agents(
+    unknown_prefixes: List[str],
+    cache_db_path: Path,
+    masumi_configs: dict,
+) -> Dict[str, str]:
+    """Look up unknown agentIdentifier prefixes in the Masumi Registry."""
+    from kodosumi.service.expose.registry import get_registration_status
+
+    resolved: Dict[str, str] = {}
+    if not unknown_prefixes or not masumi_configs:
+        return resolved
+
+    # Get full identifiers from cache
+    full_ids: Dict[str, str] = {}
+    try:
+        async with aiosqlite.connect(str(cache_db_path)) as conn:
+            for prefix in unknown_prefixes[:20]:
+                async with conn.execute(
+                    "SELECT DISTINCT agent_identifier FROM payments "
+                    "WHERE agent_identifier LIKE ? LIMIT 1",
+                    (prefix + "%",),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row and row[0]:
+                        full_ids[prefix] = row[0]
+    except Exception:
+        return resolved
+
+    for prefix, full_id in full_ids.items():
+        for cfg in masumi_configs.values():
+            try:
+                reg = await get_registration_status(
+                    cfg, agent_identifier=full_id
+                )
+                if reg:
+                    name = reg.get("name") or ""
+                    if not name:
+                        meta = reg.get("Metadata", {})
+                        name = meta.get("name", "")
+                    if name:
+                        resolved[prefix] = f"{name} (Legacy)"
+                        break
+            except Exception:
+                continue
+
+    return resolved
+
+
 # ---------------------------------------------------------------------------
 # Koios wallet balance helper
 # ---------------------------------------------------------------------------
@@ -520,6 +568,24 @@ class MasumiDashboardAPI(Controller):
                 "rate": rate,
                 "lost_revenue": _base_to_human(b["lost_revenue"]),
             })
+
+        # Resolve "Unknown" agents via Masumi Registry lookup
+        unknown_prefixes = [
+            a["expose_name"] for a in agents_out
+            if a["name"] in ("Unknown", "unknown") and a["expose_name"] != "unknown"
+        ]
+        if unknown_prefixes:
+            try:
+                cache = self._get_cache(state)
+                resolved = await _resolve_unknown_agents(
+                    unknown_prefixes, cache.db_path,
+                    state["settings"].masumi_networks,
+                )
+                for a in agents_out:
+                    if a["expose_name"] in resolved:
+                        a["name"] = resolved[a["expose_name"]]
+            except Exception:
+                pass
 
         agents_out.sort(key=lambda d: d["revenue"], reverse=True)
         return {"agents": agents_out}
