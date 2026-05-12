@@ -14,6 +14,27 @@
 
 Kodosumi is a Python framework for running AI agent workflows in production. It combines **Ray Serve** for distributed execution, a built-in **Admin Panel** for monitoring, and **Masumi** blockchain integration for paid agent services.
 
+<details>
+<summary><strong>Screenshots</strong> (click to expand)</summary>
+<br/>
+
+**Agent Services**
+<img src="./docs/screenshots/services.png" alt="Agentic Services" width="100%"/>
+
+**Analytics Dashboard**
+<img src="./docs/screenshots/analytics.png" alt="Analytics Dashboard" width="100%"/>
+
+**Masumi Payment Dashboard**
+<img src="./docs/screenshots/masumi-dashboard.png" alt="Masumi Payment Dashboard" width="100%"/>
+
+**Timeline**
+<img src="./docs/screenshots/timeline.png" alt="Timeline" width="100%"/>
+
+**Expose Management**
+<img src="./docs/screenshots/expose.png" alt="Expose Management" width="100%"/>
+
+</details>
+
 ## Quick Start
 
 ```bash
