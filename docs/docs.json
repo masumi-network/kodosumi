@@ -24,7 +24,7 @@
           },
           {
             "group": "Deploy on Kodosumi",
-            "pages": ["deploy", "expose", "panel"]
+            "pages": ["expose", "panel", "dashboard", "masumi-registry"]
           },
           {
             "group": "Details",

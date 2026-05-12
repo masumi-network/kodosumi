@@ -24,7 +24,7 @@ cd ./kodosumi-examples
 pip install .
 ```
 
-Since some of the examples utilize additional frameworks like `CrewAI` and `langchain` the installation of the kodosumi examples takes a while. All dependencies of the examples are installed. Please note that these dependencies are managed by Ray in production. See [deployment](/deploy).
+Since some of the examples utilize additional frameworks like `CrewAI` and `langchain` the installation of the kodosumi examples takes a while. All dependencies of the examples are installed. Please note that these dependencies are managed by Ray in production. See [deployment](/expose).
 
 ### STEP 2 - Prepare runtime environment
 
@@ -67,10 +67,10 @@ uvicorn kodosumi_examples.hymn.app:app --port 8011
 This starts a uvicorn (Asynchronous Server Gateway Interface) server at http://localhost:8011. All HTTP endpoints of `app` are available at URL http://localhost:8011/openapi.json. Launch another terminal session, source the Python Virtual Environment and register this URL with kodosumi panel:
 
 ```bash
-koco start --register http://localhost:8011/openapi.json
+koco start
 ```
 
-Visit kodosumi **[admin panel](http://localhost:3370)** at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. Launch the **[Hymn Creator](http://localhost:3370/inputs/-/localhost/8011/-/)** from the **[service screen](http://localhost:3370/admin/flow)** and revisit results at the **[timeline screen](http://localhost:3370/timeline/view)**.
+Visit kodosumi **[admin panel](http://localhost:3370)** at [http://localhost:3370](http://localhost:3370). The default user is defined in `config.py` and reads `name=admin` and `password=admin`. Services are managed via the **Expose** system at [http://localhost:3370/admin/expose/](http://localhost:3370/admin/expose/). Add an Expose item pointing to `http://localhost:8011/openapi.json`, then boot it. Launch the **[Hymn Creator](http://localhost:3370/inputs/-/localhost/8011/-/)** from the **[service screen](http://localhost:3370/admin/flow)** and revisit results at the **[timeline screen](http://localhost:3370/timeline/view)**.
 
 You can start another service `prime` in a new terminal with
 
@@ -78,17 +78,11 @@ You can start another service `prime` in a new terminal with
 uvicorn kodosumi_examples.prime.app:app --port 8012
 ```
 
-Register this service with [kodosumi panel config](http://localhost:3370/admin/routes) with both service endpoints
+Add both service endpoints as Expose items in the [Admin Panel](http://localhost:3370/admin/expose/):
 
 ```
 http://localhost:8011/openapi.json
 http://localhost:8012/openapi.json
-```
-
-You can specify multiple _registers_ at `koco start`
-
-```bash
-koco start --register http://localhost:8011/openapi.json --register http://localhost:8012/openapi.json
 ```
 
 Running your services as standalone uvicorn applications is best practice to facilitate debugging.
@@ -112,11 +106,13 @@ In contrast to the previous command a `serve deploy` command is used to deploy y
 serve deploy kodosumi_examples.hymn.app:fast_app
 ```
 
-Using Ray _serve run_ or _deploy_ the `--register` must connect to Ray's proxy URL `/-/routes`. With `serve run` or `deploy` the port defaults to `8000` and you start `koco start` with the Ray serve endpoint http://localhost:8000/-/routes.
+After deploying with Ray _serve run_ or _deploy_, start the admin panel and configure the agent as an Expose item in the Admin Panel at `http://localhost:3370/admin/expose/`.
 
 ```bash
-koco start --register http://localhost:8000/-/routes
+koco start
 ```
+
+Add an Expose item pointing to the Ray Serve endpoint (e.g. `http://localhost:8000/-/routes`) and boot it from the Admin Panel.
 
 #### Multi-service setup with Serve config files
 
