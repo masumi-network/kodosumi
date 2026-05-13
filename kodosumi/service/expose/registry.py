@@ -228,24 +228,39 @@ async def get_registration_status(
         except Exception as e:
             logger.error("Error checking agent-identifier: %s", e)
 
-    # Fallback: search in registry list
-    url = f"{masumi.base_url}/registry?network={masumi.registry_network}"
-    if search_query:
-        url += f"&searchQuery={search_query}"
-
+    # Fallback: paginated search in registry list (using cursorId)
+    limit = 100
+    cursor_id = None
     try:
         async with HTTPXClient() as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code == 200:
+            while True:
+                url = (
+                    f"{masumi.base_url}/registry"
+                    f"?network={masumi.registry_network}"
+                    f"&limit={limit}"
+                )
+                if cursor_id:
+                    url += f"&cursorId={cursor_id}"
+                if search_query:
+                    url += f"&searchQuery={search_query}"
+                resp = await client.get(url, headers=headers)
+                if resp.status_code != 200:
+                    break
                 assets = resp.json().get("data", {}).get("Assets", [])
+                if not assets:
+                    break
                 for asset in assets:
                     if registration_id and asset.get("id") == registration_id:
                         return asset
                     if agent_identifier and asset.get("agentIdentifier") == agent_identifier:
                         return asset
-                # If searching by query, return first match
                 if search_query and assets:
                     return assets[0]
+                if len(assets) < limit:
+                    break
+                cursor_id = assets[-1].get("id")
+                if not cursor_id:
+                    break
     except Exception as e:
         logger.error("Error checking registry: %s", e)
 
