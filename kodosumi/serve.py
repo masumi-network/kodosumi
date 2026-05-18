@@ -229,6 +229,8 @@ class ServeAPI(FastAPI):
         async def add_custom_method(request: Request, call_next):
             user = request.headers.get(KODOSUMI_USER, ANNONYMOUS)
             prefix_route = request.headers.get(KODOSUMI_BASE, "")
+            if not prefix_route:
+                prefix_route = f"{request.url.scheme}://{request.url.netloc}{request.scope.get('root_path', '')}"
             request.state.user = user
             request.state.prefix = prefix_route
             response = await call_next(request)
