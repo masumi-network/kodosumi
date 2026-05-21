@@ -3,7 +3,7 @@ from kodosumi.service.inputs import forms
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.serve import ServeAPI, Templates
 from kodosumi.runner.main import Launch
-from kodosumi.runner.tracer import Tracer
+from kodosumi.runner.tracer import Tracer, TracerMock
 from kodosumi.error import KodosumiError
 
 __all__ = [

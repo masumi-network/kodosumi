@@ -1,0 +1,569 @@
+---
+title: Sumi Protocol API
+---
+
+The Sumi Protocol API implements MIP-002/MIP-003 compliant endpoints for service discovery, availability checking, job management, and human-in-the-loop interactions. This API enables external systems (Masumi, Sokosumi) to discover and interact with agentic services.
+
+## Prerequisites: Masumi Integration
+
+### 1. Environment Variables
+
+Configure Masumi payment credentials in your `.env` file:
+
+```bash
+# Format: "NetworkName MasumiURL APIKey [pay_by_time] [submit_result_by_time] [poll_interval]"
+# Minimum 3 values, up to 6
+
+# Preprod network
+KODO_MASUMI0="Preprod https://preprod.masumi-api.example.com api-key-here"
+
+# Mainnet network (optional)
+KODO_MASUMI1="Mainnet https://mainnet.masumi-api.example.com api-key-here"
+
+# With custom timeouts (seconds)
+KODO_MASUMI0="Preprod https://preprod.masumi-api.example.com api-key-here 1200 3600 1.0"
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| NetworkName | - | Network identifier: `Preprod` or `Mainnet` |
+| MasumiURL | - | Masumi payment API base URL |
+| APIKey | - | Authentication token for Masumi API |
+| pay_by_time | `1200` | Payment deadline in seconds (20 minutes) |
+| submit_result_by_time | `3600` | Result submission deadline in seconds (60 minutes) |
+| poll_interval | `1.0` | Payment status poll interval in seconds |
+
+### 2. Expose Configuration
+
+In the Admin Panel under **Control > Expose**, set:
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `network` | `Preprod` or `Mainnet` | Must match a configured `KODO_MASUMI` network name |
+
+When `network` is set, the Sumi endpoints require blockchain-based authentication (JWT signed by Masumi). When `network` is empty, the service is only visible to authenticated Kodosumi users.
+
+### 3. Agent Identifier (agentIdentifier)
+
+The `agentIdentifier` enables payment processing for a service endpoint. It is configured in the **Expose Meta Data** (YAML) for each endpoint:
+
+```yaml
+# Expose > Meta > Edit (per endpoint)
+display: My Research Agent
+description: AI-powered research service
+tags:
+  - research
+  - ai
+
+# Masumi payment integration
+agentIdentifier: "addr_test1qz..."
+
+# Pricing
+agentPricing:
+  - pricingType: Fixed
+    fixedPricing:
+      - amount: "1000000"
+        unit: lovelace
+```
+
+When `agentIdentifier` is present, the Runner initializes payment via Masumi after job submission. Without it, jobs run without payment (free).
+
+## Base URL
+
+```
+/sumi
+```
+
+## Authentication
+
+Sumi endpoints are public when `network` is configured on the expose (blockchain-based auth via JWT). Without `network`, endpoints require Kodosumi session authentication.
+
+## Service Identifiers
+
+Services are identified by expose name and optional endpoint name:
+
+| Pattern | Example | Description |
+|---------|---------|-------------|
+| `{expose}` | `my-agent` | Root service (endpoint `/`) |
+| `{expose}/{name}` | `my-agent/process` | Named endpoint |
+
+## MIP-003 Endpoints Overview
+
+| Endpoint | Method | MIP-003 | Description |
+|----------|--------|---------|-------------|
+| `/sumi` | GET | - | List all services (discovery) |
+| `/sumi/{expose}` | GET | - | Get service metadata |
+| `/sumi/{expose}/availability` | GET | Yes | Check if service is operational |
+| `/sumi/{expose}/input_schema` | GET | Yes | Get expected input schema |
+| `/sumi/{expose}/start_job` | POST | Yes | Start a new job |
+| `/sumi/{expose}/status/{job_id}` | GET | Yes | Get job status |
+| `/sumi/{expose}/provide_input` | POST | Yes | Send input for HITL (awaiting_input) |
+
+All endpoints also exist with `/{expose}/{meta_name}/` for named endpoints.
+
+## Data Models
+
+### InputField (MIP-003)
+
+```json
+{
+    "id": "topic",
+    "type": "text",
+    "name": "Topic",
+    "data": {
+        "placeholder": "Enter topic...",
+        "default": "Example topic",
+        "values": ["option1", "option2"]
+    },
+    "validations": [
+        {"validation": "optional", "value": "true"},
+        {"validation": "min", "value": "1"},
+        {"validation": "max", "value": "100"}
+    ]
+}
+```
+
+**Supported types:** `text`, `textarea`, `search`, `password`, `hidden`, `none`, `number`, `range`, `option`, `radio`, `checkbox`, `boolean`, `date`, `datetime-local`, `time`, `month`, `week`, `email`, `url`, `tel`, `color`, `file`
+
+### JobStatusResponse (MIP-003)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `job_id` | string | Kodosumi execution ID (fid) |
+| `status` | string | Job status (see below) |
+| `result` | string | Result when completed (MIP-003: always string) |
+| `error` | string | Error message when failed |
+| `input_schema` | object | Input schema when awaiting_input (see HITL section) |
+| `identifierFromPurchaser` | string | Customer identifier (echoed from start_job) |
+| `agentIdentifier` | string | Agent identifier for payment |
+| `blockchainIdentifier` | string | Blockchain ID for payment |
+| `startedAt` | float | Start timestamp |
+| `updatedAt` | float | Last update timestamp |
+| `runtime` | float | Execution time in seconds |
+
+**Status values:**
+
+| Status | Description |
+|--------|-------------|
+| `awaiting_payment` | Payment initialized, waiting for funds |
+| `awaiting_input` | Waiting for human input (HITL lock pending) |
+| `running` | Job in progress |
+| `completed` | Successfully finished |
+| `failed` | Terminated with error |
+
+## Discovery Endpoints
+
+### List Services
+
+```
+GET /sumi
+```
+
+Lists all available services with pagination.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `expose` | string | - | Filter by expose name |
+| `pp` | int | 10 | Page size (max 100) |
+| `offset` | string | - | Last item ID for pagination |
+
+**Response:**
+
+```json
+{
+    "items": [
+        {
+            "id": "my-agent/process",
+            "parent": "my-agent",
+            "name": "process",
+            "display": "Data Processor",
+            "api_url": "http://localhost:3370/sumi/my-agent/process",
+            "tags": ["processing", "data"],
+            "agentPricing": [{"pricingType": "Fixed", "fixedPricing": [{"amount": "1000000", "unit": "lovelace"}]}],
+            "metadata_version": 1,
+            "network": "Preprod",
+            "state": "alive"
+        }
+    ],
+    "offset": "my-agent/process"
+}
+```
+
+### Get Service Metadata
+
+```
+GET /sumi/{expose_name}
+GET /sumi/{expose_name}/{meta_name}
+```
+
+Returns full MIP-002 metadata for a service.
+
+## Availability
+
+### Check Availability
+
+```
+GET /sumi/{expose_name}/availability
+GET /sumi/{expose_name}/{meta_name}/availability
+```
+
+**Response:**
+
+```json
+{
+    "status": "available",
+    "type": "masumi-agent",
+    "message": "Data Processor is ready to accept jobs"
+}
+```
+
+## Input Schema
+
+### Get Input Schema
+
+```
+GET /sumi/{expose_name}/input_schema
+GET /sumi/{expose_name}/{meta_name}/input_schema
+```
+
+Returns MIP-003 input schema for job initiation. This describes the fields the service expects in `start_job`.
+
+**Response:**
+
+```json
+{
+    "input_data": [
+        {
+            "id": "topic",
+            "type": "text",
+            "name": "Research Topic",
+            "data": {"placeholder": "Enter topic..."},
+            "validations": [{"validation": "optional", "value": "true"}]
+        },
+        {
+            "id": "format",
+            "type": "option",
+            "name": "Output Format",
+            "data": {"values": ["PDF", "Markdown", "HTML"]},
+            "validations": [{"validation": "min", "value": "1"}, {"validation": "max", "value": "1"}]
+        }
+    ]
+}
+```
+
+## Job Management
+
+### Start Job
+
+```
+POST /sumi/{expose_name}/start_job
+POST /sumi/{expose_name}/{meta_name}/start_job
+```
+
+**Request Body:**
+
+```json
+{
+    "identifier_from_purchaser": "customer-job-123",
+    "input_data": {
+        "topic": "Climate change",
+        "format": [0]
+    }
+}
+```
+
+<Note>
+**Input value conversion:** The Sumi layer automatically converts MIP-003 input values to Kodosumi format:
+- **Option/Radio fields:** Index arrays `[0]` are converted to string values (`"PDF"`) based on the input schema
+- **Boolean fields:** `true` is converted to `"on"` (Kodosumi checkbox format)
+- **Missing optional fields:** Added with type-appropriate defaults (`""` for text, `false` for boolean)
+</Note>
+
+**Success Response (with payment):**
+
+```json
+{
+    "job_id": "682d86536dd659324a5c8901",
+    "status": "awaiting_payment",
+    "identifierFromPurchaser": "customer-job-123",
+    "input_hash": "a1b2c3d4...",
+    "agentIdentifier": "addr_test1qz...",
+    "blockchainIdentifier": "tx_abc123...",
+    "payByTime": 1700001200,
+    "submitResultTime": 1700003600,
+    "sellerVKey": "ed25519_pk1...",
+    "startedAt": 1700000000.0,
+    "updatedAt": 1700000000.5
+}
+```
+
+**Success Response (without payment):**
+
+```json
+{
+    "job_id": "682d86536dd659324a5c8901",
+    "status": "running",
+    "identifierFromPurchaser": "customer-job-123",
+    "input_hash": "a1b2c3d4...",
+    "startedAt": 1700000000.0,
+    "updatedAt": 1700000000.5
+}
+```
+
+**Error Response:**
+
+```json
+{
+    "status": "failed",
+    "error": "topic: Field is required"
+}
+```
+
+### Get Job Status
+
+```
+GET /sumi/{expose_name}/status/{job_id}
+GET /sumi/{expose_name}/{meta_name}/status/{job_id}
+GET /sumi/{expose_name}/status?job_id={job_id}
+GET /sumi/{expose_name}/{meta_name}/status?job_id={job_id}
+```
+
+**Response (running):**
+
+```json
+{
+    "job_id": "682d86536dd659324a5c8901",
+    "status": "running",
+    "identifierFromPurchaser": "customer-job-123",
+    "startedAt": 1700000000.0,
+    "updatedAt": 1700000005.0,
+    "runtime": 5.0
+}
+```
+
+**Response (completed):**
+
+```json
+{
+    "job_id": "682d86536dd659324a5c8901",
+    "status": "completed",
+    "result": "Analysis complete. Found 42 matches.",
+    "identifierFromPurchaser": "customer-job-123",
+    "startedAt": 1700000000.0,
+    "updatedAt": 1700000030.0,
+    "runtime": 30.0
+}
+```
+
+**Response (awaiting_input — HITL):**
+
+```json
+{
+    "job_id": "682d86536dd659324a5c8901",
+    "status": "awaiting_input",
+    "input_schema": {
+        "input_groups": [
+            {
+                "id": "9d9c737c-eb64-4f51-b0c9-1f28ff6a9f9c",
+                "title": "claude-input",
+                "input_data": [
+                    {
+                        "id": "9d9c737c-eb64-4f51-b0c9-1f28ff6a9f9c:info",
+                        "type": "none",
+                        "name": "Information",
+                        "data": {"description": "Please clarify your research question."}
+                    },
+                    {
+                        "id": "9d9c737c-eb64-4f51-b0c9-1f28ff6a9f9c:response",
+                        "type": "textarea",
+                        "name": "Your Response",
+                        "data": {"placeholder": "Provide clarification or type 'done' to finish..."}
+                    }
+                ]
+            }
+        ]
+    },
+    "identifierFromPurchaser": "customer-job-123",
+    "startedAt": 1700000000.0,
+    "updatedAt": 1700000015.0,
+    "runtime": 15.0
+}
+```
+
+<Note>
+**input_schema format:** When status is `awaiting_input`, the `input_schema` field contains an object with `input_groups`. Each group represents a Kodosumi lock (HITL interaction point). The group `id` is the lock ID, and all field IDs are prefixed with the lock ID (e.g. `"lock-id:field_name"`). The `title` is the lock name set by the agent developer.
+</Note>
+
+## Human-in-the-Loop (provide_input)
+
+### Provide Input (MIP-003)
+
+```
+POST /sumi/{expose_name}/provide_input
+POST /sumi/{expose_name}/{meta_name}/provide_input
+```
+
+Sends additional input when a job is in `awaiting_input` status. This is the MIP-003 compliant endpoint that Masumi uses.
+
+**Request Body:**
+
+```json
+{
+    "job_id": "682d86536dd659324a5c8901",
+    "input_schema_hash": "e3b0c44298fc1c149afbf4c8996fb924...",
+    "input_data": {
+        "9d9c737c-eb64-4f51-b0c9-1f28ff6a9f9c:response": "Research AI trends in healthcare"
+    }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `job_id` | string | Yes | Kodosumi execution ID (fid) |
+| `input_schema_hash` | string | No | SHA256 hash of the input_schema object |
+| `input_data` | object | Yes | Field values with lock-prefixed IDs |
+
+<Note>
+**Field ID format:** Each key in `input_data` must be prefixed with the lock group ID from `input_schema.input_groups[].id`, separated by a colon. Example: `"lock-id:field_name"`. The Sumi layer splits these keys, groups them by lock ID, and releases each lock individually via the Kodosumi core mechanism.
+</Note>
+
+**Success Response:**
+
+```json
+{
+    "input_hash": "a1b2c3d4e5f6...",
+    "signature": "a1b2c3d4e5f6..."
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `input_hash` | string | SHA256 hash of submitted input data (MIP-004) |
+| `signature` | string | Cryptographic signature (Ed25519) for authenticity verification |
+
+**Error Response:** HTTP 400 with error detail when all locks failed (expired, already released, or job no longer running).
+
+### Multiple Locks
+
+When a job has multiple pending locks (e.g. two HITL interactions at the same time), the status response contains multiple `input_groups`. All can be answered in a single `provide_input` request:
+
+```json
+{
+    "job_id": "682d86536dd659324a5c8901",
+    "input_data": {
+        "lock-id-1:full_name": "Sandro",
+        "lock-id-1:email": "sandro@test.com",
+        "lock-id-2:full_name": "Peter",
+        "lock-id-2:email": "peter@test.de"
+    }
+}
+```
+
+## Complete Workflow Example
+
+```python
+import httpx
+import time
+
+BASE = "http://localhost:3370"
+
+# 1. Discover services
+services = httpx.get(f"{BASE}/sumi").json()
+service = services["items"][0]
+print(f"Found: {service['display']}")
+
+# 2. Check availability
+avail = httpx.get(f"{service['api_url']}/availability").json()
+if avail["status"] != "available":
+    print(f"Service unavailable: {avail['message']}")
+    exit(1)
+
+# 3. Get input schema
+schema = httpx.get(f"{service['api_url']}/input_schema").json()
+
+# 4. Start job
+job = httpx.post(
+    f"{service['api_url']}/start_job",
+    json={
+        "identifier_from_purchaser": "demo-001",
+        "input_data": {"topic": "AI agents"}
+    }
+).json()
+
+if "error" in job:
+    print(f"Failed: {job['error']}")
+    exit(1)
+
+job_id = job["job_id"]
+print(f"Job started: {job_id}")
+
+# 5. Poll for completion (handle HITL)
+while True:
+    status = httpx.get(
+        f"{service['api_url']}/status/{job_id}"
+    ).json()
+
+    if status["status"] == "completed":
+        print(f"Result: {status['result']}")
+        break
+    elif status["status"] == "failed":
+        print(f"Error: {status['error']}")
+        break
+    elif status["status"] == "awaiting_input":
+        # Handle human-in-the-loop via provide_input
+        groups = status["input_schema"]["input_groups"]
+        input_data = {}
+        for group in groups:
+            for field in group["input_data"]:
+                if field["type"] != "none":  # Skip info fields
+                    input_data[field["id"]] = "user response here"
+
+        httpx.post(
+            f"{service['api_url']}/provide_input",
+            json={
+                "job_id": job_id,
+                "input_data": input_data,
+            }
+        )
+
+    time.sleep(2)
+```
+
+## Debug Logging
+
+All Sumi requests are logged to `/srv/kodosumi/data/sumi_debug.log`:
+
+```
+[2026-03-10 14:30:00] start_job: my-agent/process
+[2026-03-10 14:30:00] identifier_from_purchaser: customer-123
+[2026-03-10 14:30:00] input_data: {"topic": "AI trends"}
+[2026-03-10 14:30:01] agent response: status=200
+[2026-03-10 14:35:00] provide_input (MIP-003): job_id=682d86536dd659324a5c8901
+[2026-03-10 14:35:00] input_data: {"lock-id:response": "Research healthcare AI"}
+[2026-03-10 14:35:00] provide_input locks: ["lock-id"]
+[2026-03-10 14:35:01] provide_input result: success
+```
+
+## Internal Lock Endpoints (Kodosumi-specific)
+
+<Warning>
+These endpoints are **not part of MIP-003** and are not used by Masumi. They exist for internal Kodosumi use and backward compatibility. For external integrations, use `/provide_input` instead.
+</Warning>
+
+### Get Lock Schema
+
+```
+GET /sumi/lock/{fid}/{lid}
+```
+
+Returns input schema for a pending lock.
+
+### Submit to Lock
+
+```
+POST /sumi/lock/{fid}/{lid}
+```
+
+Submits input directly to a specific lock by ID.

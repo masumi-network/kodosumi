@@ -2,6 +2,7 @@ import pytest
 
 from kodosumi.dtypes import RegisterFlow
 from ray import serve
+from ray.serve import context as serve_context
 import asyncio
 from multiprocessing import Process
 import httpx
@@ -12,6 +13,11 @@ from kodosumi.core import ServeAPI, Launch
 from kodosumi.service.inputs.forms import Model, InputText, Checkbox, Submit, Cancel
 from tests.test_role import auth_client
 from tests.test_execution import run_uvicorn
+
+
+def reset_serve_client():
+    """Reset the Ray Serve global client to avoid stale actor references."""
+    serve_context._set_global_client(None)
 
 app = ServeAPI()
 
@@ -328,6 +334,7 @@ async def test_flow_register_two(auth_client):
 
 @pytest.mark.asyncio
 async def test_flow_register_ray(auth_client):
+    reset_serve_client()
 
     app = create_app()
     @serve.deployment
@@ -365,6 +372,7 @@ async def test_flow_register_ray(auth_client):
 
 @pytest.mark.asyncio
 async def test_flow_register_ray_deep(auth_client):
+    reset_serve_client()
 
     app = create_app()
     @serve.deployment
@@ -388,6 +396,8 @@ async def test_flow_register_ray_deep(auth_client):
 
 @pytest.mark.asyncio
 async def test_flow_register_three(auth_client):
+    reset_serve_client()
+
     proc1 = Process(target=run_uvicorn, args=("tests.test_flow:create_app", 8125,))
     proc1.start()
     proc2 = Process(target=run_uvicorn, args=("tests.test_flow:app", 8126,))
@@ -415,10 +425,10 @@ async def test_flow_register_three(auth_client):
     assert resp.status_code == 200
     items = resp.json()["items"]
     expect = [
-        '/-/localhost/8000/ray-test/-/', 
-        '/-/localhost/8000/ray-test/-/get', 
-        '/-/localhost/8125/-/', 
-        '/-/localhost/8125/-/get', 
+        '/-/localhost/8000/ray-test/-/',
+        '/-/localhost/8000/ray-test/-/get',
+        '/-/localhost/8125/-/',
+        '/-/localhost/8125/-/get',
         '/-/localhost/8126/-/'
     ]
     assert sorted([ep["url"] for ep in items]) == expect
@@ -436,17 +446,17 @@ async def test_flow_register_three(auth_client):
     assert resp.status_code == 200
     items = resp.json()["items"]
     expect = [
-        '/-/localhost/8000/ray-test/-/', 
-        '/-/localhost/8000/ray-test/-/get', 
+        '/-/localhost/8000/ray-test/-/',
+        '/-/localhost/8000/ray-test/-/get',
         '/-/localhost/8126/-/'
     ]
     assert sorted([ep["url"] for ep in items]) == expect
 
     for proc in (proc1, proc2):
         proc.terminate()
-        proc.join() 
+        proc.join()
 
-    proc3 = Process(target=run_uvicorn, args=("tests.test_flow:create_app", 
+    proc3 = Process(target=run_uvicorn, args=("tests.test_flow:create_app",
                                                8126,))
     proc3.start()
     url3 = f"http://localhost:8126/openapi.json"
@@ -459,9 +469,9 @@ async def test_flow_register_three(auth_client):
     assert resp.status_code == 200
     items = resp.json()["items"]
     expect = [
-        '/-/localhost/8000/ray-test/-/', 
-        '/-/localhost/8000/ray-test/-/get', 
-        '/-/localhost/8126/-/', 
+        '/-/localhost/8000/ray-test/-/',
+        '/-/localhost/8000/ray-test/-/get',
+        '/-/localhost/8126/-/',
         '/-/localhost/8126/-/get'
     ]
     assert sorted([ep["url"] for ep in items]) == expect
@@ -471,7 +481,7 @@ async def test_flow_register_three(auth_client):
         assert resp.status_code == 200
 
     proc3.terminate()
-    proc3.join() 
+    proc3.join()
 
     serve.shutdown()
 

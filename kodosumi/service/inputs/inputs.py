@@ -4,7 +4,8 @@ import litestar
 from kodosumi.helper import HTTPXClient
 from litestar import Request, get, post
 from litestar.datastructures import State
-from litestar.response import Redirect, Template
+from litestar.response import Redirect, Template, Response
+from litestar import MediaType
 from litestar.exceptions import NotFoundException
 
 from kodosumi.const import FORM_TEMPLATE, KODOSUMI_USER, STATUS_REDIRECT
@@ -22,7 +23,7 @@ class InputsController(litestar.Controller):
     async def get_scheme(self, 
                          path: str, 
                          state: State,
-                         request: Request) -> Template:
+                         request: Request) -> Union[Template, Response]:
         schema_url = str(request.base_url).rstrip(
             "/") + f"/-/{path.lstrip('/')}"
         async with HTTPXClient() as client:
@@ -35,9 +36,13 @@ class InputsController(litestar.Controller):
                 response_headers["host"] = host
             response_headers.pop("content-length", None)
             if response.status_code == 200:
-                model = Model.model_validate(
-                    response.json().get("elements", []))
-                response_content = model.render()
+                try:
+                    model = Model.model_validate(
+                        response.json().get("elements", []))
+                    response_content = model.render()
+                except Exception as e:
+                    return Response(content=response.content,
+                                    media_type=MediaType.HTML)
             else:
                 logger.error(
                     f"get schema error: {response.status_code} "

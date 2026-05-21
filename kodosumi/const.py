@@ -13,15 +13,16 @@ EVENT_STDERR  = "stderr" # stderr information
 
 EVENT_LOCK    = "lock" # lock information
 EVENT_LEASE   = "lease" # lease information
+EVENT_PAYMENT = "payment" # payment status information
 
 EVENT_STATUS  = "status" # flow status change
 EVENT_ERROR   = "error" # error information
 EVENT_ACTION  = "action" # action information
 EVENT_RESULT  = "result" # task result information
 EVENT_FINAL   = "final" # final result information
-MAIN_EVENTS = (EVENT_META, EVENT_INPUTS, EVENT_AGENT, EVENT_STATUS, 
+MAIN_EVENTS = (EVENT_META, EVENT_INPUTS, EVENT_AGENT, EVENT_STATUS,
                EVENT_ERROR, EVENT_ACTION, EVENT_RESULT, EVENT_FINAL,
-               EVENT_LOCK, EVENT_LEASE)
+               EVENT_LOCK, EVENT_LEASE, EVENT_PAYMENT)
 STDIO_EVENTS = (EVENT_ERROR, EVENT_STDOUT, EVENT_STDERR, EVENT_DEBUG, 
                 EVENT_UPLOAD)
 # flow status and lifecycle:
@@ -30,6 +31,7 @@ STATUS_RUNNING  = "running"
 STATUS_AWAITING = "awaiting"
 STATUS_END      = "finished"
 STATUS_ERROR    = "error"
+STATUS_PAYMENT  = "payment"
 STATUS_FINAL    = (STATUS_END, STATUS_ERROR)
 
 NAMESPACE = "kodosumi"
@@ -39,21 +41,24 @@ DB_FILE = "sqlite3.db"
 DB_FILE_WAL = "sqlite3.db-wal"
 DB_FILE_SHM = "sqlite3.db-shm"
 DB_ARCHIVE = ".archive"
-SLEEP = 0.4
-AFTER = 10
-PING = 3.
-CHECK_ALIVE = 15
+SLEEP = 0.4  # seconds - standard sleep interval in event loop
+AFTER = 10  # seconds - how long after final event to wait before closing stream
+PING = 3.0  # seconds - interval for sending keep-alive "alive" messages
+CHECK_ALIVE = 15  # seconds - interval for checking if actor is alive
 STATUS_TEMPLATE = "status/status.html"
 FORM_TEMPLATE = "form.html"
 STATUS_REDIRECT = "/admin/status/view/{fid}"
 TOKEN_KEY = "kodosumi_jwt"
 HEADER_KEY = "KODOSUMI_API_KEY"
-DEFAULT_TIME_DELTA = 86400  # 1 day in seconds
+DEFAULT_TIME_DELTA = 86400  # seconds (1 day) - default JWT token expiry time
 ALGORITHM = "HS256"
 JWT_SECRET = InternalSettings().SECRET_KEY
 KODOSUMI_USER = "x-kodosumi_user"
 KODOSUMI_BASE = "x-kodosumi_base"
+KODOSUMI_EXTRA = "x-kodosumi_extra"
 KODOSUMI_API = "x-kodosumi"
 KODOSUMI_AUTHOR = "x-author"
 KODOSUMI_URL = "x-kodosumi-url"
 KODOSUMI_ORGANIZATION = "x-organization"
+
+ANNONYMOUS = InternalSettings().ANONYMOUS

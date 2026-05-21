@@ -1,0 +1,145 @@
+{% extends "_frame.html" %}
+
+{% block styles %}
+<style>
+    .maintenance-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: calc(100vh - 200px);
+        text-align: center;
+        padding: 32px;
+    }
+    .maintenance-icon {
+        font-size: 96px;
+        color: #1565c0;
+        margin-bottom: 24px;
+        animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 0.7; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.05); }
+    }
+    .maintenance-title {
+        font-size: 2rem;
+        font-weight: 600;
+        margin-bottom: 16px;
+        color: var(--on-surface);
+    }
+    .maintenance-message {
+        font-size: 1.1rem;
+        color: var(--on-surface-variant);
+        max-width: 500px;
+        line-height: 1.6;
+        margin-bottom: 32px;
+    }
+    .status-box {
+        background: rgba(21, 101, 192, 0.1);
+        border: 1px solid rgba(21, 101, 192, 0.2);
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 400px;
+        width: 100%;
+    }
+    .status-header {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+    .status-spinner {
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(21, 101, 192, 0.2);
+        border-top-color: #1565c0;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    .status-label {
+        font-weight: 600;
+        color: #1565c0;
+    }
+    .progress-info {
+        font-size: 0.9rem;
+        color: var(--on-surface-variant);
+        margin-top: 8px;
+    }
+    .retry-note {
+        margin-top: 24px;
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+    }
+</style>
+{% endblock %}
+
+{% block menu %}
+<h3>System Maintenance</h3>
+<div class="max"></div>
+{% endblock %}
+
+{% block details %}
+{% endblock %}
+
+{% block page %}
+<div class="active page">
+    <div class="maintenance-container">
+        <i class="maintenance-icon">build_circle</i>
+        <h1 class="maintenance-title">System Update in Progress</h1>
+        <p class="maintenance-message">
+            We're deploying updates to improve your experience.
+            This usually takes just a few minutes.
+        </p>
+
+        <div class="status-box">
+            <div class="status-header">
+                <div class="status-spinner"></div>
+                <span class="status-label">Deployment in progress</span>
+            </div>
+            <div class="progress-info" id="progress-info">
+                Please wait while services are being updated...
+            </div>
+        </div>
+
+        <p class="retry-note">
+            This page will automatically refresh when the system is ready.
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+// Poll for boot status and redirect when complete
+async function checkBootStatus() {
+    try {
+        const response = await fetch('/boot', {
+            method: 'GET',
+            credentials: 'same-origin'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (!data.locked) {
+                // Boot complete, redirect to home or previous page
+                window.location.reload();
+            } else if (data.messages && data.messages.length > 0) {
+                // Show latest message
+                const lastMsg = data.messages[data.messages.length - 1];
+                document.getElementById('progress-info').textContent = lastMsg;
+            }
+        }
+    } catch (error) {
+        console.error('Status check failed:', error);
+    }
+}
+
+// Check status every 5 seconds
+setInterval(checkBootStatus, 5000);
+
+// Initial check
+setTimeout(checkBootStatus, 1000);
+{% endblock %}

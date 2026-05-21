@@ -1,6 +1,9 @@
+import json
 import logging
+import sys
 import time
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
 
 import httpx
 import ray
@@ -9,10 +12,10 @@ from pydantic import BaseModel
 
 import kodosumi
 from kodosumi.config import InternalSettings, Settings
-from kodosumi.const import NAMESPACE, SPOOLER_NAME
+from kodosumi.const import (KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_URL,
+                            KODOSUMI_USER, NAMESPACE, SPOOLER_NAME, KODOSUMI_EXTRA)
 from kodosumi.dtypes import DynamicModel
 from kodosumi.log import LOG_FORMAT, get_log_level
-import sys
 
 
 format_map = {"html": MediaType.HTML, "json": MediaType.JSON}
@@ -102,6 +105,99 @@ class HTTPXClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.client:
             await self.client.aclose()
+
+
+@dataclass
+class ProxyResponse:
+    """Response from a proxied request."""
+    status_code: int
+    content: bytes
+    headers: Dict[str, str]
+    json_data: Optional[Dict[str, Any]] = None
+
+    def json(self) -> Dict[str, Any]:
+        """Parse response content as JSON."""
+        if self.json_data is not None:
+            return self.json_data
+        self.json_data = json.loads(self.content)
+        return self.json_data
+
+
+@dataclass
+class ProxyRequest:
+    """
+    Configuration for proxying a request to a Ray Serve endpoint.
+
+    This provides a consistent interface for forwarding requests,
+    used by both ProxyControl and Sumi endpoints.
+    """
+    target_url: str
+    method: str = "POST"
+    user: str = ""
+    base: str = ""
+    app_url: str = ""
+    body: Optional[bytes] = None
+    json_body: Optional[Dict[str, Any]] = None
+    headers: Dict[str, str] = field(default_factory=dict)
+    cookies: Dict[str, str] = field(default_factory=dict)
+    query_params: Optional[Dict[str, str]] = None
+    extra: Optional[Dict[str, Any]] = None
+    timeout: float = 60.0  # seconds - default proxy request timeout
+
+
+async def proxy_forward(config: ProxyRequest) -> ProxyResponse:
+    """
+    Forward a request to a Ray Serve endpoint.
+
+    Sets the standard Kodosumi headers (KODOSUMI_USER, KODOSUMI_BASE, KODOSUMI_URL)
+    and optionally includes extra data as X-Kodosumi_Extra header.
+
+    Args:
+        config: ProxyRequest configuration
+
+    Returns:
+        ProxyResponse with status, content, headers, and parsed JSON if applicable
+    """
+    request_headers = dict(config.headers)
+    request_headers[KODOSUMI_USER] = config.user
+    request_headers[KODOSUMI_BASE] = config.base
+    request_headers[KODOSUMI_URL] = config.app_url
+
+    if config.extra:
+        request_headers[KODOSUMI_EXTRA] = json.dumps(config.extra)
+
+    # Remove content-length as httpx will set it
+    request_headers.pop("content-length", None)
+
+    # Determine content to send
+    content = None
+    json_data = None
+    if config.body is not None:
+        content = config.body
+    elif config.json_body is not None:
+        json_data = config.json_body
+
+    async with HTTPXClient() as client:
+        response = await client.request(
+            method=config.method.lower(),
+            url=config.target_url,
+            headers=request_headers,
+            content=content,
+            json=json_data,
+            params=config.query_params,
+            cookies=config.cookies,
+            follow_redirects=True,
+            timeout=config.timeout,
+        )
+
+        response_headers = dict(response.headers)
+        response_headers.pop("content-length", None)
+
+        return ProxyResponse(
+            status_code=response.status_code,
+            content=response.content,
+            headers=response_headers,
+        )
 
 
 def get_health_status() -> dict:

@@ -1,0 +1,124 @@
+{% extends "_frame.html" %}
+
+{% block styles %}
+<style>
+    .config-editor {
+        font-family: monospace;
+        font-size: 0.85rem;
+        width: 100% !important;
+        height: 600px !important;
+        padding: 12px;
+        border: 1px solid var(--outline);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--on-surface);
+        resize: vertical;
+        white-space: pre;
+        tab-size: 2;
+        box-sizing: border-box;
+        display: block;
+    }
+    .button-group {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .error-message {
+        background-color: var(--error-container);
+        color: var(--on-error-container);
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
+    .success-message {
+        background-color: var(--primary-container);
+        color: var(--on-primary-container);
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
+    .helper-text {
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+        margin-bottom: 16px;
+    }
+</style>
+{% endblock %}
+
+{% block menu %}
+<h3>Global Configuration</h3>
+<div class="max"></div>
+<div class="tabs right-align" style="height: 50px;"></div>
+{% endblock %}
+
+{% block details %}
+{% endblock %}
+
+{% block page %}
+<div class="active page">
+    <div class="max padding article-container" style="margin-top: 18px;">
+        <article class="small-elevate large-padding">
+            {% if error %}
+            <div class="error-message">{{ error }}</div>
+            {% endif %}
+
+            {% if message %}
+            <div class="success-message">{{ message }}</div>
+            {% endif %}
+
+            <p class="helper-text">
+                Global Ray Serve configuration that applies to all deployments.
+                Individual expose items can override specific settings in their bootstrap configuration.
+            </p>
+
+            <form method="POST" action="/admin/expose/globals">
+                <div class="button-group">
+                    <button type="submit" class="primary">
+                        <i>save</i>
+                        <span>Save</span>
+                    </button>
+                    <a href="/admin/expose">
+                        <button type="button" class="secondary">
+                            <i>close</i>
+                            <span>Cancel</span>
+                        </button>
+                    </a>
+                </div>
+
+                <textarea id="config-editor" name="config">{{ config }}</textarea>
+            </form>
+        </article>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+document.addEventListener('DOMContentLoaded', function() {
+    const editor = document.getElementById('config-editor');
+
+    function resize() {
+        const rect = editor.getBoundingClientRect();
+        const availableHeight = window.innerHeight - rect.top - 40;
+        const height = Math.max(300, availableHeight);
+
+        editor.style.cssText = `
+            font-family: monospace;
+            font-size: 0.85rem;
+            width: 100%;
+            height: ${height}px;
+            padding: 12px;
+            border: 1px solid var(--outline);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--on-surface);
+            resize: vertical;
+            white-space: pre;
+            tab-size: 2;
+            box-sizing: border-box;
+        `;
+    }
+
+    resize();
+    window.addEventListener('resize', resize);
+});
+{% endblock %}

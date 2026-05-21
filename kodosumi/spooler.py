@@ -104,7 +104,7 @@ class Spooler:
             await asyncio.sleep(0.01)
         n = 0
         try:
-            while not self.shutdown_event.is_set(): 
+            while not self.shutdown_event.is_set():
                 done, _ = ray.wait(
                     [runner.is_active.remote()], timeout=0.01)
                 if done:
@@ -112,8 +112,13 @@ class Spooler:
                     if ret:
                         if ret[0] == False:
                             break
-                batch = events.get_nowait_batch(
-                    min(self.batch_size, events.size()))
+                try:
+                    batch = events.get_nowait_batch(
+                        min(self.batch_size, events.size()))
+                except ray.exceptions.ActorDiedError:
+                    # Queue actor died - runner has finished, exit gracefully
+                    logger.debug(f"queue actor died for {fid}, exiting retrieval")
+                    break
                 if batch:
                     self.save(conn, fid, batch)
                     logger.debug(f"saved {len(batch)} records for {fid}")

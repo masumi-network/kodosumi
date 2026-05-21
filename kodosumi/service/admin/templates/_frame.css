@@ -102,7 +102,7 @@ pre {
 
 .main-container {
     padding-top: 0 !important;
-    overflow-y: hidden;
+    overflow-y: auto;
     margin-bottom: 10px !important;
     margin-top: -24px !important;
 }

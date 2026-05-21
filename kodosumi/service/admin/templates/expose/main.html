@@ -1,0 +1,348 @@
+{% extends "_frame.html" %}
+
+{% block styles %}
+<style>
+    .expose-card {
+        min-height: 160px;
+        position: relative;
+        cursor: pointer;
+        transition: transform 0.1s ease;
+    }
+    .expose-card:hover {
+        transform: translateY(-2px);
+    }
+    .state-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 12px;
+        border-radius: 16px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .state-running {
+        background-color: #2e7d32;
+        color: white;
+        box-shadow: 0 1px 3px rgba(46, 125, 50, 0.4);
+    }
+    .state-draft {
+        background-color: #f9a825;
+        color: #1a1a1a;
+        box-shadow: 0 1px 3px rgba(249, 168, 37, 0.4);
+    }
+    .state-dead {
+        background-color: #e65100;
+        color: white;
+        box-shadow: 0 1px 3px rgba(230, 81, 0, 0.4);
+    }
+    .state-failed {
+        background-color: #c62828;
+        color: white;
+        box-shadow: 0 1px 3px rgba(198, 40, 40, 0.4);
+    }
+    .state-other {
+        background-color: #ef6c00;
+        color: white;
+        box-shadow: 0 1px 3px rgba(239, 108, 0, 0.4);
+    }
+    .state-booting, .state-deploying, .state-not_started {
+        background-color: #1565c0;
+        color: white;
+        box-shadow: 0 1px 3px rgba(21, 101, 192, 0.4);
+    }
+    .state-unhealthy {
+        background-color: #c62828;
+        color: white;
+        box-shadow: 0 1px 3px rgba(198, 40, 40, 0.4);
+    }
+    .state-deleting {
+        background-color: #757575;
+        color: white;
+        box-shadow: 0 1px 3px rgba(117, 117, 117, 0.4);
+    }
+    .network-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.65rem;
+        font-weight: 600;
+        margin-left: 8px;
+        letter-spacing: 0.3px;
+    }
+    .network-preprod {
+        background-color: #1976d2;
+        color: white;
+    }
+    .network-mainnet {
+        background-color: #7b1fa2;
+        color: white;
+    }
+    .stale-indicator {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: var(--orange);
+    }
+    .needs-reboot-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        background-color: #ff9800;
+        color: #1a1a1a;
+        box-shadow: 0 1px 3px rgba(255, 152, 0, 0.4);
+    }
+    .needs-reboot-badge i {
+        font-size: 0.85rem;
+    }
+    .flow-stats {
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+    }
+    .disabled-overlay {
+        opacity: 0.6;
+    }
+    .action-buttons {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .action-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+        text-decoration: none;
+        border-radius: 4px;
+        transition: all 0.15s ease;
+    }
+    .action-link:hover {
+        color: var(--primary);
+        background: rgba(var(--primary-rgb), 0.08);
+    }
+    .action-link i {
+        font-size: 1rem;
+        opacity: 0.7;
+    }
+    .action-link.boot {
+        color: #2e7d32;
+    }
+    .action-link.boot:hover {
+        background: rgba(46, 125, 50, 0.1);
+    }
+    .action-link.shutdown {
+        color: #c62828;
+    }
+    .action-link.shutdown:hover {
+        background: rgba(198, 40, 40, 0.1);
+    }
+    .action-link.new {
+        color: var(--primary);
+        font-weight: 500;
+    }
+    .action-link.refresh {
+        color: #1565c0;
+    }
+    .action-link.refresh:hover {
+        background: rgba(21, 101, 192, 0.1);
+    }
+    .action-link.refresh.loading {
+        opacity: 0.6;
+        pointer-events: none;
+    }
+</style>
+{% endblock %}
+
+{% block menu %}
+<h3>Expose Management</h3>
+<div class="max"></div>
+<div class="action-buttons">
+    <a href="#" class="action-link refresh" onclick="runRefreshAll(event)" id="refresh-btn">
+        <i>sync</i>
+        <span>Refresh</span>
+    </a>
+    <a href="/admin/expose/boot" class="action-link boot">
+        <i>rocket_launch</i>
+        <span>Boot</span>
+    </a>
+    <a href="/admin/expose/boot/shutdown" class="action-link shutdown">
+        <i>power_settings_new</i>
+        <span>Shutdown</span>
+    </a>
+    <a href="/admin/expose/globals" class="action-link">
+        <i>settings</i>
+        <span>Config</span>
+    </a>
+    <a href="/admin/expose/exchange" class="action-link">
+        <i>swap_horiz</i>
+        <span>Exchange</span>
+    </a>
+    <a href="/admin/expose/new" class="action-link new">
+        <i>add</i>
+        <span>New</span>
+    </a>
+</div>
+{% endblock %}
+
+{% block details %}
+{% endblock %}
+
+{% block page %}
+<div class="active page">
+    <div class="max padding article-container" style="margin-top: 18px;">
+        {% if items %}
+        <div class="grid">
+            {% for item in items %}
+            <div class="s12 l6">
+                <article class="expose-card small-elevate {{ 'disabled-overlay' if not item.enabled else '' }}"
+                         onclick="window.location.href='/admin/expose/edit/{{ item.name }}'"
+                         onmouseover="this.classList.add('wave')"
+                         onmouseout="this.classList.remove('wave')">
+                    {% if item.stale %}
+                    <div class="stale-indicator" title="Stale: some endpoints may be out of sync"></div>
+                    {% endif %}
+
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                        <h6 style="margin: 0;">{{ item.display or item.name }}</h6>
+                        {% if item.network %}
+                        <span class="network-badge network-{{ item.network|lower }}">{{ item.network }}</span>
+                        {% endif %}
+                    </div>
+
+                    <div style="margin-bottom: 8px;">
+                        <code style="font-size: 0.8rem;">{{ item.name }}</code>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        {% if item.state == 'RUNNING' %}
+                        <span class="state-badge state-running">{{ item.state }}</span>
+                        {% elif item.state == 'DRAFT' %}
+                        <span class="state-badge state-draft">{{ item.state }}</span>
+                        {% elif item.state == 'DEAD' %}
+                        <span class="state-badge state-dead">{{ item.state }}</span>
+                        {% elif 'FAIL' in item.state %}
+                        <span class="state-badge state-failed">{{ item.state }}</span>
+                        {% else %}
+                        <span class="state-badge state-other">{{ item.state }}</span>
+                        {% endif %}
+
+                        <span class="flow-stats">
+                            <i class="small">apps</i> {{ item.flow_stats }} flows
+                        </span>
+
+                        {% if not item.enabled %}
+                        <span class="flow-stats">
+                            <i class="small">block</i> disabled
+                        </span>
+                        {% endif %}
+
+                        {% if item.needs_reboot %}
+                        <span class="needs-reboot-badge" title="Current state doesn't match configuration. Run boot to sync.">
+                            <i>sync_problem</i> Needs Reboot
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    {% if item.heartbeat %}
+                    <div style="position: absolute; bottom: 12px; right: 12px; font-size: 0.7rem; color: var(--on-surface-variant);"
+                         data-timestamp="{{ item.heartbeat }}">
+                    </div>
+                    {% endif %}
+                </article>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <article class="small-elevate" style="text-align: center; padding: 48px;">
+            <i style="font-size: 48px; color: var(--on-surface-variant);">inventory_2</i>
+            <h5>No Expose Items</h5>
+            <p>Create your first expose to start managing agentic services.</p>
+            <a href="/admin/expose/new">
+                <button>
+                    <i>add</i>
+                    <span>Create Expose</span>
+                </button>
+            </a>
+        </article>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+async function runRefreshAll(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const btn = document.getElementById('refresh-btn');
+    const originalText = btn.querySelector('span').textContent;
+    btn.classList.add('loading');
+    btn.querySelector('span').textContent = 'Refreshing...';
+
+    try {
+        const response = await fetch('/expose/health', {
+            method: 'POST',
+            credentials: 'same-origin'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            window.location.reload();
+        } else {
+            const data = await response.json();
+            alert(data.detail || 'Refresh failed');
+            btn.classList.remove('loading');
+            btn.querySelector('span').textContent = originalText;
+        }
+    } catch (error) {
+        alert('Network error: ' + error.message);
+        btn.classList.remove('loading');
+        btn.querySelector('span').textContent = originalText;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Format timestamps
+    document.querySelectorAll('[data-timestamp]').forEach(function(el) {
+        const ts = parseFloat(el.dataset.timestamp);
+        if (ts) {
+            const date = new Date(ts * 1000);
+            el.textContent = date.toLocaleString();
+        }
+    });
+
+    // Auto-refresh state on page load (once per session)
+    const refreshKey = 'expose_last_refresh';
+    const lastRefresh = sessionStorage.getItem(refreshKey);
+    const now = Date.now();
+    // Only refresh if more than 5 seconds since last refresh (prevents reload loop)
+    if (!lastRefresh || (now - parseInt(lastRefresh)) > 5000) {
+        sessionStorage.setItem(refreshKey, now.toString());
+        // Silent health check
+        fetch('/expose/health', {
+            method: 'POST',
+            credentials: 'same-origin'
+        }).then(response => {
+            if (response.ok) {
+                return response.json();
+            }
+        }).then(data => {
+            if (data && data.updated > 0) {
+                // Some states were updated, reload to show fresh data
+                window.location.reload();
+            }
+        }).catch(() => {
+            // Ignore errors - this is a background refresh
+        });
+    }
+});
+{% endblock %}

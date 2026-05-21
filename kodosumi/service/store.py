@@ -13,7 +13,7 @@ import sqlite3
 from pathlib import Path
 from typing import Tuple
 
-SHORT_WAIT = 1
+SHORT_WAIT = 1  # seconds - short wait for non-extended connections
 
 
 async def connect(fid: str,

@@ -47,15 +47,101 @@ class JWTAuthenticationMiddleware(AbstractAuthenticationMiddleware):
         return AuthenticationResult(user=token.sub, auth=token)
     
 
-async def operator_guard(connection: ASGIConnection, 
+async def operator_guard(connection: ASGIConnection,
                          _: BaseRouteHandler) -> None:
     try:
         user = connection.user
-        session = connection.app.state["session_maker_class"]()
     except:
         raise NotAuthorizedException("User not authorized")
-    query = select(Role).where(Role.id == uuid.UUID(user))
-    result = await session.execute(query)
-    role = result.scalar_one_or_none()
-    if not role.operator:
+    try:
+        session = connection.app.state["session_maker_class"]()
+        async with session:
+            query = select(Role).where(Role.id == uuid.UUID(user))
+            result = await session.execute(query)
+            role = result.scalar_one_or_none()
+            if not role or not role.operator:
+                raise NotAuthorizedException("User not authorized")
+    except NotAuthorizedException:
+        raise
+    except Exception:
         raise NotAuthorizedException("User not authorized")
+
+
+async def sumi_network_guard(connection: ASGIConnection,
+                             _: BaseRouteHandler) -> None:
+    """
+    Guard for /sumi endpoints with expose_name in path.
+
+    Requires JWT authentication only when expose.network is None.
+    If network is not None (Preprod/Mainnet), the endpoint is public
+    as authentication is managed by external blockchain system.
+    """
+    from kodosumi.service.expose import db as expose_db
+
+    expose_name = connection.path_params.get("expose_name")
+    if not expose_name:
+        return
+
+    await expose_db.init_database()
+    row = await expose_db.get_expose(expose_name.lower())
+    if row is None:
+        return  # Let handler return 404
+
+    if row.get("network") is not None:
+        return  # Blockchain auth, public
+
+    # No network = requires JWT auth
+    parse_token(connection)
+
+
+async def sumi_job_network_guard(connection: ASGIConnection,
+                                 _: BaseRouteHandler) -> None:
+    """
+    Guard for /sumi endpoints with job_id/fid in path.
+
+    Looks up the job's expose to determine auth requirement.
+    If the job's expose has network set, the endpoint is public.
+    """
+    from kodosumi.service.expose import db as expose_db
+
+    job_id = connection.path_params.get("job_id") or connection.path_params.get("fid")
+    if not job_id:
+        return
+
+    expose_name = await _get_expose_from_job(job_id, connection.app.state)
+    if not expose_name:
+        return  # Job not found, let handler deal with it
+
+    await expose_db.init_database()
+    row = await expose_db.get_expose(expose_name)
+    if row is None or row.get("network") is not None:
+        return  # Public
+
+    parse_token(connection)
+
+
+async def _get_expose_from_job(job_id: str, state) -> str | None:
+    """Look up expose name from job's meta record (extra.sumi_endpoint)."""
+    import json
+    import aiosqlite
+    from pathlib import Path
+
+    exec_dir = Path(state["settings"].EXEC_DIR)
+
+    for user_dir in exec_dir.iterdir():
+        if not user_dir.is_dir():
+            continue
+        db_file = user_dir / job_id / "sqlite3.db"
+        if db_file.exists():
+            async with aiosqlite.connect(str(db_file)) as conn:
+                cursor = await conn.execute(
+                    "SELECT message FROM monitor WHERE kind = 'meta' LIMIT 1"
+                )
+                row = await cursor.fetchone()
+                if row:
+                    meta = json.loads(row[0])
+                    # extra.sumi_endpoint = "expose_name" or "expose_name/meta_name"
+                    sumi_endpoint = meta.get("extra", {}).get("sumi_endpoint")
+                    if sumi_endpoint:
+                        return sumi_endpoint.split("/")[0]
+    return None

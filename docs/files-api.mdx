@@ -182,26 +182,22 @@ Content-Length: 1024
 ### Upload Cancellation
 
 ```python
-# POST /files/cancel
-payload = {
-    "upload_id": upload_id
-}
-response = await client.post("/files/cancel", json=payload)
+# DELETE /files/cancel/{upload_id}
+response = await client.delete(f"/files/cancel/{upload_id}")
 ```
 
-**Request Payload:**
-```json
-{
-    "upload_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-}
+**Response:** `204 No Content`
+
+### File Deletion
+
+```python
+# DELETE /files/{fid}/{path}
+response = await client.delete(f"/files/{fid}/out/report.pdf")
 ```
 
-**Response Example:**
-```json
-{
-    "status": "upload cancelled"
-}
-```
+Deletes a file or directory within an execution's file space.
+
+**Response:** `204 No Content`
 
 ## Constraints and Limitations
 

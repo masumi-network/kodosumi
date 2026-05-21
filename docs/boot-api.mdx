@@ -1,0 +1,243 @@
+---
+title: Boot API
+---
+
+The Boot API manages Ray Serve deployment lifecycle. It provides streaming endpoints for starting, stopping, and refreshing deployments. All endpoints require operator role authentication.
+
+## Base URL
+
+```
+/boot
+```
+
+## Authentication
+
+All endpoints require authentication with operator role.
+
+## Boot Process Steps
+
+The boot process executes these phases:
+
+| Step | Name | Description |
+|------|------|-------------|
+| A | Deploy | Start Ray Serve deployment |
+| B | Health | Ray Serve health check |
+| C | Register | Register flows with admin panel |
+| D | Retrieve | Fetch flow details from endpoints |
+| E | Update | Update expose meta data |
+
+## Endpoints
+
+### Start Boot
+
+```
+POST /boot
+```
+
+Starts the Ray Serve deployment for all enabled exposes. Returns streaming text output.
+
+**Query Parameters:**
+- `force` (boolean): Override existing boot lock (default: `false`)
+
+**Response:** `text/plain` stream
+
+**Boot Messages:**
+
+```
+▶ [DEPLOY] Starting Ray Serve deployment...
+  • Loading serve_config.yaml
+  • Running serve deploy command → OK
+✓ Deploy complete
+
+▶ [HEALTH] Checking Ray Serve status...
+  • Polling Ray dashboard → RUNNING
+✓ Health check passed
+
+▶ [REGISTER] Registering flows...
+  • [my-agent] POST /flow/register → 200
+✓ Registration complete
+
+▶ [RETRIEVE] Fetching flow details...
+  • [my-agent] GET /-/my-agent/ → OK
+✓ Retrieval complete
+
+▶ [UPDATE] Updating meta data...
+  • [my-agent] 2 flows updated
+✓ Update complete
+
+✔ Boot complete
+```
+
+**Errors:**
+- If boot already in progress: `[ERROR] Boot already in progress. Use force=true to override.`
+
+```python
+import httpx
+
+with httpx.stream(
+    "POST",
+    "http://localhost:3370/boot",
+    cookies=cookies
+) as response:
+    for line in response.iter_lines():
+        print(line)
+```
+
+### Get Boot Status
+
+```
+GET /boot
+```
+
+Returns current boot lock status and message history.
+
+**Response:**
+
+```json
+{
+    "locked": true,
+    "lock_time": 1700000000.0,
+    "messages": [
+        "▶ [DEPLOY] Starting Ray Serve deployment...",
+        "  • Loading serve_config.yaml"
+    ]
+}
+```
+
+### Stream Boot Messages
+
+```
+GET /boot/stream
+```
+
+Subscribe to live boot message stream. Useful for operators joining an in-progress boot.
+
+**Response:** `text/plain` stream
+
+**Note:** If no boot in progress, returns `No boot in progress\n`
+
+```python
+with httpx.stream(
+    "GET",
+    "http://localhost:3370/boot/stream",
+    cookies=cookies
+) as response:
+    for line in response.iter_lines():
+        print(line)
+```
+
+### Shutdown
+
+```
+DELETE /boot
+```
+
+Shuts down Ray Serve deployment.
+
+**Response:** `text/plain` stream
+
+```
+▶ [SHUTDOWN] Stopping Ray Serve...
+  • Running serve shutdown command
+✓ Shutdown complete
+```
+
+```python
+with httpx.stream(
+    "DELETE",
+    "http://localhost:3370/boot",
+    cookies=cookies
+) as response:
+    for line in response.iter_lines():
+        print(line)
+```
+
+### Refresh Single Expose
+
+```
+POST /boot/refresh/{name}
+```
+
+Refreshes a single expose by cycling through disable/boot/enable/boot.
+
+**Parameters:**
+- `name` (path): Expose identifier
+
+**Process:**
+1. Disable the expose
+2. Run boot (removes expose's flows)
+3. Enable the expose
+4. Run boot again (re-adds expose's flows)
+
+**Response:** `text/plain` stream
+
+**Errors:**
+- `[ERROR] Expose '{name}' not found`
+
+```python
+with httpx.stream(
+    "POST",
+    "http://localhost:3370/boot/refresh/my-agent",
+    cookies=cookies
+) as response:
+    for line in response.iter_lines():
+        print(line)
+```
+
+## Boot Lock
+
+The boot system uses a singleton lock to prevent concurrent deployments:
+
+- Only one boot process can run at a time
+- Lock is released when boot completes or errors
+- Use `force=true` to override an existing lock
+- Lock state persists in `./data/boot.lock`
+
+## Message Types
+
+Boot messages include:
+
+| Type | Symbol | Description |
+|------|--------|-------------|
+| `step_start` | `▶` | Starting a main phase |
+| `step_end` | `✓` | Phase completed |
+| `activity` | `•` | Activity within a phase |
+| `result` | `→` | Operation result |
+| `info` | `ℹ` | General information |
+| `warning` | `⚠` | Warning message |
+| `error` | `✗` | Error message |
+| `complete` | `✔` | Boot finished successfully |
+
+## Configuration
+
+Boot reads configuration from:
+
+- `./data/serve_config.yaml` - Ray Serve global config
+- Expose bootstrap fields - Per-expose deployment config
+
+**Default serve_config.yaml:**
+
+```yaml
+proxy_location: EveryNode
+
+http_options:
+  host: 0.0.0.0
+  port: 8005
+
+grpc_options:
+  port: 9000
+  grpc_servicer_functions: []
+
+logging_config:
+  encoding: TEXT
+  log_level: WARNING
+  logs_dir: null
+  enable_access_log: true
+```
+
+## Timeouts
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `KODO_BOOT_HEALTH_TIMEOUT` | 1800s | Max time to wait for healthy status |
+| `BOOT_POLL_INTERVAL` | 2s | Interval between status polls |

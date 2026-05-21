@@ -1,0 +1,217 @@
+{% extends "_frame.html" %}
+
+{% block styles %}
+<style>
+    .button-row {
+        display: flex;
+        justify-content: flex-start;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+    .console-container {
+        background: #1a1a1a;
+        border-radius: 0 0 8px 8px;
+        padding: 16px;
+        height: calc(100vh - 380px);
+        min-height: 300px;
+        overflow-y: auto;
+        font-family: 'Fira Code', 'Monaco', 'Menlo', monospace;
+        font-size: 0.85rem;
+        line-height: 1.6;
+    }
+    .console-line {
+        margin: 0;
+        padding: 2px 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #e0e0e0;
+    }
+    .console-line.step-start {
+        color: #fff;
+        font-weight: 600;
+        margin-top: 12px;
+        padding: 4px 0;
+        border-bottom: 1px solid #333;
+    }
+    .console-line.step-end {
+        color: #9e9e9e;
+        font-style: italic;
+        margin-bottom: 8px;
+    }
+    .console-line.activity {
+        padding-left: 16px;
+        color: #b0bec5;
+    }
+    .console-line.error {
+        color: #ef5350;
+        font-weight: bold;
+    }
+    .console-line.complete {
+        color: #4caf50;
+        font-weight: bold;
+    }
+    .console-line.warning {
+        color: #ffb74d;
+    }
+    .ready-message {
+        color: #9e9e9e;
+    }
+</style>
+{% endblock %}
+
+{% block menu %}
+<h3>Shutdown Ray Serve</h3>
+<div class="max"></div>
+{% endblock %}
+
+{% block details %}
+{% endblock %}
+
+{% block page %}
+<div class="active page">
+    <div class="max padding article-container">
+        <article class="small-elevate">
+            <nav style="padding: 16px;">
+                <button id="shutdown-btn" class="error" onclick="doShutdown()">
+                    <i>power_settings_new</i>
+                    <span>Shutdown</span>
+                </button>
+                <a href="/admin/expose">
+                    <button class="secondary" id="cancel-btn">
+                        <i>arrow_back</i>
+                        <span>Back</span>
+                    </button>
+                </a>
+                <a href="/admin/expose" style="display: none;" id="done-link">
+                    <button class="primary" id="done-btn">
+                        <i>check</i>
+                        <span>Done</span>
+                    </button>
+                </a>
+            </nav>
+            <div id="console" class="console-container">
+                <p class="console-line ready-message">Shutdown console ready. Click "Shutdown" to stop Ray Serve.</p>
+            </div>
+        </article>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+// Elements - initialized after DOM loads
+let console_el, shutdownBtn, cancelBtn, doneLink;
+
+function initElements() {
+    console_el = document.getElementById('console');
+    shutdownBtn = document.getElementById('shutdown-btn');
+    cancelBtn = document.getElementById('cancel-btn');
+    doneLink = document.getElementById('done-link');
+}
+
+function appendLine(text) {
+    if (!console_el) initElements();
+    const line = document.createElement('p');
+    line.className = 'console-line';
+    line.textContent = text;
+
+    // Apply styling based on content
+    applyLineStyle(line, text);
+
+    console_el.appendChild(line);
+    console_el.scrollTop = console_el.scrollHeight;
+}
+
+function applyLineStyle(lineEl, text) {
+    // Step start: === [STEP] message ===
+    if (text.match(/^=== \[(\w+)\] .+ ===$/)) {
+        lineEl.classList.add('step-start');
+        return;
+    }
+    // Step end: --- [step] message ---
+    if (text.match(/^--- \[(\w+)\] .+ ---$/)) {
+        lineEl.classList.add('step-end');
+        return;
+    }
+    // Error
+    if (text.includes('[ERROR]') || text.includes('failed')) {
+        lineEl.classList.add('error');
+        return;
+    }
+    // Complete
+    if (text.includes('Shutdown complete') || text.includes('[complete]')) {
+        lineEl.classList.add('complete');
+        return;
+    }
+    // Warning
+    if (text.includes('[WARN]')) {
+        lineEl.classList.add('warning');
+        return;
+    }
+    // Activity (indented lines with target)
+    if (text.match(/^\s+\[.+\]/)) {
+        lineEl.classList.add('activity');
+        return;
+    }
+}
+
+function showDoneButton() {
+    if (!shutdownBtn) initElements();
+    shutdownBtn.style.display = 'none';
+    cancelBtn.parentElement.style.display = 'none';
+    doneLink.style.display = 'inline-block';
+}
+
+async function doShutdown() {
+    // Ensure elements are initialized
+    if (!console_el) initElements();
+
+    if (!confirm('Are you sure you want to shutdown Ray Serve? All services will become unavailable.')) {
+        return;
+    }
+
+    shutdownBtn.disabled = true;
+    console_el.innerHTML = '';
+    appendLine('Starting shutdown...');
+
+    try {
+        const response = await fetch('/boot', {
+            method: 'DELETE',
+            credentials: 'same-origin'
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (line.trim()) {
+                    appendLine(line);
+                }
+            }
+        }
+
+        // Process remaining buffer
+        if (buffer.trim()) {
+            appendLine(buffer);
+        }
+
+        // Show done button
+        showDoneButton();
+
+    } catch (error) {
+        appendLine('[ERROR] Network error: ' + error.message);
+        shutdownBtn.disabled = false;
+    }
+}
+
+// Initialize elements when DOM is ready
+document.addEventListener('DOMContentLoaded', initElements);
+{% endblock %}

@@ -165,6 +165,9 @@ cython_debug/
 # kodosumi
 data/
 .vscode
+.claude/*.backup
+.claude/settings.json
+proposal/
 
 crews/dev/*.yaml
 .sesskey

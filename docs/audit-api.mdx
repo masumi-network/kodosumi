@@ -1,0 +1,229 @@
+---
+title: Audit API
+---
+
+The Audit API provides access to system audit logs. Only INFO level and above entries are exposed (no DEBUG). All endpoints require operator role authentication.
+
+## Base URL
+
+```
+/audit
+```
+
+## Authentication
+
+All endpoints require authentication with operator role.
+
+## Endpoints
+
+### Stream Audit Log
+
+```
+GET /audit/stream
+```
+
+Retrieves audit log entries from a byte offset. Use for incremental log retrieval or tailing.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `offset` | int | 0 | Byte offset to start reading |
+| `limit` | int | 100 | Maximum lines to return |
+
+**Response:**
+
+```json
+{
+    "lines": [
+        "2024-01-15 10:30:00,000 INFO - Boot started by admin",
+        "2024-01-15 10:30:05,000 INFO - Expose 'my-agent' deployed",
+        "2024-01-15 10:30:10,000 WARNING - Health check timeout"
+    ],
+    "next_offset": 4096,
+    "file_size": 102400
+}
+```
+
+**Behavior:**
+- Reads up to 64KB per request
+- Filters to INFO, WARNING, ERROR levels only
+- If `offset > file_size` (log rotated), resets to 0
+
+```python
+import httpx
+import time
+
+offset = 0
+
+# Tail the log
+while True:
+    resp = httpx.get(
+        f"http://localhost:3370/audit/stream?offset={offset}&limit=50",
+        cookies=cookies
+    )
+    data = resp.json()
+
+    for line in data["lines"]:
+        print(line)
+
+    offset = data["next_offset"]
+    time.sleep(2)
+```
+
+### Get Audit Log Info
+
+```
+GET /audit/info
+```
+
+Returns audit log file information.
+
+**Response:**
+
+```json
+{
+    "exists": true,
+    "path": "/data/audit.log",
+    "size": 102400,
+    "max_bytes": 10485760,
+    "backup_count": 5,
+    "modified": 1700000000.0
+}
+```
+
+**When file doesn't exist:**
+
+```json
+{
+    "exists": false,
+    "path": "/data/audit.log",
+    "size": 0,
+    "max_bytes": 10485760,
+    "backup_count": 5
+}
+```
+
+```python
+resp = httpx.get(
+    "http://localhost:3370/audit/info",
+    cookies=cookies
+)
+info = resp.json()
+print(f"Log size: {info['size']} bytes")
+print(f"Max size: {info['max_bytes']} bytes")
+```
+
+## Log Format
+
+Audit log entries follow this format:
+
+```
+{timestamp} {level} - {message}
+```
+
+Example:
+```
+2024-01-15 10:30:00,000 INFO - Boot started by admin
+2024-01-15 10:30:05,123 WARNING - Health check timeout for my-agent
+2024-01-15 10:30:10,456 ERROR - Deployment failed: connection refused
+```
+
+## Log Levels
+
+| Level | Included | Description |
+|-------|----------|-------------|
+| DEBUG | No | Internal debugging (filtered out) |
+| INFO | Yes | Normal operations |
+| WARNING | Yes | Potential issues |
+| ERROR | Yes | Operation failures |
+
+## Configuration
+
+Audit logging is configured via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KODO_AUDIT_LOG_FILE` | `./data/audit.log` | Log file path |
+| `KODO_AUDIT_LOG_MAX_BYTES` | 10485760 | Max file size (10MB) |
+| `KODO_AUDIT_LOG_BACKUP_COUNT` | 5 | Number of backup files |
+
+## Log Rotation
+
+- Logs rotate when size exceeds `max_bytes`
+- Backup files: `audit.log.1`, `audit.log.2`, etc.
+- Maximum `backup_count` files kept
+- Oldest backups deleted automatically
+
+## Audit Events
+
+Common audit log events:
+
+### Boot Events
+
+```
+INFO - Boot started by {username}
+INFO - Boot completed successfully
+ERROR - Boot failed: {reason}
+INFO - Shutdown started by {username}
+INFO - Shutdown completed
+```
+
+### Expose Events
+
+```
+INFO - Expose '{name}' created by {username}
+INFO - Expose '{name}' updated by {username}
+INFO - Expose '{name}' deleted by {username}
+INFO - Expose '{name}' deployed
+WARNING - Expose '{name}' health check failed
+```
+
+### Flow Events
+
+```
+INFO - Flow registered: {flow_url}
+INFO - Flow unregistered: {flow_url}
+```
+
+## Incremental Reading
+
+For efficient log monitoring:
+
+```python
+import httpx
+import json
+from pathlib import Path
+
+STATE_FILE = "audit_state.json"
+
+def load_state():
+    if Path(STATE_FILE).exists():
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    return {"offset": 0}
+
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
+def fetch_logs(cookies):
+    state = load_state()
+
+    resp = httpx.get(
+        f"http://localhost:3370/audit/stream?offset={state['offset']}",
+        cookies=cookies
+    )
+    data = resp.json()
+
+    # Update offset for next read
+    state["offset"] = data["next_offset"]
+    save_state(state)
+
+    return data["lines"]
+
+# Process new log entries
+new_lines = fetch_logs(cookies)
+for line in new_lines:
+    process_log_entry(line)
+```

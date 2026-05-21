@@ -298,3 +298,55 @@ model = F.Model(
     F.Cancel("Cancel")
 )
 ```
+
+## Additional Input Types
+
+The following input types are also available and follow the same pattern as `InputText`:
+
+| Type | HTML Input | Description |
+|------|-----------|-------------|
+| `InputEmail` | `email` | Email address with browser validation |
+| `InputUrl` | `url` | URL with browser validation |
+| `InputTel` | `tel` | Phone number |
+| `InputSearch` | `search` | Search input with clear button |
+| `InputMonth` | `month` | Month/year picker |
+| `InputWeek` | `week` | Week picker |
+| `InputColor` | `color` | Color picker |
+| `InputRange` | `range` | Slider with min/max/step |
+| `InputHidden` | `hidden` | Hidden field (not visible to user) |
+| `InputRadio` | `radio` | Radio button group |
+
+### Example: InputEmail
+
+```python
+F.InputEmail(
+    name="contact_email",
+    label="Contact Email",
+    placeholder="user@example.com",
+    required=True
+)
+```
+
+### Example: InputRange
+
+```python
+F.InputRange(
+    name="confidence",
+    label="Confidence Level",
+    min=0,
+    max=100,
+    step=5,
+    value=50
+)
+```
+
+### Example: InputRadio
+
+```python
+F.InputRadio(
+    name="priority",
+    label="Priority",
+    options=["Low", "Medium", "High"],
+    value="Medium"
+)
+```

@@ -2,13 +2,13 @@
 title: Human-in-the-Loop with Locks
 ---
 
-Kodosumi provides a powerful Human-in-the-Loop (HTIL) mechanism through its lock system, allowing automated workflows to pause and request human intervention when needed. This document explains how to implement HTIL services using locks and leases.
+Kodosumi provides a powerful Human-in-the-Loop (HITL) mechanism through its lock system, allowing automated workflows to pause and request human intervention when needed. This document explains how to implement HITL services using locks and leases.
 
 <Note>See also the [`kodosumi-examples` repository](https://github.com/masumi-network/kodosumi-examples) on HITL.</Note>
  
 ## Overview
 
-The HTIL system consists of three main components:
+The HITL system consists of three main components:
 
 1. **Entry Points** - Initial form inputs that launch workflow executions.
 2. **Locks** - Points where execution pauses and waits for human input
@@ -38,7 +38,7 @@ form_model = Model(
 @app.enter(
     "/",
     model=form_model,
-    summary="HTIL Example",
+    summary="HITL Example",
     description="Example workflow with human intervention",
 )
 async def post(inputs: dict, request: Request) -> Launch:
@@ -122,7 +122,7 @@ async def approval_lease(inputs: dict):
 
 ## Complete Example
 
-Here's a complete HTIL service implementation:
+Here's a complete HITL service implementation:
 
 ```python
 from kodosumi.core import ServeAPI, Launch, Tracer

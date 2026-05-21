@@ -1,0 +1,314 @@
+{% extends "_frame.html" %}
+
+{% block styles %}
+<style>
+    .exchange-section {
+        margin-bottom: 32px;
+    }
+    .exchange-section h5 {
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .exchange-section h5 i {
+        font-size: 1.2rem;
+        color: var(--primary);
+    }
+    .helper-text {
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+        margin-bottom: 16px;
+    }
+    .button-group {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+    }
+    .error-message {
+        background-color: var(--error-container);
+        color: var(--on-error-container);
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
+    .success-message {
+        background-color: var(--primary-container);
+        color: var(--on-primary-container);
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
+    .warning-message {
+        background-color: var(--tertiary-container);
+        color: var(--on-tertiary-container);
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
+    .file-input-wrapper {
+        position: relative;
+        display: inline-block;
+    }
+    .file-input-wrapper input[type="file"] {
+        position: absolute;
+        left: 0;
+        top: 0;
+        opacity: 0;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+    }
+    .file-name {
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+        margin-top: 8px;
+    }
+    .import-preview {
+        font-family: monospace;
+        font-size: 0.8rem;
+        background: var(--surface-variant);
+        padding: 12px;
+        border-radius: 8px;
+        margin-top: 12px;
+        max-height: 200px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+    .divider {
+        border-top: 1px solid var(--outline-variant);
+        margin: 32px 0;
+    }
+    .result-details {
+        font-size: 0.85rem;
+        margin-top: 8px;
+    }
+    .result-details code {
+        background: var(--surface-variant);
+        padding: 2px 6px;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block menu %}
+<h3>Import / Export</h3>
+<div class="max"></div>
+<div class="tabs right-align" style="height: 50px;"></div>
+{% endblock %}
+
+{% block details %}
+{% endblock %}
+
+{% block page %}
+<div class="active page">
+    <div class="max padding article-container" style="margin-top: 18px;">
+        <article class="small-elevate large-padding">
+            <div id="message-container"></div>
+
+            <!-- Export Section -->
+            <div class="exchange-section">
+                <h5><i>download</i> Export</h5>
+                <p class="helper-text">
+                    Download all expose configurations as a JSON file. This includes all expose items with their
+                    bootstrap configurations and meta data.
+                </p>
+                <div class="button-group">
+                    <button onclick="exportData()" class="primary">
+                        <i>download</i>
+                        <span>Download JSON</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Import Section -->
+            <div class="exchange-section">
+                <h5><i>upload</i> Import</h5>
+                <p class="helper-text">
+                    Upload a JSON file to import expose configurations. A backup of the current database
+                    will be created automatically before import.
+                </p>
+                <div class="warning-message">
+                    <strong>Warning:</strong> Importing will overwrite any existing expose items with the same name.
+                    Make sure to export your current configuration first if needed.
+                </div>
+
+                <div class="file-input-wrapper">
+                    <button class="secondary">
+                        <i>folder_open</i>
+                        <span>Select JSON File</span>
+                    </button>
+                    <input type="file" id="import-file" accept=".json,application/json" onchange="previewFile(this)">
+                </div>
+                <div id="file-name" class="file-name"></div>
+                <div id="import-preview" class="import-preview" style="display: none;"></div>
+
+                <div class="button-group">
+                    <button id="import-btn" onclick="importData()" class="primary" disabled>
+                        <i>upload</i>
+                        <span>Import</span>
+                    </button>
+                    <a href="/admin/expose">
+                        <button type="button" class="secondary">
+                            <i>close</i>
+                            <span>Cancel</span>
+                        </button>
+                    </a>
+                </div>
+            </div>
+        </article>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+let importFileData = null;
+
+function showMessage(type, message, details) {
+    const container = document.getElementById('message-container');
+    let detailsHtml = '';
+    if (details) {
+        detailsHtml = `<div class="result-details">${details}</div>`;
+    }
+    container.innerHTML = `<div class="${type}-message">${message}${detailsHtml}</div>`;
+    container.scrollIntoView({ behavior: 'smooth' });
+}
+
+async function exportData() {
+    try {
+        const response = await fetch('/exchange/export', {
+            method: 'GET',
+            credentials: 'same-origin'
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            showMessage('error', data.detail || 'Export failed');
+            return;
+        }
+
+        const data = await response.json();
+
+        // Create download
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        a.download = `expose-${timestamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showMessage('success', `Exported ${data.count} expose item(s) successfully.`);
+    } catch (error) {
+        showMessage('error', 'Network error: ' + error.message);
+    }
+}
+
+function previewFile(input) {
+    const file = input.files[0];
+    const fileNameEl = document.getElementById('file-name');
+    const previewEl = document.getElementById('import-preview');
+    const importBtn = document.getElementById('import-btn');
+
+    if (!file) {
+        fileNameEl.textContent = '';
+        previewEl.style.display = 'none';
+        importBtn.disabled = true;
+        importFileData = null;
+        return;
+    }
+
+    fileNameEl.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+            importFileData = data;
+
+            // Show preview
+            const count = data.exposes ? data.exposes.length : 0;
+            const names = data.exposes ? data.exposes.map(e => e.name).join(', ') : 'none';
+            previewEl.innerHTML = `<strong>Version:</strong> ${data.version || 'unknown'}\n` +
+                `<strong>Exported:</strong> ${data.exported_at ? new Date(data.exported_at * 1000).toLocaleString() : 'unknown'}\n` +
+                `<strong>Items:</strong> ${count}\n` +
+                `<strong>Names:</strong> ${names}`;
+            previewEl.style.display = 'block';
+            importBtn.disabled = false;
+        } catch (err) {
+            previewEl.innerHTML = `<span style="color: var(--error);">Invalid JSON: ${err.message}</span>`;
+            previewEl.style.display = 'block';
+            importBtn.disabled = true;
+            importFileData = null;
+        }
+    };
+    reader.readAsText(file);
+}
+
+async function importData() {
+    if (!importFileData) {
+        showMessage('error', 'No file selected');
+        return;
+    }
+
+    if (!confirm('Are you sure you want to import? This will overwrite existing items with the same name.')) {
+        return;
+    }
+
+    const importBtn = document.getElementById('import-btn');
+    importBtn.disabled = true;
+    importBtn.querySelector('span').textContent = 'Importing...';
+
+    try {
+        const response = await fetch('/exchange/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify(importFileData)
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            showMessage('error', data.detail || 'Import failed');
+            importBtn.disabled = false;
+            importBtn.querySelector('span').textContent = 'Import';
+            return;
+        }
+
+        const result = await response.json();
+        let details = '';
+        if (result.backup) {
+            details += `Backup created: <code>${result.backup}</code><br>`;
+        }
+        if (result.errors && result.errors.length > 0) {
+            details += `Errors: ${result.errors.join(', ')}`;
+        }
+
+        if (result.errors && result.errors.length > 0) {
+            showMessage('warning', `Imported ${result.imported} item(s) with ${result.errors.length} error(s).`, details);
+        } else {
+            showMessage('success', `Successfully imported ${result.imported} item(s).`, details);
+        }
+
+        // Reset form
+        document.getElementById('import-file').value = '';
+        document.getElementById('file-name').textContent = '';
+        document.getElementById('import-preview').style.display = 'none';
+        importFileData = null;
+        importBtn.querySelector('span').textContent = 'Import';
+
+    } catch (error) {
+        showMessage('error', 'Network error: ' + error.message);
+        importBtn.disabled = false;
+        importBtn.querySelector('span').textContent = 'Import';
+    }
+}
+{% endblock %}

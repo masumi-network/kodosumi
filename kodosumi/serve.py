@@ -12,14 +12,13 @@ from fastapi.templating import Jinja2Templates
 
 import kodosumi.service.admin
 from kodosumi.const import (KODOSUMI_BASE, KODOSUMI_LAUNCH, KODOSUMI_USER,
-                            KODOSUMI_API, KODOSUMI_URL, HEADER_KEY)
+                            KODOSUMI_API, KODOSUMI_URL, HEADER_KEY,
+                            ANNONYMOUS)
 from kodosumi.helper import HTTPXClient
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.service.inputs.forms import Checkbox, InputFiles, Model
 from kodosumi.service.proxy import LockNotFound, find_lock
 
-
-ANNONYMOUS_USER = "_annon_"
 
 class ServeAPI(FastAPI):
 
@@ -104,12 +103,24 @@ class ServeAPI(FastAPI):
                     if isinstance(element, InputFiles):
                         upload = js_data.get(element_name)
                         if upload:
-                            js_upload = json.loads(upload)
-                            items = js_upload["items"]
-                            batch_id = js_upload["batchId"]
-                            submitted_value = set([
-                                i["filename"] for i in items.values()
-                            ])
+                            if isinstance(upload, str) and upload.startswith(("http://", "https://")):
+                                submitted_value = upload
+                            elif isinstance(upload, list) and all(
+                                isinstance(u, str) for u in upload
+                            ):
+                                submitted_value = upload
+                            else:
+                                try:
+                                    if isinstance(upload, str):
+                                        upload = json.loads(upload)
+                                    js_upload = upload
+                                    items = js_upload["items"]
+                                    batch_id = js_upload["batchId"]
+                                    submitted_value = set([
+                                        i["filename"] for i in items.values()
+                                    ])
+                                except (json.JSONDecodeError, KeyError, TypeError):
+                                    submitted_value = upload
                     elif element_name in js_data:
                         submitted_value = js_data[element_name]
                     elif isinstance(element, Checkbox):
@@ -141,7 +152,7 @@ class ServeAPI(FastAPI):
                     }
                 except Exception as exc:
                     raise HTTPException(
-                        status_code=500, detail=repr(exc)) from exc
+                        status_code=500, detail=traceback.format_exc()) from exc
                 # try:
                 if not hasattr(result, "headers"):
                     raise HTTPException(
@@ -216,8 +227,10 @@ class ServeAPI(FastAPI):
         app_instance = self
         @self.middleware("http")
         async def add_custom_method(request: Request, call_next):
-            user = request.headers.get(KODOSUMI_USER, ANNONYMOUS_USER)
+            user = request.headers.get(KODOSUMI_USER, ANNONYMOUS)
             prefix_route = request.headers.get(KODOSUMI_BASE, "")
+            if not prefix_route:
+                prefix_route = f"{request.url.scheme}://{request.url.netloc}{request.scope.get('root_path', '')}"
             request.state.user = user
             request.state.prefix = prefix_route
             response = await call_next(request)
@@ -228,8 +241,8 @@ class ServeAPI(FastAPI):
         async def generic_exception_handler(request: Request, exc: Exception):
             return HTMLResponse(content=traceback.format_exc(), status_code=500)
 
-        async def _get_model(request: Request, 
-                             fid: str, 
+        async def _get_model(request: Request,
+                             fid: str,
                              lid: str) -> Tuple[Dict, Model]:
             try:
                 lock, _ = find_lock(fid, lid)
@@ -238,6 +251,12 @@ class ServeAPI(FastAPI):
             if lock["result"] is not None:
                 raise HTTPException(
                     status_code=404, detail=f"Lock {lid} for {fid} released.")
+
+            if lock["name"] not in self._lock_lookup:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Lock handler '{lock['name']}' not found. "
+                           f"Available: {list(self._lock_lookup.keys())}")
 
             get_method = self._lock_lookup[lock["name"]]
             sig = inspect.signature(get_method)

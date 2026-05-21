@@ -1,0 +1,275 @@
+---
+title: Expose API
+---
+
+The Expose API manages agentic service deployment configurations. All endpoints require operator role authentication.
+
+## Base URL
+
+```
+/expose
+```
+
+## Authentication
+
+All endpoints require authentication with operator role. Include session cookies or API key with each request.
+
+## Data Model
+
+### ExposeCreate (Request)
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Unique identifier (lowercase alphanumeric, hyphens, underscores) |
+| `original_name` | string | No | For tracking renames |
+| `display` | string | No | Human-readable display name |
+| `network` | string | No | Cardano network: `"Preprod"` or `"Mainnet"` |
+| `enabled` | boolean | No | Whether the expose is active (default: `true`) |
+| `bootstrap` | string | No | Ray Serve deployment YAML configuration |
+| `meta` | ExposeMeta[] | No | List of flow endpoint configurations |
+| `etag` | string | No | For optimistic concurrency control |
+
+### ExposeMeta
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | string | Endpoint URL path (e.g., `/my-agent/process`) |
+| `data` | string | YAML metadata (display, description, pricing, etc.) |
+| `enabled` | boolean | Enable/disable individual flows |
+| `state` | string | Read-only: `"alive"`, `"dead"`, `"not-found"` |
+| `heartbeat` | float | Read-only: Last check timestamp |
+
+### ExposeResponse
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Unique identifier |
+| `display` | string | Human-readable name |
+| `network` | string | Cardano network |
+| `enabled` | boolean | Active status |
+| `state` | string | `"DRAFT"`, `"RUNNING"`, `"DEAD"`, `"UNHEALTHY"` |
+| `heartbeat` | float | Last heartbeat timestamp |
+| `bootstrap` | string | Ray Serve YAML config |
+| `meta` | ExposeMeta[] | Flow configurations |
+| `created` | datetime | Creation timestamp |
+| `updated` | datetime | Last update timestamp |
+| `etag` | string | Version tag for concurrency control |
+
+## Endpoints
+
+### List Exposes
+
+```
+GET /expose
+```
+
+Returns all expose items.
+
+**Response:** `ExposeResponse[]`
+
+```python
+import httpx
+
+resp = httpx.get(
+    "http://localhost:3370/expose",
+    cookies=cookies
+)
+exposes = resp.json()
+```
+
+### Get Expose
+
+```
+GET /expose/{name}
+```
+
+Returns a single expose item.
+
+**Parameters:**
+- `name` (path): Expose identifier
+
+**Response:** `ExposeResponse`
+
+**Errors:**
+- `404`: Expose not found
+
+```python
+resp = httpx.get(
+    "http://localhost:3370/expose/my-agent",
+    cookies=cookies
+)
+expose = resp.json()
+```
+
+### Create or Update Expose
+
+```
+POST /expose
+```
+
+Creates a new expose or updates an existing one. Uses optimistic concurrency control via ETag.
+
+**Request Body:** `ExposeCreate`
+
+**Response:** `ExposeResponse`
+
+**Errors:**
+- `409`: Name conflict or concurrent modification
+
+```python
+resp = httpx.post(
+    "http://localhost:3370/expose",
+    cookies=cookies,
+    json={
+        "name": "my-agent",
+        "display": "My Agent Service",
+        "network": "Preprod",
+        "enabled": True,
+        "bootstrap": """
+applications:
+  - name: my-agent
+    route_prefix: /my-agent
+    import_path: mymodule:app
+    runtime_env:
+      working_dir: ./
+"""
+    }
+)
+```
+
+### Delete Expose
+
+```
+DELETE /expose/{name}
+```
+
+Permanently deletes an expose item.
+
+**Parameters:**
+- `name` (path): Expose identifier
+
+**Response:** `204 No Content`
+
+**Errors:**
+- `404`: Expose not found
+
+```python
+resp = httpx.delete(
+    "http://localhost:3370/expose/my-agent",
+    cookies=cookies
+)
+```
+
+### Health Check All
+
+```
+POST /expose/health
+```
+
+Validates all exposes against Ray Serve and updates state/heartbeat.
+
+**Checks performed:**
+1. App `RUNNING` status via Ray dashboard
+2. Endpoint alive via HEAD request
+3. Meta fields populated
+
+**Response:**
+
+```json
+{
+    "checked": 5,
+    "updated": 2,
+    "timestamp": 1700000000.0,
+    "results": [
+        {
+            "name": "my-agent",
+            "app": {"valid": true, "message": "RUNNING"},
+            "state": "RUNNING",
+            "state_changed": false,
+            "meta_count": 2,
+            "alive_count": 2,
+            "fields_ok": 2,
+            "meta": [...]
+        }
+    ]
+}
+```
+
+### Health Check Single
+
+```
+POST /expose/{name}/health
+```
+
+Validates a single expose against Ray Serve.
+
+**Parameters:**
+- `name` (path): Expose identifier
+
+**Response:** Same structure as health check all with single result.
+
+**Errors:**
+- `404`: Expose not found
+
+## State Machine
+
+Expose states:
+
+| State | Description |
+|-------|-------------|
+| `DRAFT` | No bootstrap configuration |
+| `RUNNING` | Deployed and running in Ray Serve |
+| `DEAD` | Not deployed or stopped |
+| `UNHEALTHY` | Deployed but Ray reports issues |
+
+## Meta Data YAML Schema
+
+The `meta.data` field uses YAML format:
+
+```yaml
+# Display name for this flow
+display: My Flow
+
+# Description
+description: What this flow does
+
+# Tags for categorization
+tags:
+  - category1
+  - category2
+
+# Author information
+author:
+  name: John Doe
+  organization: Example Corp
+  contact_email: john@example.com
+
+# Pricing (for Masumi integration)
+agentPricing:
+  - pricingType: Fixed
+    fixedPricing:
+      - amount: "1000000"  # 1 ADA in lovelace
+        unit: lovelace
+
+# Masumi agent identifier
+agentIdentifier: <masumi-agent-id>
+
+# Capability declaration
+capability:
+  name: my-capability
+  version: 1.0.0
+
+# Legal information
+legal:
+  privacy_policy: https://example.com/privacy
+  terms: https://example.com/terms
+
+# Example outputs
+example_output:
+  - name: sample_output
+    mime_type: application/json
+    url: https://example.com/sample.json
+
+# Preview image
+image: https://example.com/preview.png
+```

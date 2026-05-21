@@ -28,7 +28,6 @@ from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
                                     create_async_engine)
 
 import kodosumi.core
-import kodosumi.service.endpoint as endpoint
 from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.const import TOKEN_KEY
@@ -37,16 +36,24 @@ from kodosumi.log import app_logger, logger
 from kodosumi.service.admin.panel import AdminControl
 from kodosumi.service.auth import LoginControl
 from kodosumi.service.dashboard import DashboardAPI
-from kodosumi.service.deploy import DeployControl, ServeControl
+from kodosumi.service.execution_index import ExecutionIndex, start_refresh_loop
 from kodosumi.service.files import FileControl
 from kodosumi.service.flow import FlowControl
 from kodosumi.service.health import HealthControl
 from kodosumi.service.inputs.inputs import InputsController
 from kodosumi.service.inputs.outputs import OutputsController
 from kodosumi.service.inputs.timeline.controller import TimelineController
-from kodosumi.service.jwt import JWTAuthenticationMiddleware
+from kodosumi.service.jwt import JWTAuthenticationMiddleware, operator_guard
 from kodosumi.service.proxy import LockController, ProxyControl
-from kodosumi.service.role import RoleControl
+from kodosumi.service.expose.control import (
+    ExposeControl, ExposeUIControl, BootControl, BootUIControl,
+    MaintenanceControl, ExchangeControl, ExchangeUIControl,
+    AuditLogControl, RegistryControl, WalletsControl, ensure_serve_config
+)
+from kodosumi.service.expose import db as expose_db
+from kodosumi.service.role import RoleControl, ProfileControl
+from kodosumi.service.masumi.control import MasumiDashboardAPI
+from kodosumi.service.sumi.control import SumiControl, SumiLockControl
 
 
 def app_exception_handler(request: Request, 
@@ -116,13 +123,64 @@ async def provide_transaction(
             ) from exc
 
    
+async def _masumi_sync_loop(app: Litestar):
+    """Periodically sync Masumi payment data into the local cache."""
+    import asyncio
+    from kodosumi.service.masumi.cache import get_cache
+    settings = app.state["settings"]
+    cache = get_cache(settings.EXEC_DIR)
+    await cache.init_db()
+    while True:
+        for name, cfg in settings.masumi_networks.items():
+            try:
+                count = await cache.sync_payments(
+                    cfg.base_url, cfg.token, cfg.registry_network
+                )
+                if count > 0:
+                    logger.info("Masumi sync %s: %d new payments", cfg.registry_network, count)
+            except Exception as e:
+                logger.warning("Masumi sync %s failed: %s", name, e)
+        await asyncio.sleep(300)
+
+
+async def _build_execution_index(app: Litestar):
+    """Build execution index in background thread, then start refresh loop."""
+    import asyncio
+    index = app.state["execution_index"]
+    await asyncio.to_thread(index.full_scan)
+    logger.info(
+        f"Execution index ready: {index.count} executions "
+        f"({index.active_count} active) from {index.user_count} users"
+    )
+    app.state["index_refresh_task"] = asyncio.create_task(
+        start_refresh_loop(index)
+    )
+
+
 async def startup(app: Litestar):
+    import asyncio
     helper.ray_init()
-    await endpoint.init(app.state)
+    await expose_db.init_database()
+    ensure_serve_config()
+    # Start execution index build non-blocking — dashboard shows
+    # "building..." until ready, server accepts requests immediately
+    exec_dir = Path(app.state["settings"].EXEC_DIR)
+    app.state["execution_index"] = ExecutionIndex(exec_dir, refresh_interval=60)
+    asyncio.create_task(_build_execution_index(app))
+    if app.state["settings"].masumi_networks:
+        app.state["masumi_sync_task"] = asyncio.create_task(
+            _masumi_sync_loop(app))
+        logger.info("Masumi sync loop started (%d networks)",
+                    len(app.state["settings"].masumi_networks))
 
 
 async def shutdown(app):
-    await endpoint.destroy(app.state)
+    task = app.state.get("index_refresh_task")
+    if task and not task.done():
+        task.cancel()
+    task = app.state.get("masumi_sync_task")
+    if task and not task.done():
+        task.cancel()
     helper.ray_shutdown()
 
 
@@ -171,7 +229,7 @@ def create_app(**kwargs) -> Litestar:
                                allow_credentials=True),
         route_handlers=[
             Router(path="/", route_handlers=[LoginControl]),
-            Router(path="/role", route_handlers=[RoleControl]),
+            Router(path="/role", route_handlers=[RoleControl, ProfileControl]),
             Router(path="/-/", route_handlers=[ProxyControl]),
             Router(path="/lock", route_handlers=[LockController]),
             Router(path="/admin", route_handlers=[AdminControl]),
@@ -180,10 +238,10 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/outputs", route_handlers=[OutputsController]),
             Router(path="/timeline", route_handlers=[TimelineController]),
             Router(path="/api/dashboard", route_handlers=[DashboardAPI]),
-            Router(path="/deploy", route_handlers=[DeployControl]),
-            Router(path="/serve", route_handlers=[ServeControl]),
+            Router(path="/api/masumi", route_handlers=[MasumiDashboardAPI], guards=[operator_guard]),
             Router(path="/files", route_handlers=[FileControl]),
             Router(path="/health", route_handlers=[HealthControl]),
+            Router(path="/", route_handlers=[SumiControl, SumiLockControl, ExposeControl, ExposeUIControl, BootControl, BootUIControl, MaintenanceControl, ExchangeControl, ExchangeUIControl, AuditLogControl, RegistryControl, WalletsControl]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],

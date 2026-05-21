@@ -1,0 +1,663 @@
+{% extends "_frame.html" %}
+
+{% block styles %}
+    .progress-container {
+        margin-bottom: 9px !important;
+        padding: 9px !important;
+        background: rgba(21, 101, 192, 0.1);
+        border-radius: 8px;
+        border: 1px solid rgba(21, 101, 192, 0.2);
+    }
+    .progress-container.complete {
+        margin-bottom: 9px !important;
+        padding: 9px !important;
+        background: rgba(46, 125, 50, 0.1);
+        border-color: rgba(46, 125, 50, 0.2);
+    }
+    .progress-container.error {
+        margin-bottom: 9px !important;
+        padding: 9px !important;
+        background: rgba(198, 40, 40, 0.1);
+        border-color: rgba(198, 40, 40, 0.2);
+    }
+    .progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        font-size: 0.9rem;
+    }
+    .progress-step {
+        color: var(--on-surface);
+        font-weight: 500;
+    }
+    .progress-percent {
+        font-weight: 700;
+        color: var(--primary);
+        font-size: 1rem;
+    }
+    .progress-bar-outer {
+        width: 100%;
+        height: 10px;
+        background: rgba(0,0,0,0.2);
+        border-radius: 5px;
+        overflow: hidden;
+    }
+    .progress-bar-inner {
+        height: 100%;
+        background: linear-gradient(90deg, #1565c0, #42a5f5);
+        border-radius: 5px;
+        transition: width 0.3s ease;
+        width: 0%;
+    }
+    .progress-bar-inner.complete {
+        background: linear-gradient(90deg, #2e7d32, #66bb6a);
+    }
+    .progress-bar-inner.error {
+        background: linear-gradient(90deg, #c62828, #ef5350);
+    }
+    .console-container {
+        background: #1a1a1a;
+        border-radius: 8px;
+        padding: 16px;
+        height: calc(100vh - 340px);
+        min-height: 350px;
+        overflow-y: auto;
+        font-family: 'Fira Code', 'Monaco', 'Menlo', monospace;
+        font-size: 0.85rem;
+        line-height: 1.6;
+    }
+    .console-line {
+        margin: 0;
+        padding: 2px 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #e0e0e0;
+    }
+    /* Step headers: ▶ [STEP] message */
+    .console-line.step-header {
+        color: #4dd0e1;
+        font-weight: 600;
+        margin-top: 12px;
+        padding: 4px 0;
+    }
+    /* Step done: ✓ message */
+    .console-line.step-done {
+        color: #81c784;
+        margin-bottom: 8px;
+    }
+    /* Step complete: ✔ message (final success) */
+    .console-line.step-complete {
+        color: #4caf50;
+        font-weight: bold;
+        margin-top: 8px;
+    }
+    /* Step error: ✗ message */
+    .console-line.step-error {
+        color: #ef5350;
+        font-weight: bold;
+    }
+    /* Activity lines: • [target] message */
+    .console-line.activity {
+        color: #9e9e9e;
+    }
+    /* Result lines with success indicator */
+    .console-line.result {
+        color: #b0bec5;
+    }
+    .console-line.result.success {
+        color: #81c784;
+    }
+    /* Info: ℹ message */
+    .console-line.info {
+        color: #78909c;
+    }
+    /* Warning: ⚠ message */
+    .console-line.warning {
+        color: #ffb74d;
+        font-weight: 500;
+    }
+    /* Error: ✗ message */
+    .console-line.error {
+        color: #ef5350;
+        font-weight: 500;
+    }
+    .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-weight: 500;
+        white-space: nowrap;
+        min-width: 100px;
+        justify-content: center;
+    }
+    .status-idle {
+        background: #424242;
+        color: white;
+    }
+    .status-running {
+        background: #1565c0;
+        color: white;
+    }
+    .status-complete {
+        background: #2e7d32;
+        color: white;
+    }
+    .status-error {
+        background: #c62828;
+        color: white;
+    }
+    .spinner {
+        width: 14px;
+        height: 14px;
+        min-width: 14px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    .button-row {
+        display: flex;
+        gap: 12px;
+        margin-top: 16px;
+        align-items: center;
+    }
+    .action-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+        text-decoration: none;
+        border-radius: 4px;
+        transition: all 0.15s ease;
+    }
+    .action-link:hover {
+        color: var(--primary);
+        background: rgba(var(--primary-rgb), 0.08);
+    }
+    .action-link i {
+        font-size: 1rem;
+        opacity: 0.7;
+    }
+{% endblock %}
+
+{% block menu %}
+{% if refresh_expose %}
+<h3>Refresh: {{ refresh_expose }}</h3>
+{% else %}
+<h3>Boot System</h3>
+{% endif %}
+<div class="max"></div>
+<div id="status-badge" class="status-indicator status-idle">
+    <span id="status-text">Ready</span>
+</div>
+{% endblock %}
+
+{% block details %}
+{% endblock %}
+
+{% block page %}
+<div class="active page">
+    <div class="max padding article-container" style="margin-top: 8px;">
+        <article class="small-elevate" style="padding: 24px;">
+            <!-- Progress Bar -->
+            <div class="progress-container" id="progress-container" style="display: none;">
+                <div class="progress-header">
+                    <span class="progress-step" id="progress-step">Step 0/5: Waiting...</span>
+                    <span class="progress-percent" id="progress-percent">0%</span>
+                </div>
+                <div class="progress-bar-outer">
+                    <div class="progress-bar-inner" id="progress-bar"></div>
+                </div>
+            </div>
+
+            <div class="button-row" style="margin-bottom: 16px;">
+                {% if refresh_expose %}
+                <button id="boot-btn" class="primary" onclick="startRefresh()">
+                    <i>sync</i>
+                    <span>Start Refresh</span>
+                </button>
+                {% else %}
+                <button id="boot-btn" class="primary" onclick="startBoot()">
+                    <i>rocket_launch</i>
+                    <span>Start Boot</span>
+                </button>
+                <button id="force-btn" class="secondary" onclick="startBoot(true)" title="Force boot even if one is in progress">
+                    <i>warning</i>
+                    <span>Force Boot</span>
+                </button>
+                {% endif %}
+                <div class="max"></div>
+                <a href="/admin/expose/globals" class="action-link" style="margin-right: 8px;">
+                    <i>settings</i>
+                    <span>Config</span>
+                </a>
+                <a href="/admin/expose">
+                    <button class="secondary" id="back-btn">
+                        <i>arrow_back</i>
+                        <span>Back</span>
+                    </button>
+                </a>
+            </div>
+
+            <div class="console-container" id="console">
+                {% if messages %}
+                {% for msg in messages %}
+                <p class="console-line">{{ msg }}</p>
+                {% endfor %}
+                {% elif refresh_expose %}
+                <p class="console-line" style="color: #9e9e9e;">Refresh console ready. Click "Start Refresh" to re-sync expose '{{ refresh_expose }}'.</p>
+                {% else %}
+                <p class="console-line" style="color: #9e9e9e;">Boot console ready. Click "Start Boot" to begin deployment.</p>
+                {% endif %}
+            </div>
+        </article>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+let isRunning = {{ 'true' if is_locked else 'false' }};
+const refreshExpose = {% if refresh_expose %}"{{ refresh_expose }}"{% else %}null{% endif %};
+
+// Elements - initialized after DOM loads
+let console_el, bootBtn, forceBtn, statusBadge, statusText;
+let progressContainer, progressStep, progressPercent, progressBar;
+
+function initElements() {
+    console_el = document.getElementById('console');
+    bootBtn = document.getElementById('boot-btn');
+    forceBtn = document.getElementById('force-btn');
+    statusBadge = document.getElementById('status-badge');
+    statusText = document.getElementById('status-text');
+    progressContainer = document.getElementById('progress-container');
+    progressStep = document.getElementById('progress-step');
+    progressPercent = document.getElementById('progress-percent');
+    progressBar = document.getElementById('progress-bar');
+}
+
+// Step name mapping for progress tracking
+const STEPS = {
+    'deploy': { num: 1, name: 'Deploy' },
+    'health': { num: 2, name: 'Health Check' },
+    'register': { num: 3, name: 'Register Flows' },
+    'retrieve': { num: 4, name: 'Retrieve Flows' },
+    'update': { num: 5, name: 'Update Meta' },
+    'complete': { num: 5, name: 'Complete' }
+};
+const TOTAL_STEPS = 5;
+
+function setStatus(status) {
+    statusBadge.className = 'status-indicator status-' + status;
+    if (status === 'running') {
+        statusText.innerHTML = '<span class="spinner"></span> Running';
+        bootBtn.disabled = true;
+        if (forceBtn) forceBtn.disabled = true;
+        progressContainer.style.display = 'block';
+        progressContainer.classList.remove('complete', 'error');
+    } else if (status === 'complete') {
+        statusText.textContent = 'Complete';
+        bootBtn.disabled = false;
+        if (forceBtn) forceBtn.disabled = false;
+        progressBar.classList.add('complete');
+        progressBar.classList.remove('error');
+        progressContainer.classList.add('complete');
+        progressContainer.classList.remove('error');
+    } else if (status === 'error') {
+        statusText.textContent = 'Error';
+        bootBtn.disabled = false;
+        if (forceBtn) forceBtn.disabled = false;
+        progressBar.classList.add('error');
+        progressBar.classList.remove('complete');
+        progressContainer.classList.add('error');
+        progressContainer.classList.remove('complete');
+    } else {
+        statusText.textContent = 'Ready';
+        bootBtn.disabled = false;
+        if (forceBtn) forceBtn.disabled = false;
+        progressContainer.style.display = 'none';
+        progressBar.classList.remove('complete', 'error');
+        progressContainer.classList.remove('complete', 'error');
+    }
+}
+
+function updateProgress(stepName, isComplete = false) {
+    const step = STEPS[stepName.toLowerCase()];
+    if (!step) return;
+
+    let percent;
+    if (isComplete || stepName.toLowerCase() === 'complete') {
+        percent = 100;
+        progressStep.textContent = `Complete`;
+    } else {
+        // Calculate progress: each step is 20%
+        percent = Math.round((step.num / TOTAL_STEPS) * 100);
+        progressStep.textContent = `Step ${step.num}/${TOTAL_STEPS}: ${step.name}`;
+    }
+
+    progressPercent.textContent = `${percent}%`;
+    progressBar.style.width = `${percent}%`;
+}
+
+function appendLine(text) {
+    const line = document.createElement('p');
+    line.className = 'console-line';
+
+    // Parse message format using new symbols
+    // Step header: ▶ [STEP] message
+    const stepHeaderMatch = text.match(/^▶ \[(\w+)\] (.+)$/);
+    if (stepHeaderMatch) {
+        const stepName = stepHeaderMatch[1].toLowerCase();
+        line.classList.add('step-header');
+        updateProgress(stepName);
+    }
+    // Step complete: ✔ message (final boot complete)
+    else if (text.startsWith('✔')) {
+        line.classList.add('step-complete');
+        updateProgress('complete', true);
+    }
+    // Step done: ✓ message
+    else if (text.startsWith('✓')) {
+        line.classList.add('step-done');
+    }
+    // Error: ✗ message
+    else if (text.startsWith('✗')) {
+        line.classList.add('step-error');
+    }
+    // Warning: ⚠ message
+    else if (text.startsWith('⚠')) {
+        line.classList.add('warning');
+    }
+    // Info: ℹ message
+    else if (text.startsWith('ℹ')) {
+        line.classList.add('info');
+    }
+    // Result with success: [...] message → result (with OK/success/alive/200)
+    else if (text.match(/→.*(OK|success|alive|200|RUNNING)/i)) {
+        line.classList.add('result', 'success');
+    }
+    // Result: [...] message → result
+    else if (text.includes('→')) {
+        line.classList.add('result');
+    }
+    // Activity: • [...] message
+    else if (text.includes('•')) {
+        line.classList.add('activity');
+    }
+
+    line.textContent = text;
+    console_el.appendChild(line);
+    console_el.scrollTop = console_el.scrollHeight;
+}
+
+function processLine(line) {
+    if (!line.trim()) return;
+
+    appendLine(line);
+
+    // Check for completion (new symbol format: ✔ Boot completed... or Refresh complete...)
+    if (line.startsWith('✔') || line.includes('Boot completed') || line.includes('Refresh complete')) {
+        updateProgress('complete', true);
+        setStatus('complete');
+        isRunning = false;
+    } else if (line.startsWith('✗') || line.includes('Boot failed') || line.includes('Refresh failed')) {
+        setStatus('error');
+        isRunning = false;
+    }
+}
+
+async function startBoot(force = false) {
+    try {
+        // Ensure elements are initialized
+        if (!console_el) initElements();
+
+        // Clear console and reset progress
+        console_el.innerHTML = '';
+        progressBar.style.width = '0%';
+        progressBar.classList.remove('complete', 'error');
+        progressStep.textContent = 'Step 0/5: Starting...';
+        progressPercent.textContent = '0%';
+
+        setStatus('running');
+        isRunning = true;
+
+        // Build URL with parameters
+        const params = new URLSearchParams();
+        if (force) params.set('force', 'true');
+        const url = '/boot' + (params.toString() ? '?' + params.toString() : '');
+
+        const response = await fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin'
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            appendLine('[ERROR] Server error: ' + response.status + ' - ' + text);
+            setStatus('error');
+            isRunning = false;
+            return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            for (const line of lines) {
+                processLine(line);
+            }
+        }
+
+        // Process remaining buffer
+        if (buffer.trim()) {
+            processLine(buffer);
+        }
+
+    } catch (error) {
+        console.error('Boot error:', error);
+        appendLine('[ERROR] ' + error.message);
+        setStatus('error');
+        isRunning = false;
+    }
+}
+
+async function startRefresh() {
+    if (!refreshExpose) {
+        appendLine('[ERROR] No expose specified for refresh');
+        setStatus('error');
+        return;
+    }
+
+    try {
+        // Ensure elements are initialized
+        if (!console_el) initElements();
+
+        // Clear console and reset progress
+        console_el.innerHTML = '';
+        progressBar.style.width = '0%';
+        progressBar.classList.remove('complete', 'error');
+        progressStep.textContent = 'Step 0/4: Starting refresh...';
+        progressPercent.textContent = '0%';
+
+        setStatus('running');
+        isRunning = true;
+
+        const url = `/boot/refresh/${encodeURIComponent(refreshExpose)}`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin'
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            appendLine('[ERROR] Server error: ' + response.status + ' - ' + text);
+            setStatus('error');
+            isRunning = false;
+            return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            for (const line of lines) {
+                processLine(line);
+            }
+        }
+
+        // Process remaining buffer
+        if (buffer.trim()) {
+            processLine(buffer);
+        }
+
+    } catch (error) {
+        console.error('Refresh error:', error);
+        appendLine('[ERROR] ' + error.message);
+        setStatus('error');
+        isRunning = false;
+    }
+}
+
+// Apply styling to a console line element based on its text
+function applyLineStyle(lineEl) {
+    const text = lineEl.textContent;
+
+    // Step header: ▶ [STEP] message
+    if (text.match(/^▶ \[(\w+)\]/)) {
+        lineEl.classList.add('step-header');
+        return;
+    }
+    // Step complete: ✔ message
+    if (text.startsWith('✔')) {
+        lineEl.classList.add('step-complete');
+        return;
+    }
+    // Step done: ✓ message
+    if (text.startsWith('✓')) {
+        lineEl.classList.add('step-done');
+        return;
+    }
+    // Error: ✗ message
+    if (text.startsWith('✗')) {
+        lineEl.classList.add('step-error');
+        return;
+    }
+    // Warning: ⚠ message
+    if (text.startsWith('⚠')) {
+        lineEl.classList.add('warning');
+        return;
+    }
+    // Info: ℹ message
+    if (text.startsWith('ℹ')) {
+        lineEl.classList.add('info');
+        return;
+    }
+    // Result with success
+    if (text.match(/→.*(OK|success|alive|200|RUNNING)/i)) {
+        lineEl.classList.add('result', 'success');
+        return;
+    }
+    // Result: message → result
+    if (text.includes('→')) {
+        lineEl.classList.add('result');
+        return;
+    }
+    // Activity: • message
+    if (text.includes('•')) {
+        lineEl.classList.add('activity');
+    }
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    initElements();
+    if (isRunning) {
+        setStatus('running');
+        connectToStream();
+    } else {
+        // Apply styling to any server-rendered messages (previous boot)
+        const existingLines = console_el.querySelectorAll('.console-line');
+        if (existingLines.length > 0) {
+            existingLines.forEach(applyLineStyle);
+            // Show progress bar as complete if we have history
+            const lastLine = existingLines[existingLines.length - 1].textContent;
+            if (lastLine.startsWith('✔') || lastLine.includes('Boot completed')) {
+                progressContainer.style.display = 'block';
+                updateProgress('complete', true);
+                progressContainer.classList.add('complete');
+            }
+        }
+    }
+});
+
+async function connectToStream() {
+    // Clear server-rendered messages to avoid duplicates
+    console_el.innerHTML = '';
+    progressBar.style.width = '0%';
+    progressBar.classList.remove('complete', 'error');
+    progressStep.textContent = 'Connecting...';
+    progressPercent.textContent = '0%';
+
+    try {
+        const response = await fetch('/boot/stream', {
+            credentials: 'same-origin'
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                processLine(line);
+            }
+        }
+
+        // Process remaining buffer
+        if (buffer.trim()) {
+            processLine(buffer);
+        }
+
+        // Ensure we show complete status if stream ended normally
+        if (isRunning) {
+            setStatus('complete');
+            isRunning = false;
+        }
+    } catch (error) {
+        appendLine('[ERROR] Stream error: ' + error.message);
+        setStatus('error');
+    }
+}
+{% endblock %}

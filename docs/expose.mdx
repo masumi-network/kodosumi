@@ -1,0 +1,591 @@
+---
+title: Expose, Boot & Exchange
+---
+
+The **Expose** system is Kodosumi's declarative approach to managing agentic service deployments. Instead of manually invoking Ray Serve commands, you define **Expose items** that describe your applications, then use the **Boot** process to deploy them to Ray Serve, and **Exchange** to backup and restore configurations.
+
+<CardGroup cols={3}>
+  <Card title="Expose" icon="layer-group">
+    Declarative configuration for agentic services
+  </Card>
+  <Card title="Boot" icon="rocket">
+    Orchestrated deployment to Ray Serve
+  </Card>
+  <Card title="Exchange" icon="arrows-rotate">
+    Import/export configurations for backup
+  </Card>
+</CardGroup>
+
+## Overview
+
+The workflow follows these steps:
+
+1. **Create Expose Items** - Define your applications with bootstrap YAML configurations
+2. **Boot** - Deploy all enabled exposes to Ray Serve in a single orchestrated process
+3. **Monitor** - Track deployment state and flow health through the admin panel
+4. **Exchange** - Export/import configurations for version control and environment migration
+
+```mermaid
+flowchart LR
+    A[Define Expose] --> B[Boot Process]
+    B --> C[Ray Serve Deploy]
+    C --> D[Health Check]
+    D --> E[Register Flows]
+    E --> F[Update Meta]
+    F --> G[Running Services]
+```
+
+## Expose Items
+
+An **Expose** represents a single application to be deployed to Ray Serve. Each expose has:
+
+| Field | Description |
+|-------|-------------|
+| `name` | Unique identifier (lowercase alphanumeric, hyphens, underscores) |
+| `display` | Human-readable name for the UI |
+| `network` | Deployment environment: `Preprod` or `Mainnet` |
+| `enabled` | Whether to deploy during boot |
+| `bootstrap` | Ray Serve application configuration (YAML) |
+| `meta` | Flow endpoint metadata (auto-populated during boot) |
+| `state` | Current deployment state |
+
+### Expose States
+
+| State | Description |
+|-------|-------------|
+| `DRAFT` | No bootstrap configuration yet |
+| `DEAD` | Disabled or not deployed |
+| `DEPLOYING` | Boot process in progress |
+| `RUNNING` | Successfully deployed and healthy |
+| `UNHEALTHY` | Deployed but Ray reports issues |
+| `DEPLOY_FAILED` | Deployment failed |
+
+## Bootstrap Configuration
+
+The bootstrap field contains Ray Serve application configuration in YAML format. Kodosumi automatically injects `name` and `route_prefix` based on the expose name.
+
+### Example 1: Local Module Deployment
+
+Deploy an application from a local Python module installed in the environment:
+
+```yaml
+# Bootstrap for local module
+import_path: tests.test_unwrap:fast_app
+deployments:
+  - name: IngressDeployment
+    num_replicas: 1
+    ray_actor_options:
+      num_cpus: 0.1
+```
+
+This configuration deploys the `fast_app` from `tests/test_unwrap.py`:
+
+```python
+# tests/test_unwrap.py
+from kodosumi.core import ServeAPI, Launch, Tracer
+from kodosumi.service.inputs.forms import InputText, Checkbox, InputFiles, Submit, Cancel, Model
+from fastapi import Request
+from ray import serve
+
+
+async def runner1(inputs: dict, tracer: Tracer):
+    return {"ok": True}
+
+
+def factory1():
+    app = ServeAPI()
+
+    form_model = Model(
+        InputText(label="Runner", name="runner"),
+        Checkbox(label="Error", name="throw", value=False),
+        InputFiles(label="Upload Files", name="files", multiple=True, directory=False),
+        Submit("Submit"),
+        Cancel("Cancel"),
+    )
+
+    @app.enter(
+        "/runner",
+        model=form_model,
+        summary="Factory 1",
+        description="launches arbitrary runner",
+    )
+    async def form1(inputs: dict, request: Request) -> dict:
+        runner = inputs.get("runner")
+        throw = inputs.get("throw")
+        if throw:
+            raise Exception("test error")
+        return Launch(request, runner1, inputs=inputs)
+
+    return app
+
+
+@serve.deployment
+@serve.ingress(factory1())
+class IngressDeployment: pass
+
+
+fast_app = IngressDeployment.bind()
+```
+
+### Example 2: Git Repository Deployment
+
+Deploy an application from a GitHub repository with dependencies:
+
+```yaml
+# Bootstrap for git repository deployment
+name: hymn
+import_path: kodosumi_examples.hymn.app:fast_app
+runtime_env:
+  pip:
+    - crewai
+    - crewai_tools
+  py_modules:
+    - https://github.com/masumi-network/kodosumi-examples/archive/c1fc02b73e8fc3a1298c26b1597627098ecc7510.zip
+  env_vars:
+    OTEL_SDK_DISABLED: "true"
+    OPENAI_API_KEY: sk-proj-...your-api-key...
+deployments:
+  - name: HymnCreator
+    num_replicas: 1
+    ray_actor_options:
+      num_cpus: 0.1
+```
+
+<Note>
+The `py_modules` URL points to a specific commit archive. Use the format:
+`https://github.com/{owner}/{repo}/archive/{commit_sha}.zip`
+
+For private repositories, include authentication:
+`https://{user}:{token}@github.com/{owner}/{repo}/archive/{commit_sha}.zip`
+</Note>
+
+### Bootstrap Configuration Reference
+
+| Field | Description |
+|-------|-------------|
+| `import_path` | Python module path to the Ray Serve application (e.g., `module.submodule:app_variable`) |
+| `runtime_env.pip` | List of pip packages to install |
+| `runtime_env.py_modules` | URLs to Python packages (zip archives) |
+| `runtime_env.env_vars` | Environment variables for the deployment |
+| `runtime_env.working_dir` | Working directory for the application |
+| `deployments` | List of deployment configurations |
+| `deployments[].name` | Deployment class name (must match your code) |
+| `deployments[].num_replicas` | Number of replicas (`auto` for autoscaling) |
+| `deployments[].ray_actor_options` | Ray actor configuration (num_cpus, num_gpus, etc.) |
+
+See [Ray Serve Config Files](https://docs.ray.io/en/latest/serve/production-guide/config.html) for complete options.
+
+## Boot Process
+
+The boot process orchestrates deployment through five sequential steps:
+
+### Step A: Deploy
+
+Reads all enabled exposes, merges their bootstrap configurations with the global serve config, and executes `serve deploy`.
+
+```
+▶ [DEPLOY] Starting Ray Serve deployment
+  • [myapp] Prepared deployment config → route=/myapp
+  • [Created merged deployment config] → /tmp/serve_deploy_xyz.yaml
+  • [Running serve deploy (1 applications)] → serve
+  → serve deploy command → success
+✓ Deployment initiated (1 applications)
+```
+
+### Step B: Health Check
+
+Polls Ray Serve API every 2 seconds until all applications reach a final state (`RUNNING`, `UNHEALTHY`, or `DEPLOY_FAILED`). Default timeout is 30 minutes.
+
+```
+▶ [HEALTH] Waiting for Ray Serve deployment
+  • [myapp] Checking status → DEPLOYING
+  • [myapp] Checking status → RUNNING
+✓ All applications reached final state
+```
+
+### Step C: Register Flows
+
+Fetches OpenAPI specifications from each deployed application, identifies endpoints marked with the `x-kodosumi` extension, and registers them with the Kodosumi flow registry.
+
+```
+▶ [REGISTER] Registering flow endpoints
+  • [myapp] Fetching OpenAPI spec → /myapp/openapi.json
+  • [myapp] Found 2 kodosumi endpoints
+✓ Registered 2 flows
+```
+
+### Step D: Retrieve Flows
+
+Sends HEAD requests to each registered endpoint to verify they are accessible and responding.
+
+```
+▶ [RETRIEVE] Testing flow endpoints
+  • [/myapp/runner] HEAD request → 200 alive
+  • [/myapp/other] HEAD request → 200 alive
+✓ Retrieved 2 flow endpoints
+```
+
+### Step E: Update Meta
+
+Fetches all registered flows, matches them to expose items, and populates the `meta` field with endpoint metadata templates.
+
+```
+▶ [UPDATE] Updating expose metadata
+  • [myapp] Found 2 flows, updating meta
+✓ Updated metadata for 1 expose items
+```
+
+### Running Boot via API
+
+```python
+import httpx
+
+# Login first
+resp = httpx.get("http://localhost:3370/login?name=admin&password=admin")
+cookies = resp.cookies
+
+# Start boot process (streams progress)
+with httpx.stream("POST", "http://localhost:3370/boot", cookies=cookies, timeout=1800) as resp:
+    for line in resp.iter_lines():
+        if line.startswith("data: "):
+            print(line[6:])
+```
+
+### Running Boot via Admin Panel
+
+Navigate to **Control** > **Expose** and click **Boot All Exposes**. The UI streams progress in real-time.
+
+<img src="/panel/thumb/control.png" alt="Control Panel" className="rounded-xl" />
+
+## Global Serve Configuration
+
+The global Ray Serve configuration is stored at `./data/serve_config.yaml`. This file defines cluster-wide settings that apply to all applications.
+
+```yaml
+# ./data/serve_config.yaml
+proxy_location: EveryNode
+
+http_options:
+  host: 0.0.0.0
+  port: 8005
+
+grpc_options:
+  port: 9000
+  grpc_servicer_functions: []
+
+logging_config:
+  encoding: TEXT
+  log_level: WARNING
+  logs_dir: null
+  enable_access_log: true
+```
+
+Edit this configuration in the admin panel at **Control** > **Expose** > **Globals**.
+
+## Flow Metadata
+
+After boot, each expose's `meta` field contains endpoint configurations. The boot process auto-generates a template that you can customize:
+
+```yaml
+# Flow metadata configuration
+# This data is used by kodosumi and external systems (masumi/sokosumi)
+# to describe and discover this agentic service endpoint.
+
+# Display name for this flow (shown in UI)
+display: Factory 1
+
+# Description of what this flow does
+description: launches arbitrary runner
+
+# Tags for categorization and search
+tags:
+  - example
+  - runner
+
+# Author information
+author:
+  organization: My Company
+  contact_email: dev@example.com
+
+# --- Optional fields for masumi/sokosumi integration ---
+
+# Example inputs for documentation
+# example:
+#   - name: example_input
+#     mime_type: application/json
+#     url: https://example.com/sample.json
+
+# Pricing configuration
+# agentPricing:
+#   pricingType: fixed
+#   fixedPricing:
+#     - amount: 1000000
+#       unit: lovelace
+```
+
+## Health Checks
+
+Health checks validate exposes against reality. Three validations are performed:
+
+| Check | Description |
+|-------|-------------|
+| **App Running** | Query Ray Serve API for application status |
+| **Endpoint Alive** | HEAD request to each flow endpoint |
+| **Fields Match** | Compare meta.data with actual flow data |
+
+### Health Check API
+
+```python
+# Health check all exposes
+resp = httpx.post("http://localhost:3370/expose/health", cookies=cookies)
+print(resp.json())
+
+# Health check single expose
+resp = httpx.post("http://localhost:3370/expose/myapp/health", cookies=cookies)
+print(resp.json())
+```
+
+Response:
+
+```json
+{
+  "name": "myapp",
+  "validations": {
+    "app_running": {"valid": true, "message": "RUNNING"},
+    "endpoint_alive": {"valid": true, "message": "2/2 endpoints alive"},
+    "fields_match": {"valid": true, "message": "All fields match"}
+  }
+}
+```
+
+## Exchange: Import & Export
+
+The Exchange feature enables backup and restore of expose configurations.
+
+### Export
+
+```python
+# Export all exposes to JSON
+resp = httpx.get("http://localhost:3370/exchange/export", cookies=cookies)
+with open("exposes_backup.json", "w") as f:
+    json.dump(resp.json(), f, indent=2)
+```
+
+Export format:
+
+```json
+{
+  "version": "1.0",
+  "exported_at": 1701345600.123,
+  "count": 2,
+  "exposes": [
+    {
+      "name": "myapp",
+      "display": "My Application",
+      "network": "Mainnet",
+      "enabled": true,
+      "state": "RUNNING",
+      "heartbeat": 1701345500.0,
+      "bootstrap": "import_path: mymodule:app\n...",
+      "meta": [
+        {
+          "url": "/myapp/runner",
+          "name": "factory-1",
+          "data": "display: Factory 1\n...",
+          "state": "alive",
+          "heartbeat": 1701345500.0
+        }
+      ],
+      "created": 1701345000.0,
+      "updated": 1701345500.0
+    }
+  ]
+}
+```
+
+### Import
+
+```python
+# Import exposes from JSON (creates automatic backup)
+with open("exposes_backup.json", "r") as f:
+    data = json.load(f)
+
+resp = httpx.post(
+    "http://localhost:3370/exchange/import",
+    cookies=cookies,
+    json=data
+)
+print(resp.json())
+# {"imported": 2, "errors": [], "backup": "./data/expose.20231201120000.db"}
+```
+
+<Warning>
+Import creates an automatic backup of the current database before overwriting.
+The backup path is returned in the response.
+</Warning>
+
+## Complete Workflow Example
+
+Here's a complete example deploying an application from a Git repository:
+
+### 1. Start Prerequisites
+
+```bash
+# Start Ray cluster
+ray start --head
+
+# Start Kodosumi (includes spooler and panel)
+koco start
+```
+
+### 2. Create Expose via API
+
+```python
+import httpx
+
+# Login
+resp = httpx.get("http://localhost:3370/login?name=admin&password=admin")
+cookies = resp.cookies
+
+# Create expose item
+expose_data = {
+    "name": "hymn",
+    "display": "Hymn Creator",
+    "network": "Preprod",
+    "enabled": True,
+    "bootstrap": """
+import_path: kodosumi_examples.hymn.app:fast_app
+runtime_env:
+  pip:
+    - crewai
+    - crewai_tools
+  py_modules:
+    - https://github.com/masumi-network/kodosumi-examples/archive/c1fc02b73e8fc3a1298c26b1597627098ecc7510.zip
+  env_vars:
+    OTEL_SDK_DISABLED: "true"
+    OPENAI_API_KEY: sk-proj-your-api-key
+deployments:
+  - name: HymnCreator
+    num_replicas: 1
+    ray_actor_options:
+      num_cpus: 0.1
+"""
+}
+
+resp = httpx.post(
+    "http://localhost:3370/expose",
+    cookies=cookies,
+    json=expose_data
+)
+print(f"Created: {resp.json()['name']} - State: {resp.json()['state']}")
+```
+
+### 3. Boot All Exposes
+
+```python
+# Start boot process
+with httpx.stream("POST", "http://localhost:3370/boot", cookies=cookies, timeout=1800) as resp:
+    for line in resp.iter_lines():
+        if line.startswith("data: "):
+            print(line[6:])
+```
+
+### 4. Verify Deployment
+
+```python
+# Check expose status
+resp = httpx.get("http://localhost:3370/expose/hymn", cookies=cookies)
+expose = resp.json()
+print(f"State: {expose['state']}")
+print(f"Flows: {expose['flow_stats']}")
+```
+
+### 5. Access Your Service
+
+Your service is now available at:
+- **Ray Serve endpoint**: `http://localhost:8005/hymn/`
+- **Kodosumi proxy**: `http://localhost:3370/-/localhost/8005/-/hymn/`
+
+## API Reference
+
+### Expose Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/expose` | List all expose items |
+| `GET` | `/expose/{name}` | Get single expose |
+| `POST` | `/expose` | Create or update expose |
+| `DELETE` | `/expose/{name}` | Delete expose |
+| `POST` | `/expose/health` | Health check all exposes |
+| `POST` | `/expose/{name}/health` | Health check single expose |
+
+### Boot Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/boot` | Start boot process (streams progress) |
+| `GET` | `/boot` | Get current boot status |
+| `GET` | `/boot/stream` | Subscribe to boot message stream |
+| `DELETE` | `/boot` | Shutdown Ray Serve (streams progress) |
+| `POST` | `/boot/refresh/{name}` | Refresh single expose |
+
+### Exchange Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/exchange/export` | Export all exposes to JSON |
+| `POST` | `/exchange/import` | Import exposes from JSON |
+
+All endpoints require operator authentication.
+
+## Troubleshooting
+
+### Boot stuck at health check
+
+The boot process waits up to 30 minutes for applications to reach a final state. If deployment takes longer, check:
+
+1. Ray cluster has sufficient resources (`ray status`)
+2. Application dependencies are available (pip packages, py_modules URLs)
+3. Ray Serve logs for errors (`ray logs`)
+
+### Application shows UNHEALTHY
+
+Check the Ray dashboard at `http://localhost:8265` for detailed error messages. Common causes:
+
+- Import errors in your application code
+- Missing dependencies in `runtime_env.pip`
+- Invalid `import_path` configuration
+
+### Endpoints not registering
+
+Ensure your endpoints use the `@app.enter()` decorator which adds the `x-kodosumi` OpenAPI extension. Standard FastAPI routes without this decorator are not registered as flows.
+
+### Force re-deployment
+
+Use the refresh endpoint to disable, boot, enable, and boot again:
+
+```python
+resp = httpx.post(
+    "http://localhost:3370/boot/refresh/myapp",
+    cookies=cookies,
+    timeout=300
+)
+```
+
+Or manually:
+
+```python
+# Disable expose
+resp = httpx.post("http://localhost:3370/expose", cookies=cookies,
+                   json={"name": "myapp", "enabled": False})
+
+# Boot (removes from Ray Serve)
+httpx.post("http://localhost:3370/boot", cookies=cookies, timeout=300)
+
+# Re-enable
+resp = httpx.post("http://localhost:3370/expose", cookies=cookies,
+                   json={"name": "myapp", "enabled": True})
+
+# Boot again (deploys fresh)
+httpx.post("http://localhost:3370/boot", cookies=cookies, timeout=300)
+```

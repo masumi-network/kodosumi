@@ -74,7 +74,7 @@ Create a new directory `./company_news` inside your local working directory `./a
 mkdir ./company_news
 ```
 
-<Note>Use the _flat package layout_. The _flat layout_ simplifies the deployment process as we will see later in [deployment](/deploy). In contrast to the _src layout_ the the _flat layout_ does **not** need any additional installation step to be _importable_ by Python.</Note>
+<Note>Use the _flat package layout_. The _flat layout_ simplifies the deployment process as we will see later in [Expose & Deployment](/expose). In contrast to the _src layout_ the the _flat layout_ does **not** need any additional installation step to be _importable_ by Python.</Note>
 
 Add the basic package structure and create the usual suspects along with `query.py` to deliver the agentic service.
 
@@ -474,7 +474,7 @@ Again we will skip `koco serve` until we have a proper deployment.
 Deploy with Ray _serve_ and run `koco start` to register your service with Kodosumi.
 
     serve deploy company_news.query:fast_app
-    koco start --register http://localhost:8000/-/routes
+    koco start
 
 Now launch the admin panel at http://localhost:3370 and run a test from http://localhost:3370/inputs/-/localhost/8000/-/. Retrieve the inputs scheme from [/-/localhost/8000/-/](http://localhost:3370/-/localhost/8000/-/), and test the service at [/inputs/-/localhost/8000/-/](http://localhost:3370/inputs/-/localhost/8000/-/).
 
@@ -508,5 +508,5 @@ The response returns the _Flow Identifier_ (`fid`).
 
 **Where to get from here?**
 
-* continue with [Kodosumi deployment workflow](/deploy)
+* continue with [Expose & Deployment](/expose)
 * continue with [Kodosumi upload example](/upload-example)

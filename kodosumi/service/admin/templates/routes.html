@@ -1,6 +1,37 @@
 {% extends "_frame.html" %}
 
 {% block styles %}
+    .audit-console {
+        background: #1a1a1a;
+        border-radius: 8px;
+        padding: 16px;
+        height: 300px;
+        overflow-y: auto;
+        font-family: 'Fira Code', 'Monaco', 'Menlo', monospace;
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
+    .audit-line {
+        margin: 0;
+        padding: 2px 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #e0e0e0;
+    }
+    .audit-line.info { color: #81c784; }
+    .audit-line.warning { color: #ffb74d; }
+    .audit-line.error { color: #ef5350; }
+    .audit-controls {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 12px;
+        align-items: center;
+    }
+    .audit-status {
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+        margin-left: auto;
+    }
 {% endblock %}
 
 {% block menu %}
@@ -88,6 +119,28 @@
         </ul>
         <div class="space"></div>
         <div class="large-divider"></div>
+        <h5>Audit Log</h5>
+        <p>Boot and deployment events. INFO level only (no sensitive details).</p>
+        <div class="audit-controls">
+            <button class="secondary small" id="audit-refresh" onclick="loadAuditLog()">
+                <i>refresh</i>
+                <span>Refresh</span>
+            </button>
+            <button class="secondary small" id="audit-follow" onclick="toggleFollow()">
+                <i>play_arrow</i>
+                <span>Follow</span>
+            </button>
+            <button class="secondary small" onclick="clearAuditConsole()">
+                <i>delete</i>
+                <span>Clear</span>
+            </button>
+            <span class="audit-status" id="audit-status">Ready</span>
+        </div>
+        <div class="audit-console" id="audit-console">
+            <p class="audit-line" style="color: #9e9e9e;">Click "Refresh" to load audit log or "Follow" to stream updates.</p>
+        </div>
+        <div class="space"></div>
+        <div class="large-divider"></div>
         <h5>Status Information</h5>
         <ul>
             <li>Kodosumi Version: {{ kodosumi_version }}</li>
@@ -128,4 +181,113 @@
 {% endblock %}
 
 {% block script %}
+// Audit Log functionality
+let auditOffset = 0;
+let auditFollowing = false;
+let auditFollowInterval = null;
+
+// Elements - initialized after DOM loads
+let auditConsole, auditStatus, auditFollowBtn;
+
+function initAuditElements() {
+    auditConsole = document.getElementById('audit-console');
+    auditStatus = document.getElementById('audit-status');
+    auditFollowBtn = document.getElementById('audit-follow');
+}
+
+function appendAuditLine(text) {
+    if (!auditConsole) initAuditElements();
+    const line = document.createElement('p');
+    line.className = 'audit-line';
+
+    // Apply styling based on log level
+    if (text.includes(' INFO ')) {
+        line.classList.add('info');
+    } else if (text.includes(' WARNING ')) {
+        line.classList.add('warning');
+    } else if (text.includes(' ERROR ')) {
+        line.classList.add('error');
+    }
+
+    line.textContent = text;
+    auditConsole.appendChild(line);
+    auditConsole.scrollTop = auditConsole.scrollHeight;
+}
+
+async function loadAuditLog(append = false) {
+    if (!auditConsole) initAuditElements();
+    try {
+        if (!append) {
+            auditConsole.innerHTML = '';
+            auditOffset = 0;
+        }
+
+        auditStatus.textContent = 'Loading...';
+
+        const response = await fetch(`/audit/stream?offset=${auditOffset}&limit=200`, {
+            credentials: 'same-origin'
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            auditStatus.textContent = 'Error: ' + response.status;
+            appendAuditLine(`Error ${response.status}: ${errorText}`);
+            return;
+        }
+
+        const data = await response.json();
+
+        if (data.lines && data.lines.length > 0) {
+            for (const line of data.lines) {
+                appendAuditLine(line);
+            }
+        } else if (!append) {
+            appendAuditLine('No audit log entries found.');
+        }
+
+        auditOffset = data.next_offset;
+        const sizeKB = (data.file_size / 1024).toFixed(1);
+        auditStatus.textContent = `${data.lines.length} lines | ${sizeKB} KB | offset: ${auditOffset}`;
+
+    } catch (error) {
+        auditStatus.textContent = 'Error: ' + error.message;
+    }
+}
+
+function toggleFollow() {
+    if (!auditFollowBtn) initAuditElements();
+    auditFollowing = !auditFollowing;
+
+    if (auditFollowing) {
+        auditFollowBtn.innerHTML = '<i>pause</i><span>Pause</span>';
+        auditFollowBtn.classList.add('primary');
+        auditFollowBtn.classList.remove('secondary');
+
+        // Start polling for new lines
+        loadAuditLog(true);
+        auditFollowInterval = setInterval(() => loadAuditLog(true), 2000);
+    } else {
+        auditFollowBtn.innerHTML = '<i>play_arrow</i><span>Follow</span>';
+        auditFollowBtn.classList.add('secondary');
+        auditFollowBtn.classList.remove('primary');
+
+        if (auditFollowInterval) {
+            clearInterval(auditFollowInterval);
+            auditFollowInterval = null;
+        }
+        auditStatus.textContent = 'Paused';
+    }
+}
+
+function clearAuditConsole() {
+    if (!auditConsole) initAuditElements();
+    auditConsole.innerHTML = '<p class="audit-line" style="color: #9e9e9e;">Console cleared.</p>';
+    auditOffset = 0;
+    auditStatus.textContent = 'Cleared';
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    initAuditElements();
+});
 {% endblock %}

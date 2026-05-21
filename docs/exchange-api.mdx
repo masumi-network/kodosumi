@@ -1,0 +1,236 @@
+---
+title: Exchange API
+---
+
+The Exchange API provides import/export functionality for expose configurations. Use this API to backup, restore, or migrate expose data between environments. All endpoints require operator role authentication.
+
+## Base URL
+
+```
+/exchange
+```
+
+## Authentication
+
+All endpoints require authentication with operator role.
+
+## Endpoints
+
+### Export Exposes
+
+```
+GET /exchange/export
+```
+
+Exports all expose items to JSON format.
+
+**Response:**
+
+```json
+{
+    "version": "1.0",
+    "exported_at": 1700000000.0,
+    "count": 3,
+    "exposes": [
+        {
+            "name": "my-agent",
+            "display": "My Agent Service",
+            "network": "Preprod",
+            "enabled": 1,
+            "state": "RUNNING",
+            "heartbeat": 1700000000.0,
+            "bootstrap": "applications:\n  - name: my-agent\n...",
+            "meta": [
+                {
+                    "url": "/my-agent/process",
+                    "data": "display: Process Flow\ntags:\n  - processing",
+                    "enabled": true,
+                    "state": "alive",
+                    "heartbeat": 1700000000.0
+                }
+            ],
+            "created": 1699900000.0,
+            "updated": 1700000000.0
+        }
+    ]
+}
+```
+
+```python
+import httpx
+
+resp = httpx.get(
+    "http://localhost:3370/exchange/export",
+    cookies=cookies
+)
+export_data = resp.json()
+
+# Save to file
+import json
+with open("exposes_backup.json", "w") as f:
+    json.dump(export_data, f, indent=2)
+```
+
+### Import Exposes
+
+```
+POST /exchange/import
+```
+
+Imports expose items from JSON. Creates automatic backup before import.
+
+**Request Body:**
+
+```json
+{
+    "version": "1.0",
+    "exposes": [
+        {
+            "name": "my-agent",
+            "display": "My Agent Service",
+            "network": "Preprod",
+            "enabled": true,
+            "state": "DRAFT",
+            "bootstrap": "...",
+            "meta": [...]
+        }
+    ]
+}
+```
+
+**Response:**
+
+```json
+{
+    "imported": 3,
+    "errors": [],
+    "backup": "./data/expose.20240101120000.db"
+}
+```
+
+**Errors in response:**
+- Missing `name` field: `"Item missing 'name' field"`
+- Database errors: `"{name}: {error_message}"`
+
+```python
+import json
+
+# Load from file
+with open("exposes_backup.json", "r") as f:
+    import_data = json.load(f)
+
+resp = httpx.post(
+    "http://localhost:3370/exchange/import",
+    cookies=cookies,
+    json=import_data
+)
+result = resp.json()
+print(f"Imported: {result['imported']}")
+print(f"Errors: {result['errors']}")
+print(f"Backup: {result['backup']}")
+```
+
+## Export Format
+
+### Version 1.0
+
+The export format includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | string | Format version (`"1.0"`) |
+| `exported_at` | float | Export timestamp |
+| `count` | int | Number of exposes |
+| `exposes` | array | Expose items |
+
+### Expose Item Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Unique identifier (required) |
+| `display` | string | Human-readable name |
+| `network` | string | `"Preprod"` or `"Mainnet"` |
+| `enabled` | boolean | Active status |
+| `state` | string | Current state |
+| `heartbeat` | float | Last heartbeat timestamp |
+| `bootstrap` | string | Ray Serve YAML config |
+| `meta` | array | Flow configurations (parsed from YAML) |
+| `created` | float | Creation timestamp |
+| `updated` | float | Update timestamp |
+
+## Backup Behavior
+
+On import:
+1. If `./data/expose.db` exists, a backup is created
+2. Backup filename: `expose.{timestamp}.db`
+3. Format: `YYYYMMDDHHMMSS`
+4. Backup path returned in response
+
+## Migration Use Cases
+
+### Environment Migration
+
+Export from staging:
+
+```python
+resp = httpx.get(
+    "http://staging:3370/exchange/export",
+    cookies=staging_cookies
+)
+with open("migration.json", "w") as f:
+    json.dump(resp.json(), f)
+```
+
+Import to production:
+
+```python
+with open("migration.json", "r") as f:
+    data = json.load(f)
+
+resp = httpx.post(
+    "http://production:3370/exchange/import",
+    cookies=prod_cookies,
+    json=data
+)
+```
+
+### Selective Import
+
+Filter exposes before import:
+
+```python
+with open("full_export.json", "r") as f:
+    data = json.load(f)
+
+# Only import enabled exposes
+data["exposes"] = [
+    e for e in data["exposes"]
+    if e.get("enabled")
+]
+data["count"] = len(data["exposes"])
+
+resp = httpx.post(
+    "http://localhost:3370/exchange/import",
+    cookies=cookies,
+    json=data
+)
+```
+
+### State Reset on Import
+
+Reset states to DRAFT for fresh deployment:
+
+```python
+with open("backup.json", "r") as f:
+    data = json.load(f)
+
+for expose in data["exposes"]:
+    expose["state"] = "DRAFT"
+    expose["heartbeat"] = None
+
+resp = httpx.post(
+    "http://localhost:3370/exchange/import",
+    cookies=cookies,
+    json=data
+)
+```

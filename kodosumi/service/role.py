@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from kodosumi.dtypes import Role, RoleCreate, RoleEdit, RoleResponse
 from kodosumi.log import logger
 from kodosumi.service.jwt import operator_guard
+from litestar import Request
 
 
 async def update_role(rid: Union[uuid.UUID, str],
@@ -34,6 +35,24 @@ async def update_role(rid: Union[uuid.UUID, str],
         await transaction.flush()
         logger.info(f"updated role {role.name} ({role.id})")
     return RoleResponse.model_validate(role)
+
+
+class ProfileControl(litestar.Controller):
+
+    tags = ["Access Management"]
+    path = "/profile"
+
+    @get("/", summary="Get own profile",
+         description="Returns the profile (id, name, email, active) of the currently authenticated user. No operator privileges required.",
+         operation_id="25_get_profile")
+    async def get_profile(self, request: Request,
+                          transaction: AsyncSession) -> RoleResponse:
+        query = select(Role).where(Role.id == uuid.UUID(request.user))
+        result = await transaction.execute(query)
+        role = result.scalar_one_or_none()
+        if not role:
+            raise NotFoundException(detail="User not found")
+        return RoleResponse.model_validate(role)
 
 
 class RoleControl(litestar.Controller):

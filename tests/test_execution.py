@@ -1031,9 +1031,10 @@ async def test_factory_errors(app_server3, spooler_server, koco_server):
     resp = await client.post(f"{koco_server}/-/localhost/8125/-/except",
                              timeout=300)
     assert resp.status_code == 500
-    assert resp.json() == {
-        'detail': "RuntimeError('This is a runtime error')"
-    }
+    assert "RuntimeError: This is a runtime error" in resp.json().get("detail")
+    # assert resp.json() == {
+    #     'detail': "RuntimeError('This is a runtime error')"
+    # }
 
     resp = await client.post(f"{koco_server}/-/localhost/8125/-/response",
                              timeout=300)

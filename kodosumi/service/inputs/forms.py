@@ -108,11 +108,12 @@ class Errors(FormElement):
     def render(self) -> str:
         if not self.error:
             return ""
+        error = "\n".join(self.error if self.error else [])
         return f"""
             <div class="space"></div>
             <div class="error-container small-round">
             <div class="error-text bold padding">
-                {"\n".join(self.error if self.error else [])}
+                {error}
             </div>
             </div>
             <div class="space"></div>
@@ -597,8 +598,9 @@ class Select(FormElement):
         option: List[InputOption],
         label: Optional[str] = None,
         value: Optional[str] = None,
+        required: bool = False,
         error: Optional[List[str]] = None):
-        super().__init__(name, label, value, required=False, text=None, 
+        super().__init__(name, label, value, required=required, text=None,
                          error=error)
         self.option = []
         for opt in option:
@@ -619,6 +621,7 @@ class Select(FormElement):
             "name": self.name,
             "label": self.label,
             "value": self.value,
+            "required": self.required,
             "option": [opt.to_dict() for opt in self.option],
             "error": self.error
         }
@@ -782,6 +785,562 @@ class InputFiles(FormElement):
         return "\n".join(ret)
 
 
+# =============================================================================
+# New MIP-003 Compatible Input Types
+# =============================================================================
+
+
+class InputEmail(InputText):
+    """Email input field with email validation."""
+    type = "email"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            size: Optional[int] = None,
+            pattern: Optional[str] = None,
+            min_length: Optional[int] = None,
+            max_length: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, placeholder, size,
+                         pattern, error=error)
+        self.min_length = min_length
+        self.max_length = max_length
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "size": self.size,
+            "pattern": self.pattern,
+            "min_length": self.min_length,
+            "max_length": self.max_length,
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.size:
+            attrs.append(f'size="{self.size}"')
+        if self.pattern:
+            attrs.append(f'pattern="{self.pattern}"')
+        if self.min_length:
+            attrs.append(f'minlength="{self.min_length}"')
+        if self.max_length:
+            attrs.append(f'maxlength="{self.max_length}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
+class InputUrl(InputText):
+    """URL input field with URL validation."""
+    type = "url"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            size: Optional[int] = None,
+            pattern: Optional[str] = None,
+            min_length: Optional[int] = None,
+            max_length: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, placeholder, size,
+                         pattern, error=error)
+        self.min_length = min_length
+        self.max_length = max_length
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "size": self.size,
+            "pattern": self.pattern,
+            "min_length": self.min_length,
+            "max_length": self.max_length,
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.size:
+            attrs.append(f'size="{self.size}"')
+        if self.pattern:
+            attrs.append(f'pattern="{self.pattern}"')
+        if self.min_length:
+            attrs.append(f'minlength="{self.min_length}"')
+        if self.max_length:
+            attrs.append(f'maxlength="{self.max_length}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
+class InputTel(InputText):
+    """Telephone number input field."""
+    type = "tel"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            size: Optional[int] = None,
+            pattern: Optional[str] = None,
+            min_length: Optional[int] = None,
+            max_length: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, placeholder, size,
+                         pattern, error=error)
+        self.min_length = min_length
+        self.max_length = max_length
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "size": self.size,
+            "pattern": self.pattern,
+            "min_length": self.min_length,
+            "max_length": self.max_length,
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.size:
+            attrs.append(f'size="{self.size}"')
+        if self.pattern:
+            attrs.append(f'pattern="{self.pattern}"')
+        if self.min_length:
+            attrs.append(f'minlength="{self.min_length}"')
+        if self.max_length:
+            attrs.append(f'maxlength="{self.max_length}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
+class InputSearch(InputText):
+    """Search input field."""
+    type = "search"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            size: Optional[int] = None,
+            pattern: Optional[str] = None,
+            min_length: Optional[int] = None,
+            max_length: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, placeholder, size,
+                         pattern, error=error)
+        self.min_length = min_length
+        self.max_length = max_length
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "size": self.size,
+            "pattern": self.pattern,
+            "min_length": self.min_length,
+            "max_length": self.max_length,
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.size:
+            attrs.append(f'size="{self.size}"')
+        if self.pattern:
+            attrs.append(f'pattern="{self.pattern}"')
+        if self.min_length:
+            attrs.append(f'minlength="{self.min_length}"')
+        if self.max_length:
+            attrs.append(f'maxlength="{self.max_length}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
+class InputMonth(FormElement):
+    """Month picker input field."""
+    type = "month"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            min_month: Optional[str] = None,
+            max_month: Optional[str] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.min_month = min_month
+        self.max_month = max_month
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "min_month": self.min_month,
+            "max_month": self.max_month,
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.min_month:
+            attrs.append(f'min="{self.min_month}"')
+        if self.max_month:
+            attrs.append(f'max="{self.max_month}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
+class InputWeek(FormElement):
+    """Week picker input field."""
+    type = "week"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            min_week: Optional[str] = None,
+            max_week: Optional[str] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.min_week = min_week
+        self.max_week = max_week
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "min_week": self.min_week,
+            "max_week": self.max_week,
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.min_week:
+            attrs.append(f'min="{self.min_week}"')
+        if self.max_week:
+            attrs.append(f'max="{self.max_week}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
+class InputColor(FormElement):
+    """Color picker input field."""
+    type = "color"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        else:
+            attrs.append('value="#000000"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
+class InputRange(FormElement):
+    """Range slider input field."""
+    type = "range"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[float] = None,
+            required: bool = False,
+            min_value: Optional[float] = None,
+            max_value: Optional[float] = None,
+            step: Optional[float] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.min_value = min_value if min_value is not None else 0
+        self.max_value = max_value if max_value is not None else 100
+        self.step = step
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "min_value": self.min_value,
+            "max_value": self.max_value,
+            "step": self.step,
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = [f'type="{self.type}"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value is not None:
+            attrs.append(f'value="{self.value}"')
+        attrs.append(f'min="{self.min_value}"')
+        attrs.append(f'max="{self.max_value}"')
+        if self.step:
+            attrs.append(f'step="{self.step}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+    def parse_value(self, value: Any) -> Any:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return value
+
+
+class InputHidden(FormElement):
+    """Hidden input field for server-side values."""
+    type = "hidden"
+
+    def __init__(
+            self,
+            name: str,
+            value: str,
+            error: Optional[List[str]] = None):
+        super().__init__(name, None, value, required=False, error=error)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "value": self.value,
+        }
+
+    def render(self) -> str:
+        return f'<input type="hidden" name="{self.name}" value="{self.value or ""}">'
+
+
+class InputRadio(FormElement):
+    """Radio button group input field."""
+    type = "radio"
+
+    def __init__(
+            self,
+            name: str,
+            option: List[InputOption],
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, error=error)
+        self.option = []
+        for opt in option:
+            if not isinstance(opt, InputOption):
+                opt_copy = dict(opt)
+                opt_copy.pop("type", None)
+                add = InputOption(**opt_copy)
+            else:
+                add = opt
+            if value and add.name == value:
+                add.value = True
+            else:
+                add.value = False
+            self.option.append(add)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "option": [opt.to_dict() for opt in self.option],
+        }
+
+    def render(self) -> str:
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field">')
+        for opt in self.option:
+            checked = 'checked' if opt.value else ''
+            required_attr = 'required' if self.required else ''
+            ret.append(f'<label class="radio">')
+            ret.append(f'<input type="radio" name="{self.name}" value="{opt.name}" {checked} {required_attr}>')
+            ret.append(f'<span>{opt.label or opt.name}</span>')
+            ret.append(f'</label>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+    def parse_value(self, value: Any) -> Any:
+        for opt in self.option:
+            if opt.name == value:
+                opt.value = True
+            else:
+                opt.value = False
+        return value
+
+
+class DisplayInfo(Element):
+    """Display-only information field (MIP-003 'none' type)."""
+    type = "none"
+
+    def __init__(
+            self,
+            text: str,
+            label: Optional[str] = None):
+        super().__init__(text=text)
+        self.label = label
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "text": self.text,
+            "label": self.label,
+        }
+
+    def render(self) -> str:
+        ret = []
+        if self.label:
+            ret.append(f'<legend class="inputs-label">{self.label}</legend>')
+        ret.append(f'<div class="field">')
+        ret.append(f'<p>{self.text or ""}</p>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
 class JsonModel(BaseModel):
     elements: List[Dict[str, Any]]
 
@@ -811,24 +1370,37 @@ class Model:
                        errors: Optional[Dict[str, List[str]]] = None,
                        **kwargs) -> "Model":
         scope = {
-            HTML, 
-            Markdown, 
-            InputText, 
+            HTML,
+            Markdown,
+            InputText,
             InputNumber,
+            InputPassword,
             InputArea,
             InputDate,
             InputTime,
             InputDateTime,
-            Checkbox, 
+            Checkbox,
             InputOption,
             Select,
-            Submit, 
-            Cancel, 
+            Submit,
+            Cancel,
             Action,
             Errors,
             InputFiles,
             HR,
-            Break
+            Break,
+            # MIP-003 compatible types
+            InputEmail,
+            InputUrl,
+            InputTel,
+            InputSearch,
+            InputMonth,
+            InputWeek,
+            InputColor,
+            InputRange,
+            InputHidden,
+            InputRadio,
+            DisplayInfo,
         }
         children = []
         for elm in elms:
@@ -868,8 +1440,12 @@ class Model:
 
 
 __all__ = [
-    "Model", "Break", "HR", "InputText", "InputNumber", "Checkbox", 
-    "InputOption", "Select", "Action", "Submit", "Cancel", "Markdown", "HTML", 
-    "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime", 
-    "InputFiles"
+    "Model", "Break", "HR", "InputText", "InputNumber", "Checkbox",
+    "InputOption", "Select", "Action", "Submit", "Cancel", "Markdown", "HTML",
+    "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime",
+    "InputFiles", "InputPassword",
+    # MIP-003 compatible types
+    "InputEmail", "InputUrl", "InputTel", "InputSearch",
+    "InputMonth", "InputWeek", "InputColor", "InputRange",
+    "InputHidden", "InputRadio", "DisplayInfo",
 ]
