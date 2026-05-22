@@ -203,6 +203,52 @@ class MyAPI(Controller):
         # ...
 ```
 
+## API Cheatsheet (for programmatic access)
+
+### Authentication
+```bash
+# Step 1: Login (returns JWT)
+curl -X POST https://panel.kodosumi.io/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "name=admin&password=YOUR_PASSWORD"
+# → {"name":"admin","KODOSUMI_API_KEY":"eyJ..."}
+
+# Step 2: Use JWT for API calls (any of these work)
+curl -H "Authorization: Bearer eyJ..." https://panel.kodosumi.io/expose/
+curl -H "KODOSUMI_API_KEY: eyJ..." https://panel.kodosumi.io/expose/
+curl -b "kodosumi_jwt=eyJ..." https://panel.kodosumi.io/expose/
+```
+
+### JSON API Endpoints (require auth)
+| Method | Path | Returns |
+|--------|------|---------|
+| GET | `/expose/` | List all exposes |
+| GET | `/expose/{name}` | Single expose details |
+| POST | `/expose/` | Create/update expose |
+| DELETE | `/expose/{name}` | Delete expose |
+| POST | `/expose/health` | Health check all |
+| POST | `/boot/` | Start deployment (streaming) |
+| GET | `/boot/` | Boot status |
+| DELETE | `/boot/` | Shutdown Ray Serve |
+| GET | `/flow/` | List registered flows |
+| GET | `/health/` | System health |
+| GET | `/role/profile` | Own user profile |
+| GET | `/api/dashboard/running-agents` | Running agents list |
+| GET | `/api/masumi/summary?network=Mainnet` | Payment dashboard |
+| GET | `/api/masumi/agents?network=Mainnet` | Per-agent revenue |
+
+### Public Endpoints (no auth required)
+| Method | Path | Returns |
+|--------|------|---------|
+| GET | `/sumi/` | List all Sumi services |
+| GET | `/sumi/{expose}/availability` | Check agent availability |
+| GET | `/sumi/{expose}/input_schema` | MIP-003 input schema |
+| POST | `/sumi/{expose}/start_job` | Start a job |
+| GET | `/sumi/{expose}/status/{job_id}` | Job status |
+
+### HTML Pages (for browser, not API)
+`/admin/flow`, `/admin/timeline/view`, `/admin/dashboard`, `/admin/expose`, `/admin/masumi`, `/admin/routes`
+
 ## Code Style
 - Async-first for all I/O operations
 - Type hints required for function signatures

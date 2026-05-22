@@ -34,7 +34,9 @@ def encode_jwt_token(role_id: str) -> str:
 def parse_token(scope) -> Token:
     auth_header = scope.headers.get(HEADER_KEY, None)
     auth_cookie = scope.cookies.get(TOKEN_KEY, None)
-    auth = auth_header or auth_cookie
+    bearer = scope.headers.get("authorization", "")
+    bearer = bearer[7:] if bearer.startswith("Bearer ") else None
+    auth = auth_header or bearer or auth_cookie
     if not auth:
         raise NotAuthorizedException()
     return decode_jwt_token(encoded_token=auth)
