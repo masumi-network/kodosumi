@@ -34,8 +34,12 @@ def test_jwt_tampered_token():
     from litestar.exceptions import NotAuthorizedException
     role_id = str(uuid.uuid4())
     token_str = encode_jwt_token(role_id)
-    # Flip a character in the signature
-    tampered = token_str[:-1] + ("A" if token_str[-1] != "A" else "B")
+    # Flip a character in the middle of the signature (not padding)
+    parts = token_str.rsplit(".", 1)
+    sig = parts[1]
+    mid = len(sig) // 2
+    flipped = sig[:mid] + ("X" if sig[mid] != "X" else "Y") + sig[mid+1:]
+    tampered = parts[0] + "." + flipped
     with pytest.raises(NotAuthorizedException):
         decode_jwt_token(tampered)
 
