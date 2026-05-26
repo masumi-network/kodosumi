@@ -161,9 +161,18 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ---
 
-## Sumi Protocol (Public — no auth required)
+## Sumi Protocol (MIP-003 — External Job API)
 
-### List available services
+Sumi endpoints are the standard way for external systems (Sokosumi, other marketplaces) to discover and run agents.
+
+**Auth depends on the agent's configuration:**
+
+| Agent Config | Auth Required? | Why |
+|---|---|---|
+| `network` set (Preprod/Mainnet) | No — public | Blockchain handles payment/auth |
+| `network` not set | **Yes — JWT required** | No external auth system |
+
+### List available services (always public)
 
 ```bash
 curl https://panel.kodosumi.io/sumi/
@@ -172,8 +181,12 @@ curl https://panel.kodosumi.io/sumi/
 ### Check availability
 
 ```bash
+# Public agent (has network):
 curl https://panel.kodosumi.io/sumi/my_agent_cc/availability
-# {"status":"available","message":"My Agent is ready to accept jobs"}
+
+# Private agent (no network) — needs JWT:
+curl -H "Authorization: Bearer $TOKEN" \
+  https://panel.kodosumi.io/sumi/my_private_agent/availability
 ```
 
 ### Get input schema (MIP-003)
@@ -185,14 +198,27 @@ curl https://panel.kodosumi.io/sumi/my_agent_cc/input_schema
 ### Start a job
 
 ```bash
+# Paid agent (has agentIdentifier) — identifier_from_purchaser required:
 curl -X POST https://panel.kodosumi.io/sumi/my_agent_cc/start_job \
   -H "Content-Type: application/json" \
   -d '{
     "input_data": {"question": "What is AI?"},
-    "identifier_from_purchaser": "optional-buyer-id"
+    "identifier_from_purchaser": "buyer-wallet-id"
   }'
-# {"job_id":"6a0b9877...","status":"running"}
+
+# Free agent (no agentIdentifier) — no purchaser ID needed:
+curl -X POST https://panel.kodosumi.io/sumi/my_free_agent/start_job \
+  -H "Content-Type: application/json" \
+  -d '{"input_data": {"question": "What is AI?"}}'
+
+# Private agent (no network) — needs JWT:
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  https://panel.kodosumi.io/sumi/my_private_agent/start_job \
+  -d '{"input_data": {"question": "What is AI?"}}'
 ```
+
+Response: `{"job_id":"6a0b9877...","status":"running"}`
 
 ### Get job status
 

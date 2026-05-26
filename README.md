@@ -91,6 +91,10 @@ Agents are managed through the **Expose** system in the Admin Panel:
 2. Click **Boot** to deploy all configured agents to Ray Serve
 3. Monitor executions in the **Timeline** and **Analytics** dashboards
 
+## API Reference
+
+For programmatic access (scripts, LLMs, CI/CD), see the **[API Cheatsheet](./docs/api-cheatsheet.md)** — covers authentication, all JSON endpoints, and the Sumi job protocol.
+
 ## Features
 
 - **Distributed Execution** - Scale from laptop to cluster with Ray Serve
