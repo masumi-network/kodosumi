@@ -28,7 +28,7 @@
           },
           {
             "group": "Details",
-            "pages": ["timeline", "files", "files-api", "locks", "make"]
+            "pages": ["timeline", "files", "files-api", "locks", "make", "api-cheatsheet"]
           }
         ]
       },
