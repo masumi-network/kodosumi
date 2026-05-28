@@ -892,9 +892,11 @@ async def _submit_job(
                 ext_dispute_unlock_time = int(pay_data["externalDisputeUnlockTime"]) if pay_data.get("externalDisputeUnlockTime") else None
                 sc_wallet = pay_data.get("SmartContractWallet") or {}
                 seller_vkey = sc_wallet.get("walletVkey")
-        except Exception:
-            # Actor not found or prepare failed — proceed without payment
-            pass
+        except Exception as exc:
+            logger.warning(
+                "start_job prepare failed for %s: %s: %s",
+                job_id, type(exc).__name__, exc
+            )
 
         return JobStatusResponse(
             job_id=job_id,
