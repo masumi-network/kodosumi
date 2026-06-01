@@ -62,12 +62,15 @@ pytest tests/test_flow.py -v  # single test file
    - Deployed via Expose/Boot system (Admin UI or API)
 
 ### Core Components
-- `kodosumi/core.py` - Public API exports (`ServeAPI`, `Launch`, `Tracer`, etc.)
+- `kodosumi/core.py` - Public API exports (`ServeAPI`, `Launch`, `Tracer`, `TracerMock`, etc.)
 - `kodosumi/serve.py` - `ServeAPI` class (extended FastAPI for agent endpoints)
-- `kodosumi/runner/main.py` - `Runner` Ray actor that executes agent workflows
+- `kodosumi/runner/main.py` - `Runner` Ray actor that executes agent workflows. Sets `KODOSUMI_FID` and `KODOSUMI_USER_ID` env vars before entry point execution.
 - `kodosumi/runner/payment.py` - `MasumiClient` for blockchain payment integration
 - `kodosumi/spooler.py` - Background process that collects execution events from Ray queues
 - `kodosumi/config.py` - Settings with `KODO_` env prefix (e.g., `KODO_EXEC_DIR`, `KODO_MASUMI`)
+- `kodosumi/service/masumi/` - Masumi Payment Dashboard:
+  - `cache.py` - SQLite cache with cursorId pagination for Masumi Payment API
+  - `control.py` - Revenue, agents, trend, wallets API endpoints
 - `kodosumi/service/expose/` - Expose management system:
   - `control.py` - API endpoints for CRUD, registry, wallets, exchange, audit
   - `boot.py` - Boot/shutdown streaming endpoints
@@ -149,9 +152,12 @@ data/
 
 #### Other Key Endpoints
 - `GET /health/` - System health (Ray, Serve, Spooler, Services)
-- `POST /flow/register` - Register flows from OpenAPI endpoints
 - `GET /flow/` - List registered flows
 - `GET /api/dashboard/*` - Analytics (running agents, errors, timeline, stats)
+- `GET /api/masumi/summary?network=` - Payment revenue summary
+- `GET /api/masumi/agents?network=` - Per-agent payment breakdown
+- `GET /api/masumi/trend?network=` - Weekly payment trend
+- `GET /api/masumi/wallets?network=` - Wallet balances via Koios
 
 ## Key Patterns
 
@@ -173,11 +179,30 @@ async def agent_function(inputs: dict, tracer: Tracer):
     return result
 ```
 
+### Local Testing with TracerMock
+```python
+from kodosumi.core import TracerMock
+
+async def test_agent():
+    tracer = TracerMock()
+    await my_agent_function(inputs={"query": "test"}, tracer=tracer)
+```
+`TracerMock` provides no-op implementations of all Tracer methods — no Ray cluster needed.
+
+### Environment Variables in Runner
+The Runner sets these env vars before calling the entry point:
+- `KODOSUMI_FID` - Execution ID (same as `tracer.fid`)
+- `KODOSUMI_USER_ID` - User ID who started the job
+
+Agents can pass these to ClaudeSessionActors for file output paths:
+`/data/execution/$KODOSUMI_USER_ID/$KODOSUMI_FID/out/`
+
 ### Monitor Table Event Types
 - `status`: Plain string ("running", "finished", "error") - NOT JSON
 - `meta`: JSON object with execution metadata
 - `error`: Can be plain text or JSON - handle both
 - `inputs`, `result`, `action`, `final`: Usually JSON
+- `payment`: JSON with payment init/result data (Sumi jobs only)
 
 ### Configuration
 Settings via environment variables with `KODO_` prefix or `.env` file:
