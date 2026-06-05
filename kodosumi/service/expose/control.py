@@ -6,10 +6,12 @@ All endpoints require operator role authentication.
 
 import asyncio
 import logging
+import os
+import re
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,139 @@ async def get_ray_serve_status(ray_dashboard: str) -> dict:
     except Exception:
         pass
     return {}
+
+
+# Directory where Ray writes its session logs. Override with KODO_RAY_SESSION_DIR
+# if Ray uses a non-default temp dir (e.g. ray start --temp-dir=...).
+RAY_SESSION_DIR = os.environ.get("KODO_RAY_SESSION_DIR", "/tmp/ray/session_latest")
+
+# A Ray log line starts with a level token followed by a timestamp, e.g.
+#   "ERROR 2026-06-03 21:55:34,037 controller 82182 -- ..."
+# We use this to know where one log record (and any attached traceback) ends.
+_RAY_LOG_LINE_RE = re.compile(
+    r"^(INFO|DEBUG|WARNING|ERROR|TRACE|CRITICAL)\s+\d{4}-\d{2}-\d{2}\s"
+)
+
+# Only read the tail of each controller log. The relevant failure is the most
+# recent one, and these files can grow large; reading the whole file on every
+# page render would be wasteful and slow.
+_CONTROLLER_LOG_TAIL_BYTES = 256 * 1024
+
+
+def _read_tail(path: Path, max_bytes: int) -> str:
+    """Read up to the last ``max_bytes`` of a file as text (best-effort)."""
+    with path.open("rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        size = fh.tell()
+        fh.seek(max(0, size - max_bytes))
+        data = fh.read()
+    return data.decode("utf-8", errors="replace")
+
+
+def _trim_block(block: str, max_chars: int) -> str:
+    """Cap a traceback block, preserving the head and the (more useful) tail."""
+    if len(block) <= max_chars:
+        return block
+    head = block.split("\n", 1)[0]
+    tail = block[-(max_chars - len(head) - 5):]
+    return f"{head}\n...\n{tail}"
+
+
+def get_deploy_errors(
+    names: Sequence[str], max_chars: int = 2500
+) -> Dict[str, Optional[str]]:
+    """
+    Best-effort extraction of the most recent Ray Serve deploy/import error for
+    each of ``names``, scanning the Serve controller logs in a single pass.
+
+    This is the reliable source for *historical* failures: once an app fails to
+    deploy, boot removes it from the Ray Serve config, so it disappears from the
+    live applications API. The controller logs still hold the traceback.
+
+    Each controller log is read (tail only) at most once per call, so rendering
+    a page with many failed exposes stays O(log files), not O(exposes).
+
+    Never raises — returns a mapping of name -> trimmed traceback string (or
+    None when nothing relevant is found / logs are unavailable).
+    """
+    result: Dict[str, Optional[str]] = {name: None for name in names}
+    if not result:
+        return result
+    try:
+        log_dir = Path(RAY_SESSION_DIR) / "logs" / "serve"
+        if not log_dir.is_dir():
+            return result
+
+        marker_map = {
+            name: (
+                f"Exception importing application '{name}'.",
+                f"Deploying app '{name}' failed with exception:",
+            )
+            for name in result
+        }
+
+        # Most recently modified controller logs first.
+        candidates = sorted(
+            log_dir.glob("controller*.log"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+
+        remaining = set(result)
+        for path in candidates:
+            if not remaining:
+                break
+            try:
+                text = _read_tail(path, _CONTROLLER_LOG_TAIL_BYTES)
+            except OSError:
+                continue
+
+            lines = text.splitlines()
+            # Last block seen per name within this file (most recent wins).
+            latest: Dict[str, str] = {}
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                matched = next(
+                    (n for n in remaining
+                     if any(m in line for m in marker_map[n])),
+                    None,
+                )
+                if matched is not None:
+                    block = [line]
+                    i += 1
+                    # Collect following lines until the next log record starts.
+                    while i < len(lines) and not _RAY_LOG_LINE_RE.match(lines[i]):
+                        block.append(lines[i])
+                        i += 1
+                    latest[matched] = "\n".join(block).rstrip()
+                else:
+                    i += 1
+
+            for name, block in latest.items():
+                result[name] = _trim_block(block, max_chars)
+                remaining.discard(name)
+    except Exception:
+        # Diagnostics must never break the page render.
+        pass
+    return result
+
+
+def get_deploy_error(name: str, max_chars: int = 2500) -> Optional[str]:
+    """Single-name convenience wrapper around :func:`get_deploy_errors`."""
+    return get_deploy_errors([name], max_chars).get(name)
+
+
+# Expose states that indicate a deploy/health failure worth surfacing the
+# controller-log traceback for.
+_FAILED_STATES = ("DEPLOY_FAILED", "UNHEALTHY")
+
+
+def is_failed_state(state: Optional[str]) -> bool:
+    """True for states that represent a deploy/health failure."""
+    if not state:
+        return False
+    return state in _FAILED_STATES or "FAIL" in state
 
 
 def ensure_serve_config():
@@ -1118,6 +1253,16 @@ class ExposeUIControl(litestar.Controller):
             else:
                 item.needs_reboot = False
 
+        # Surface the last deploy/import error for failed states so the operator
+        # doesn't have to dig through Ray controller logs. Scan the logs once for
+        # all failed items, off the event loop (blocking file I/O).
+        failed = [it for it in items if is_failed_state(it.state)]
+        if failed:
+            errors = await asyncio.to_thread(
+                get_deploy_errors, [it.name for it in failed])
+            for it in failed:
+                it.last_error = errors.get(it.name)
+
         return Template("expose/main.html", context={"items": items})
 
     @get(
@@ -1149,6 +1294,8 @@ class ExposeUIControl(litestar.Controller):
             raise NotFoundException(detail=f"Expose '{name}' not found")
 
         item = ExposeResponse.from_db_row(row)
+        if is_failed_state(item.state):
+            item.last_error = await asyncio.to_thread(get_deploy_error, item.name)
         return Template("expose/edit.html", context={
             "item": item,
             "is_new": False,
