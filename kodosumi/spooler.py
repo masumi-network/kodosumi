@@ -14,8 +14,11 @@ from ray.util.state.common import ActorState
 
 import kodosumi.config
 from kodosumi import helper
-from kodosumi.const import DB_FILE, NAMESPACE, SPOOLER_NAME
+from kodosumi.const import DB_FILE, NAMESPACE, SPOOLER_NAME, STATUS_PAYMENT
 from kodosumi.log import logger, spooler_logger
+from kodosumi.runner.reconcile import (read_last_status,
+                                       reconcile_payment_job)
+from kodosumi.helper import now
 
 
 @ray.remote
@@ -41,19 +44,28 @@ class SpoolerLock:
         self.total = total
 
 class Spooler:
-    def __init__(self, 
+    def __init__(self,
                  exec_dir: Union[str, Path],
                  interval: float=1.,
                  batch_size: int=10,
-                 batch_timeout: float=0.1):
+                 batch_timeout: float=0.1,
+                 reconcile_interval: float=600.,
+                 reconcile_min_age: float=60.):
         self.exec_dir = Path(exec_dir)
         self.exec_dir.mkdir(parents=True, exist_ok=True)
-        self.interval = interval  
+        self.interval = interval
         self.batch_size = batch_size
         self.batch_timeout = batch_timeout
         self.shutdown_event = asyncio.Event()
-        self.monitor: dict = {}  
+        self.monitor: dict = {}
         self.lock = None
+        # Payment-job reconciliation: how often to sweep for orphaned
+        # "payment" jobs, and how long a job must have been frozen before we
+        # touch it (so freshly-started jobs are never disturbed).
+        self.reconcile_interval = reconcile_interval
+        self.reconcile_min_age = reconcile_min_age
+        self._last_reconcile: float = 0.0
+        self._reconcile_task = None
 
     def setup_database(self, username: str, fid: str):
         dir_path = self.exec_dir.joinpath(username, fid)
@@ -87,6 +99,69 @@ class Spooler:
                 logger.debug(f"saved {val.get('kind')}: {val} for {fid}")
         except Exception:
             logger.critical(f"failed to save {fid}", exc_info=True)
+
+    def _scan_frozen_payments(self, alive_fids: set) -> List[tuple]:
+        """Find execution DBs frozen at status 'payment' (blocking, run in a
+        thread). Returns [(db_path, fid), ...] for jobs that have no live
+        Runner and have been frozen longer than ``reconcile_min_age``.
+        """
+        out: List[tuple] = []
+        t0 = now()
+        try:
+            user_dirs = list(self.exec_dir.iterdir())
+        except OSError:
+            return out
+        for user_dir in user_dirs:
+            if not user_dir.is_dir() or user_dir.name.startswith("."):
+                continue
+            try:
+                exec_dirs = list(user_dir.iterdir())
+            except OSError:
+                continue
+            for exec_dir in exec_dirs:
+                fid = exec_dir.name
+                if fid in alive_fids or fid.startswith("."):
+                    continue
+                if not exec_dir.is_dir():
+                    continue
+                db_path = exec_dir / DB_FILE
+                status, ts = read_last_status(db_path)
+                if status != STATUS_PAYMENT:
+                    continue
+                if ts and (t0 - ts) < self.reconcile_min_age:
+                    continue  # too fresh — leave it alone
+                out.append((db_path, fid))
+        return out
+
+    async def reconcile_payments(self, alive_fids: set):
+        """Sweep for orphaned 'payment' jobs and resume or fail them.
+
+        Defensive: re-checks each candidate's Runner is really dead before
+        acting (the scan ran in a thread; state may have changed since).
+        """
+        try:
+            candidates = await asyncio.to_thread(
+                self._scan_frozen_payments, alive_fids)
+        except Exception:
+            logger.critical("reconcile sweep scan failed", exc_info=True)
+            return
+        if not candidates:
+            return
+        logger.info(f"reconcile sweep: {len(candidates)} frozen payment job(s)")
+        for db_path, fid in candidates:
+            try:
+                ray.get_actor(fid, namespace=NAMESPACE)
+                continue  # actor alive after all → skip
+            except ValueError:
+                pass
+            except Exception:
+                continue
+            try:
+                result = await reconcile_payment_job(db_path, fid)
+                if result != "skip":
+                    logger.info(f"reconcile {fid}: {result}")
+            except Exception:
+                logger.critical(f"reconcile failed for {fid}", exc_info=True)
 
     async def retrieve(self, runner: ActorHandle, state: ActorState):
         if state.name is None:
@@ -177,6 +252,17 @@ class Spooler:
                 for state in dead:
                     del self.monitor[state]
                 self.lock.update.remote(len(self.monitor), total)
+            # Reconcile orphaned "payment" jobs (runner died on cluster restart
+            # → frozen at awaiting_payment). Runs once on startup (since
+            # _last_reconcile=0) and then every reconcile_interval seconds, in
+            # the background so the main loop is never blocked.
+            if (now() - self._last_reconcile >= self.reconcile_interval
+                    and (self._reconcile_task is None
+                         or self._reconcile_task.done())):
+                self._last_reconcile = now()
+                alive_fids = {s.name for s in states if s.name}
+                self._reconcile_task = asyncio.create_task(
+                    self.reconcile_payments(alive_fids))
             if sys.stdout.isatty():
                 print(f"{progress[p]} Actors active ({len(self.monitor)}) - "
                     f"total: ({total})", " "*20, end="\r", flush=True)

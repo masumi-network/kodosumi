@@ -156,6 +156,34 @@ class Runner:
                 await self._put_async(EVENT_DEBUG, f"self._payment = {self._payment}")
                 return self._payment
 
+            # Resume path: a reconciler may relaunch an orphaned payment job
+            # (its Runner died on a cluster restart). In that case extra carries
+            # the ALREADY-existing blockchainId — reuse it instead of calling
+            # init_payment again, which would create a DUPLICATE payment.
+            resume = (self.extra or {}).get("resume_payment")
+            if resume and resume.get("blockchain_identifier"):
+                self._payment = {
+                    "pay_conf": {
+                        "agentIdentifier": resume.get("agentIdentifier"),
+                        "network": resume.get("network"),
+                        "identifier_from_purchaser": resume.get(
+                            "identifier_from_purchaser"),
+                        "input_hash": resume.get("input_hash"),
+                    },
+                    "blockchain_identifier": resume["blockchain_identifier"],
+                    "pay_data": resume.get("pay_data") or {},
+                    # set by the reconciler when it already confirmed
+                    # FundsLocked → start() skips wait_for_funds_locked
+                    "funds_locked": bool(resume.get("funds_locked")),
+                }
+                await self._put_async(EVENT_PAYMENT, serialize({
+                    "step": "resumed",
+                    "blockchainIdentifier": resume["blockchain_identifier"],
+                    "network": resume.get("network"),
+                    "funds_locked": bool(resume.get("funds_locked")),
+                }))
+                return self._payment
+
             pay_conf = await self.get_payment_config()
             await self._put_async(EVENT_DEBUG, f"pay_conf = {pay_conf}")
             if not pay_conf:
@@ -193,6 +221,26 @@ class Runner:
                 "pay_data": pay_data,
             }
             return self._payment
+
+    async def _await_payment(self, payment: dict) -> None:
+        """Wait until funds are locked, unless already confirmed.
+
+        On a normal flow this polls Masumi (``wait_for_funds_locked``) until
+        FundsLocked or the pay-by deadline. On a RESUMED job (relaunched by the
+        reconciler after a cluster restart), the reconciler has ALREADY verified
+        the on-chain state and set ``funds_locked``; re-entering the wait would
+        be wrong, because the original ``payByTime`` is long past and
+        ``wait_for_funds_locked`` would raise PaymentTimeoutError immediately.
+        """
+        if payment.get("funds_locked"):
+            return  # reconciler verified FundsLocked → proceed straight to run
+        masumi_cfg = Settings().get_masumi(payment["pay_conf"]["network"])
+        masumi = MasumiClient(masumi_cfg)
+        await masumi.wait_for_funds_locked(
+            blockchain_identifier=payment["blockchain_identifier"],
+            network=payment["pay_conf"]["network"],
+            pay_by_time=payment["pay_data"].get("payByTime"),
+        )
 
     async def run(self):
         final_kind = STATUS_END
@@ -309,13 +357,7 @@ class Runner:
             # Await payment confirmation if required
             if payment:
                 await self._put_async(EVENT_STATUS, STATUS_PAYMENT)
-                masumi_cfg = Settings().get_masumi(payment["pay_conf"]["network"])
-                masumi = MasumiClient(masumi_cfg)
-                await masumi.wait_for_funds_locked(
-                    blockchain_identifier=payment["blockchain_identifier"],
-                    network=payment["pay_conf"]["network"],
-                    pay_by_time=payment["pay_data"].get("payByTime"),
-                )
+                await self._await_payment(payment)
             await self._put_async(EVENT_STATUS, STATUS_RUNNING)
             os.environ["KODOSUMI_FID"] = self.fid
             os.environ["KODOSUMI_USER_ID"] = self.username
