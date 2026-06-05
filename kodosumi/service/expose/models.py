@@ -138,6 +138,7 @@ class ExposeResponse(BaseModel):
     flow_stats: str = "0/0"
     stale: bool = False
     needs_reboot: bool = False
+    last_error: Optional[str] = None  # last deploy/import error (failed states only)
 
     @classmethod
     def from_db_row(cls, row: dict) -> "ExposeResponse":

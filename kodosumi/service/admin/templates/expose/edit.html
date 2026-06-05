@@ -276,6 +276,52 @@
         color: var(--error);
         padding: 8px 0;
     }
+    .deploy-error {
+        width: 100%;
+        margin-top: 8px;
+        font-size: 0.8rem;
+    }
+    .deploy-error > summary {
+        cursor: pointer;
+        color: #c62828;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        list-style: none;
+    }
+    .deploy-error > summary::-webkit-details-marker { display: none; }
+    .deploy-error > summary i { font-size: 1rem; }
+    .deploy-error pre {
+        margin: 8px 0 0;
+        padding: 10px;
+        background: var(--surface-variant, #1e1e1e);
+        border-radius: 6px;
+        border-left: 3px solid #c62828;
+        max-height: 320px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 0.72rem;
+        line-height: 1.35;
+    }
+    .open-form-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--primary);
+        text-decoration: none;
+        border: 1px solid var(--outline);
+        border-radius: 14px;
+    }
+    .open-form-link:hover {
+        background: rgba(var(--primary-rgb), 0.1);
+        border-color: var(--primary);
+    }
+    .open-form-link i { font-size: 0.95rem; }
 </style>
 <script src="/static/js-yaml.min.js"></script>
 {% endblock %}
@@ -355,6 +401,12 @@
                                     <strong>Heartbeat:</strong>
                                     <span data-timestamp="{{ item.heartbeat }}"></span>
                                 </div>
+                                {% if item.last_error %}
+                                <details class="deploy-error" open>
+                                    <summary><i>error</i> Last deploy error</summary>
+                                    <pre>{{ item.last_error }}</pre>
+                                </details>
+                                {% endif %}
                                 {% endif %}
                             </div>
                         </div>
@@ -422,6 +474,14 @@ deployments:
                                 {% if meta.heartbeat %}
                                 <span style="font-size: 0.8rem;" data-timestamp="{{ meta.heartbeat }}"></span>
                                 {% endif %}
+                                {% endif %}
+                                {% if meta.state == 'alive' %}
+                                <a class="open-form-link" target="_blank" rel="noopener"
+                                   href="/inputs/-/{{ item.name }}{{ meta.url }}"
+                                   title="Open the input form for this flow">
+                                    <i>open_in_new</i>
+                                    <span>Open Form</span>
+                                </a>
                                 {% endif %}
                             </div>
 

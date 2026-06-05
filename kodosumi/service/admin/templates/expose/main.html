@@ -160,6 +160,60 @@
         opacity: 0.6;
         pointer-events: none;
     }
+    .open-form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+    }
+    .open-form-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: var(--primary);
+        text-decoration: none;
+        border: 1px solid var(--outline);
+        border-radius: 14px;
+        transition: all 0.15s ease;
+    }
+    .open-form-link:hover {
+        background: rgba(var(--primary-rgb), 0.1);
+        border-color: var(--primary);
+    }
+    .open-form-link i {
+        font-size: 0.95rem;
+    }
+    .deploy-error {
+        margin-top: 12px;
+        font-size: 0.78rem;
+    }
+    .deploy-error > summary {
+        cursor: pointer;
+        color: #c62828;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        list-style: none;
+    }
+    .deploy-error > summary::-webkit-details-marker { display: none; }
+    .deploy-error > summary i { font-size: 1rem; }
+    .deploy-error pre {
+        margin: 8px 0 0;
+        padding: 10px;
+        background: var(--surface-variant, #1e1e1e);
+        border-radius: 6px;
+        border-left: 3px solid #c62828;
+        max-height: 240px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 0.72rem;
+        line-height: 1.35;
+    }
 </style>
 {% endblock %}
 
@@ -252,6 +306,30 @@
                         </span>
                         {% endif %}
                     </div>
+
+                    {% if item.enabled and item.meta %}
+                    {% set alive_flows = item.meta | selectattr('state', 'equalto', 'alive') | list %}
+                    {% if alive_flows %}
+                    <div class="open-form-row">
+                        {% for meta in alive_flows %}
+                        <a class="open-form-link"
+                           href="/inputs/-/{{ item.name }}{{ meta.url }}"
+                           onclick="event.stopPropagation();"
+                           title="Open the input form for this flow">
+                            <i>open_in_new</i>
+                            <span>Open form{% if alive_flows|length > 1 %} {{ meta.url }}{% endif %}</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% endif %}
+
+                    {% if item.last_error %}
+                    <details class="deploy-error" onclick="event.stopPropagation();">
+                        <summary><i>error</i> Deploy error — show details</summary>
+                        <pre>{{ item.last_error }}</pre>
+                    </details>
+                    {% endif %}
 
                     {% if item.heartbeat %}
                     <div style="position: absolute; bottom: 12px; right: 12px; font-size: 0.7rem; color: var(--on-surface-variant);"
