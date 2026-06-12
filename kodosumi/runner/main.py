@@ -508,10 +508,24 @@ def create_runner(username: str,
                   fid: Optional[str]= None) -> Tuple[str, Runner]:
     if fid is None:
         fid = str(ObjectId())
+    # Custom Ray resources for runner placement (K8s worker-group mode).
+    # The Runner imports the agent's entry_point module — on clusters where
+    # agent code only exists in specific pods (pod image = agent image) the
+    # Runner must be co-located with them. ACTOR_RESOURCES is a JSON dict
+    # matching the worker group's custom resource, e.g. '{"agent_x": 1}'.
+    # Unset (VM deployments) -> None -> behavior unchanged.
+    runner_resources = None
+    _resources_raw = os.getenv("ACTOR_RESOURCES", "")
+    if _resources_raw:
+        try:
+            runner_resources = json.loads(_resources_raw)
+        except json.JSONDecodeError:
+            pass
     actor = Runner.options(  # type: ignore
         namespace=NAMESPACE,
         name=fid,
         enable_task_events=False,
+        resources=runner_resources,
         lifetime="detached").remote(
             fid=fid,
             username=username,
