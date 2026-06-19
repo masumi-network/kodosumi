@@ -113,11 +113,97 @@ def pricing_to_yaml_format(pricing_type: str, amount: float, currency: str, netw
     }]
 
 
+async def _list_selling_wallets_v2(
+    client: Any,
+    masumi: MasumiConfig,
+    source_id: str,
+) -> List[Dict]:
+    """
+    Fetch selling wallets for a single payment source via the new /wallet/list endpoint.
+
+    Uses paginated requests with inclusive-cursor semantics:
+    - `take` is always >= 2 (verified: take=1 with inclusive cursor yields 0 new items).
+    - Deduplicates by wallet `id` field; stops when a page yields no new ids.
+
+    Args:
+        client: An open httpx.AsyncClient (from HTTPXClient context).
+        masumi: Masumi configuration (base_url, token, registry_network).
+        source_id: The payment source id to fetch wallets for.
+
+    Returns:
+        List of wallet dicts with keys: walletVkey, walletAddress, sourceId, note.
+    """
+    headers = {"accept": "application/json", "token": masumi.token}
+    # take=100 is safe and verified; must be >= 2 because the cursor is inclusive
+    # (take=1 would yield 0 new items per page → premature termination).
+    take = 100
+
+    seen_ids: set = set()
+    wallets: List[Dict] = []
+    cursor_id: Optional[str] = None
+
+    while True:
+        url = (
+            f"{masumi.base_url}/wallet/list"
+            f"?walletType=Selling"
+            f"&paymentSourceId={source_id}"
+            f"&take={take}"
+        )
+        if cursor_id is not None:
+            url += f"&cursorId={cursor_id}"
+
+        resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            logger.warning(
+                "Failed to list wallets (new API) for source %s: %s",
+                source_id,
+                resp.text,
+            )
+            break
+
+        page_wallets = resp.json().get("data", {}).get("Wallets", [])
+        new_ids_found = False
+        for wallet in page_wallets:
+            wid = wallet.get("id")
+            if wid is None or wid in seen_ids:
+                # Skip duplicates introduced by inclusive cursor
+                continue
+            seen_ids.add(wid)
+            new_ids_found = True
+            wallets.append({
+                "walletVkey": wallet.get("walletVkey", ""),
+                "walletAddress": wallet.get("walletAddress", ""),
+                "sourceId": source_id,
+                "note": wallet.get("note", ""),
+            })
+
+        if not new_ids_found:
+            # No new unique items on this page → all wallets consumed
+            break
+
+        # Advance cursor to last item on this page (inclusive → next page starts here)
+        last_id = page_wallets[-1].get("id") if page_wallets else None
+        if last_id is None:
+            break
+        cursor_id = last_id
+
+    return wallets
+
+
 async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
     """
     List selling wallets from Masumi Payment API.
 
-    Returns list of dicts with walletVkey, walletAddress, and source info.
+    Supports both old and new Masumi API schemas:
+    - OLD schema (e.g. *.ondigitalocean.app): ``GET /payment-source`` returns
+      ``PaymentSources[].SellingWallets[]`` inline.
+    - NEW schema (e.g. payment.masumi.network): ``GET /payment-source`` has no
+      ``SellingWallets`` key; wallets are fetched via paginated ``GET /wallet/list``.
+
+    Discriminator: presence of the ``SellingWallets`` key on each PaymentSource.
+    No version probing — the two schemas are structurally disjoint.
+
+    Returns list of dicts with keys: walletVkey, walletAddress, sourceId, note.
     """
     url = f"{masumi.base_url}/payment-source?network={masumi.registry_network}"
     headers = {"accept": "application/json", "token": masumi.token}
@@ -131,13 +217,22 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
             data = resp.json().get("data", {})
             wallets = []
             for source in data.get("PaymentSources", []):
-                for wallet in source.get("SellingWallets", []):
-                    wallets.append({
-                        "walletVkey": wallet.get("walletVkey", ""),
-                        "walletAddress": wallet.get("walletAddress", ""),
-                        "sourceId": source.get("id", ""),
-                        "note": wallet.get("note", ""),
-                    })
+                if "SellingWallets" in source:
+                    # OLD schema: wallets are embedded in the payment-source response
+                    for wallet in source["SellingWallets"]:
+                        wallets.append({
+                            "walletVkey": wallet.get("walletVkey", ""),
+                            "walletAddress": wallet.get("walletAddress", ""),
+                            "sourceId": source.get("id", ""),
+                            "note": wallet.get("note", ""),
+                        })
+                else:
+                    # NEW schema: wallets must be fetched from /wallet/list
+                    source_id = source.get("id", "")
+                    if source_id:
+                        wallets.extend(
+                            await _list_selling_wallets_v2(client, masumi, source_id)
+                        )
             return wallets
     except Exception as e:
         logger.error("Error listing wallets: %s", e)
