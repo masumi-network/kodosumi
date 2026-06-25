@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     SPOOLER_STD_LEVEL: str = "INFO"
     SPOOLER_LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB per file
     SPOOLER_LOG_BACKUP_COUNT: int = 5  # Keep 5 backup files
+    SPOOLER_STRUCTURED_LOG: bool = True  # JSON file-log (StructuredFormatter); set false for plain text
 
     UPLOAD_DIR: str = "./data/uploads"    
     RAY_SERVER: str = "localhost:6379"
@@ -111,6 +112,7 @@ class Settings(BaseSettings):
     APP_STD_LEVEL: str = "INFO"
     APP_LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB per file
     APP_LOG_BACKUP_COUNT: int = 5  # Keep 5 backup files
+    APP_STRUCTURED_LOG: bool = True  # JSON file-log (StructuredFormatter); set false for plain text
     CORS_ORIGINS: List[str] = ["*"]
 
     # Audit log for boot/deployment events

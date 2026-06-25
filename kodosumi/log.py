@@ -1,6 +1,8 @@
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Optional
 
 from kodosumi.config import Settings
 
@@ -9,9 +11,77 @@ LOG_FORMAT = "%(levelname)-8s %(message)s"
 LOG_FILE_FORMAT = "%(asctime)s %(levelname)s %(name)s - %(message)s"
 AUDIT_LOG_FORMAT = "%(asctime)s %(levelname)s - %(message)s"
 
+# Well-known structured fields slog() exposes as explicit kwargs (promoted to
+# top-level JSON keys). Arbitrary additional fields are also supported via
+# slog(**extra). Documented here as the canonical field set for log queries.
+STRUCTURED_FIELDS = ("fid", "agent", "status", "duration_ms", "node")
+
 
 logger = logging.getLogger("kodo")
 audit_logger = logging.getLogger("kodo.audit")
+
+
+class StructuredFormatter(logging.Formatter):
+    """Emit one JSON object per line (newline-delimited JSON).
+
+    Always includes ``ts``, ``level``, ``logger`` and ``event``. Any of the
+    optional :data:`STRUCTURED_FIELDS` attached via :func:`slog` are merged in
+    when not ``None``. Falls back to the plain message as ``event`` for log
+    records emitted by ordinary ``logger.info(...)`` calls, so the format works
+    even before a call site has been migrated to ``slog``.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        doc = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+        }
+        payload = getattr(record, "_slog", None)
+        if payload:
+            doc["event"] = payload.get("event") or record.getMessage()
+            for key, val in payload.items():
+                if key != "event" and val is not None:
+                    doc[key] = val
+        else:
+            # Un-migrated plain logger.info(...) call — use the message verbatim.
+            doc["event"] = record.getMessage()
+        if record.exc_info:
+            doc["exc"] = self.formatException(record.exc_info)
+        return json.dumps(doc, ensure_ascii=False)
+
+
+def slog(
+    _logger: logging.Logger,
+    level: int,
+    event: str,
+    *,
+    fid: Optional[str] = None,
+    agent: Optional[str] = None,
+    status: Optional[str] = None,
+    duration_ms: Optional[float] = None,
+    node: Optional[str] = None,
+    exc_info: bool = False,
+    **extra,
+) -> None:
+    """Emit a structured log record.
+
+    Works with both :class:`StructuredFormatter` (fields become JSON keys) and
+    plain ``logging.Formatter`` (the human-readable message is ``event``). Pure
+    stdlib, no Ray coupling — safe to import anywhere.
+    """
+    payload = {"event": event}
+    for key, val in (
+        ("fid", fid),
+        ("agent", agent),
+        ("status", status),
+        ("duration_ms", duration_ms),
+        ("node", node),
+    ):
+        if val is not None:
+            payload[key] = val
+    payload.update(extra)
+    _logger.log(level, event, extra={"_slog": payload}, exc_info=exc_info)
 
 
 def get_log_level(level: str):
@@ -49,8 +119,10 @@ def _log_setup(settings: Settings, prefix: str):
     log_file_level = getattr(settings, f"{prefix}_LOG_FILE_LEVEL")
 
     fh.setLevel(get_log_level(log_file_level))
-    fh_formatter = logging.Formatter(LOG_FILE_FORMAT)
-    fh.setFormatter(fh_formatter)
+    if getattr(settings, f"{prefix}_STRUCTURED_LOG", False):
+        fh.setFormatter(StructuredFormatter())
+    else:
+        fh.setFormatter(logging.Formatter(LOG_FILE_FORMAT))
     _log.addHandler(fh)
 
     return ch, fh
