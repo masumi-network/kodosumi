@@ -32,8 +32,7 @@ from kodosumi.const import (DB_FILE, EVENT_INPUTS, EVENT_META, EVENT_PAYMENT,
                             EVENT_STATUS, NAMESPACE, STATUS_ERROR,
                             STATUS_PAYMENT)
 from kodosumi.helper import now
-
-logger = logging.getLogger(__name__)
+from kodosumi.log import logger, slog
 
 
 # On-chain states that mean "funds are locked and waiting for the result".
@@ -253,7 +252,8 @@ def _relaunch_resume(fid: str, state: Dict[str, Any],
 
     try:
         ray.get_actor(fid, namespace=NAMESPACE)
-        logger.info("reconcile: actor %s alive, skip resume", fid)
+        slog(logger, logging.INFO, "reconcile.skip", fid=fid, status="skip",
+             reason="actor_alive")
         return False
     except ValueError:
         pass  # not found → safe to relaunch
@@ -286,8 +286,8 @@ def _relaunch_resume(fid: str, state: Dict[str, Any],
         # name already taken → another path relaunched this fid concurrently
         logger.info("reconcile: %s already relaunched (%s)", fid, exc)
         return False
-    logger.info("reconcile: resumed %s (entry_point=%s, funds_locked=%s)",
-                fid, entry_point, funds_locked)
+    slog(logger, logging.INFO, "reconcile.resumed", fid=fid, status="resumed",
+         entry_point=entry_point, funds_locked=funds_locked)
     return True
 
 
@@ -348,5 +348,6 @@ async def reconcile_payment_job(
         db_path,
         f"payment not completable (onChainState={onchain_state}); "
         f"job orphaned by cluster restart and could not be resumed")
-    logger.info("reconcile: failed %s (onChainState=%s)", fid, onchain_state)
+    slog(logger, logging.INFO, "reconcile.failed", fid=fid, status="failed",
+         on_chain_state=onchain_state)
     return "failed"

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import shutil
 import sqlite3
@@ -15,7 +16,7 @@ from ray.util.state.common import ActorState
 import kodosumi.config
 from kodosumi import helper
 from kodosumi.const import DB_FILE, NAMESPACE, SPOOLER_NAME, STATUS_PAYMENT
-from kodosumi.log import logger, spooler_logger
+from kodosumi.log import logger, spooler_logger, slog
 from kodosumi.runner.reconcile import (read_last_status,
                                        reconcile_payment_job)
 from kodosumi.helper import now
@@ -96,7 +97,8 @@ class Spooler:
                     INSERT INTO monitor (timestamp, kind, message) VALUES (?, ?, ?)
                     """, (val.get("timestamp"), val.get("kind"), val.get("payload"))
                 )
-                logger.debug(f"saved {val.get('kind')}: {val} for {fid}")
+                slog(logger, logging.DEBUG, "spooler.saved",
+                     fid=fid, kind=val.get("kind"))
         except Exception:
             logger.critical(f"failed to save {fid}", exc_info=True)
 
@@ -147,7 +149,8 @@ class Spooler:
             return
         if not candidates:
             return
-        logger.info(f"reconcile sweep: {len(candidates)} frozen payment job(s)")
+        slog(logger, logging.INFO, "spooler.reconcile",
+             candidates=len(candidates), status="sweep")
         for db_path, fid in candidates:
             try:
                 ray.get_actor(fid, namespace=NAMESPACE)
@@ -159,7 +162,8 @@ class Spooler:
             try:
                 result = await reconcile_payment_job(db_path, fid)
                 if result != "skip":
-                    logger.info(f"reconcile {fid}: {result}")
+                    slog(logger, logging.INFO, "spooler.reconcile",
+                         fid=fid, status=result)
             except Exception:
                 logger.critical(f"reconcile failed for {fid}", exc_info=True)
 
@@ -196,11 +200,13 @@ class Spooler:
                     break
                 if batch:
                     self.save(conn, fid, batch)
-                    logger.debug(f"saved {len(batch)} records for {fid}")
+                    slog(logger, logging.DEBUG, "spooler.saved",
+                         fid=fid, records=len(batch))
                     n += len(batch)
                 await asyncio.sleep(0.01)
             ray.kill(runner)
-            logger.info(f"finished {fid} with {n} records")
+            slog(logger, logging.INFO, "spooler.finished",
+                 fid=fid, status="finished", records=n)
         except Exception as e:
             logger.critical(
                 f"failed to retrieve from {fid} after {n} records",
@@ -223,7 +229,7 @@ class Spooler:
             namespace=NAMESPACE).remote(pid=os.getpid())
         pid = await self.lock.get_pid.remote()
         logger.info(f"exec source path {self.exec_dir}")
-        logger.info(f"spooler started, pid={pid}")
+        slog(logger, logging.INFO, "spooler.started", pid=pid)
         total = 0
         progress = """|/-\\|/-\\"""
         p = 0
@@ -241,7 +247,8 @@ class Spooler:
                         runner = ray.get_actor(state.name, namespace=NAMESPACE)
                         task = asyncio.create_task(self.retrieve(runner, state))
                         self.monitor[state.name] = task
-                        logger.info(f"streaming {state.name}")
+                        slog(logger, logging.INFO, "spooler.streaming",
+                             fid=state.name)
                         total += 1
                         self.lock.update.remote(len(self.monitor), total)
                     except Exception as e:
