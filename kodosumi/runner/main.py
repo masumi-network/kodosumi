@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import json
+import logging
 import os
 from traceback import format_exc
 from typing import Any, Callable, Optional, Tuple, Union
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 
 import kodosumi
 from kodosumi.config import Settings
+from kodosumi.log import logger, slog
 from kodosumi.const import (EVENT_AGENT, EVENT_ERROR, EVENT_FINAL, EVENT_DEBUG,
                             EVENT_INPUTS, EVENT_META, EVENT_STATUS,
                             EVENT_PAYMENT, KODOSUMI_LAUNCH, NAMESPACE,
@@ -335,7 +337,9 @@ class Runner:
                     files = await fs.ls("in/")
                 except FileNotFoundError:
                     files = None
-                except:
+                except Exception:
+                    slog(logger, logging.ERROR, "runner.fs_ls_error",
+                         fid=self.fid, exc_info=True)
                     files = None
                 finally:
                     if fs:
@@ -454,7 +458,9 @@ class Runner:
                 await asyncio.sleep(0.1)
             self.tracer.shutdown()
             self.message_queue.shutdown()
-        except: 
+        except Exception:
+            slog(logger, logging.ERROR, "runner.shutdown_error",
+                 fid=self.fid, exc_info=True)
             pass
         self.active = False
         return "Runner shutdown complete."

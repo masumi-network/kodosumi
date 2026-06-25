@@ -90,7 +90,7 @@ class InputsController(litestar.Controller):
                 try:
                     js = response.json()
                     text = js.get("detail")
-                except:
+                except Exception:
                     text = response.text
                 html += f"<pre><code>{text}</code></pre>"
                 
@@ -173,7 +173,7 @@ class InputsController(litestar.Controller):
                 try:
                     js = response.json()
                     text = js.get("detail")
-                except:
+                except Exception:
                     text = response.text
                 response_content += f"<pre><code>{text}</code></pre>"
         response_headers["content-type"] = "text/html"

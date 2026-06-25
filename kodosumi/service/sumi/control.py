@@ -590,6 +590,7 @@ async def _fetch_input_schema(
         return convert_model_to_schema(elements)
 
     except Exception:
+        slog(logger, logging.WARNING, "sumi.input_schema_error", exc_info=True)
         return create_empty_schema()
 
 
@@ -662,6 +663,8 @@ async def _fetch_lock_input_schemas(
             ))
 
         except Exception:
+            slog(logger, logging.WARNING, "sumi.lock_schema_fetch_error",
+                 fid=job_id, lid=lid, exc_info=True)
             continue
 
     if not groups:
@@ -699,6 +702,8 @@ async def _heal_agent_identifier(
             masumi_cfg, registration_id=registration_id
         )
     except Exception:
+        slog(logger, logging.WARNING, "sumi.heal_schema_error",
+             expose=expose_name, exc_info=True)
         return None
 
     if not reg:
@@ -1383,6 +1388,8 @@ class SumiControl(Controller):
                     schema = convert_model_to_schema(elements)
                     converted_fields = convert_mip003_indices_to_values(fields, schema)
             except Exception:
+                slog(logger, logging.WARNING, "sumi.schema_fetch_error",
+                     fid=fid, lid=lid, exc_info=True)
                 pass  # Use original fields if schema fetch fails
 
             # POST to lock endpoint
@@ -1505,6 +1512,8 @@ async def _get_job_status_from_db(
             parsed = dtypes.DynamicModel.model_validate_json(row[0])
             final_result = _extract_result_string(parsed.model_dump())
         except Exception:
+            slog(logger, logging.DEBUG, "sumi.result_parse_error",
+                 fid=job_id, exc_info=True)
             # Fallback: return raw string on parse failure
             final_result = row[0] if isinstance(row[0], str) else str(row[0])
 
@@ -1550,6 +1559,8 @@ async def _get_job_status_from_db(
                 identifier = extra.get("identifier_from_purchaser")
                 agent_identifier = extra.get("agentIdentifier")
         except Exception:
+            slog(logger, logging.WARNING, "sumi.meta_parse_error",
+                 fid=job_id, exc_info=True)
             pass
 
     # Get payment data from EVENT_PAYMENT records
@@ -1577,6 +1588,8 @@ async def _get_job_status_from_db(
                 sc_wallet = pd.get("SmartContractWallet") or {}
                 seller_vkey = sc_wallet.get("walletVkey")
         except Exception:
+            slog(logger, logging.WARNING, "sumi.payment_parse_error",
+                 fid=job_id, exc_info=True)
             pass
 
     # Check for locks (awaiting_input)
@@ -1595,6 +1608,8 @@ async def _get_job_status_from_db(
             else:
                 locks.discard(lid)
         except Exception:
+            slog(logger, logging.WARNING, "sumi.lock_parse_error",
+                 fid=job_id, exc_info=True)
             pass
 
     # Map Kodosumi status to MIP-003 status
@@ -1726,6 +1741,8 @@ class SumiLockControl(Controller):
             )
 
         except Exception:
+            slog(logger, logging.WARNING, "sumi.lock_schema_error",
+                 fid=fid, lid=lid, exc_info=True)
             return LockSchemaResponse(
                 job_id=fid,
                 status_id=lid,
@@ -1790,6 +1807,8 @@ class SumiLockControl(Controller):
                 schema = convert_model_to_schema(elements)
                 converted_input = convert_mip003_indices_to_values(data.input_data, schema)
         except Exception:
+            slog(logger, logging.WARNING, "sumi.provide_input_convert_error",
+                 fid=fid, lid=lid, exc_info=True)
             pass  # Use original input if schema fetch fails
 
         try:

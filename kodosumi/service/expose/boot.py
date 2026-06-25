@@ -22,8 +22,10 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import yaml
 
+import logging
+
 from kodosumi.helper import HTTPXClient
-from kodosumi.log import get_audit_logger
+from kodosumi.log import get_audit_logger, logger, slog
 from kodosumi.service.expose import db
 from kodosumi.const import KODOSUMI_API, KODOSUMI_AUTHOR, KODOSUMI_ORGANIZATION
 from kodosumi.config import InternalSettings
@@ -386,7 +388,7 @@ class BootLock:
         for queue in self._subscribers:
             try:
                 await queue.put(msg)
-            except:
+            except Exception:
                 pass
 
     def subscribe(self) -> asyncio.Queue:
@@ -1091,6 +1093,8 @@ async def _step_deploy(
             try:
                 Path(cfg_path).unlink()
             except Exception:
+                slog(logger, logging.WARNING, "boot.tmpfile_cleanup_error",
+                     exc_info=True)
                 pass
 
         if returncode != 0:
@@ -2081,6 +2085,7 @@ async def fetch_registered_flows(
                     break
 
     except Exception:
+        slog(logger, logging.WARNING, "boot.fetch_flows_error", exc_info=True)
         pass
 
     return all_flows
@@ -2111,6 +2116,8 @@ def get_expose_name_from_base_url(base_url: str) -> Optional[str]:
         if parts and parts[0]:
             return parts[0]
     except Exception:
+        slog(logger, logging.WARNING, "boot.name_parse_error",
+             url=base_url, exc_info=True)
         pass
 
     return None
@@ -2132,6 +2139,8 @@ def get_path_from_base_url(base_url: str) -> str:
         parsed = urlparse(base_url)
         return parsed.path or "/"
     except Exception:
+        slog(logger, logging.WARNING, "boot.path_parse_error",
+             url=base_url, exc_info=True)
         return "/"
 
 
@@ -2355,6 +2364,8 @@ async def _step_update_meta(
                         ):
                             merged_metas.append(meta)
                     except Exception:
+                        slog(logger, logging.WARNING, "boot.orphan_meta_error",
+                             exc_info=True)
                         pass
 
             # Save to database

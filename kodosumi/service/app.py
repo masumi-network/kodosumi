@@ -205,7 +205,7 @@ class LoggingMiddleware(MiddlewareProtocol):
             req = Request(scope)
             try:
                 user = req.user
-            except:
+            except Exception:
                 user = "-"
             logger.info(
                 f"{req.method} {req.url.path} - {status} "

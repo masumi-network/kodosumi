@@ -223,6 +223,8 @@ class Spooler:
             logger.warning(f"spooler already running, pid={pid}. Exiting.")
             return
         except Exception:
+            # No prior "Spooler" actor exists (the normal first-start path) →
+            # fall through and create the SpoolerLock below.
             pass
         self.lock = SpoolerLock.options(
             name="Spooler",

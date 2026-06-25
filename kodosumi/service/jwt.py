@@ -53,7 +53,7 @@ async def operator_guard(connection: ASGIConnection,
                          _: BaseRouteHandler) -> None:
     try:
         user = connection.user
-    except:
+    except Exception:
         raise NotAuthorizedException("User not authorized")
     try:
         session = connection.app.state["session_maker_class"]()

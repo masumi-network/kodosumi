@@ -32,7 +32,7 @@ class LockNotFound(Exception):
 def find_lock(fid: str, lid: str):
     try:
         actor = ray.get_actor(fid, namespace=NAMESPACE)
-    except:
+    except Exception:
         raise LockNotFound(fid, None)
     oref = actor.get_locks.remote()
     locks = ray.get(oref)
@@ -44,7 +44,7 @@ def find_lock(fid: str, lid: str):
 def lease(fid: str, lid: str, result: Dict[str, Any]):
     try:
         actor = ray.get_actor(fid, namespace=NAMESPACE)
-    except:
+    except Exception:
         raise LockNotFound(fid, None)
     oref = actor.lease.remote(lid, result)
     locks = ray.get(oref)

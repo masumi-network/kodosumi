@@ -257,7 +257,7 @@ class OutputsController(litestar.Controller):
         if job["status"] not in STATUS_FINAL:
             try:
                 kill_runner(fid)
-            except:
+            except Exception:
                 logger.critical(f"failed to kill {fid}", exc_info=True)
             else:
                 logger.warning(f"killed {fid}")
@@ -265,7 +265,7 @@ class OutputsController(litestar.Controller):
             newdb = db_file.parent.joinpath(db_file.name + DB_ARCHIVE)
             db_file.rename(newdb)
             newdb.touch()
-        except:
+        except Exception:
             logger.critical(f"failed to archive {fid}", exc_info=True)
         else:
             logger.warning(f"archived {fid}")
@@ -337,7 +337,7 @@ class OutputsController(litestar.Controller):
             if job["status"] not in STATUS_FINAL:
                 try:
                     kill_runner(fid)
-                except:
+                except Exception:
                     logger.critical(f"failed to kill {fid}", exc_info=True)
                 else:
                     logger.warning(f"killed {fid}")
@@ -345,7 +345,7 @@ class OutputsController(litestar.Controller):
                 newdb = db_file.parent.joinpath(db_file.name + DB_ARCHIVE)
                 db_file.rename(newdb)
                 newdb.touch()
-            except:
+            except Exception:
                 logger.critical(f"failed to archive {fid}", exc_info=True)
             else:
                 logger.warning(f"archived {fid}")

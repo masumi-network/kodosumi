@@ -19,8 +19,7 @@ from litestar import Controller, get, post
 from litestar.datastructures import State
 
 from kodosumi.service.masumi.cache import MasumiCache, get_cache, classify_payment
-
-logger = logging.getLogger(__name__)
+from kodosumi.log import logger, slog
 
 # ---------------------------------------------------------------------------
 # Koios API constants
@@ -102,6 +101,8 @@ async def _get_agent_map(expose_db_path: Path) -> Dict[str, str]:
                 )
                 mapping[ai[:60]] = label
         except Exception:
+            slog(logger, logging.WARNING, "masumi.agent_map_parse_error",
+                 exc_info=True)
             pass
 
     return mapping
@@ -188,6 +189,8 @@ async def _resolve_unknown_agents(
                                 )
                                 await conn.commit()
                         except Exception:
+                            slog(logger, logging.WARNING,
+                                 "masumi.cache_write_error", exc_info=True)
                             pass
                         break
             except Exception:
@@ -626,6 +629,8 @@ class MasumiDashboardAPI(Controller):
                     if a["expose_name"] in resolved:
                         a["name"] = resolved[a["expose_name"]]
             except Exception:
+                slog(logger, logging.WARNING, "masumi.agent_name_resolve_error",
+                     exc_info=True)
                 pass
 
         agents_out.sort(key=lambda d: d["revenue"], reverse=True)

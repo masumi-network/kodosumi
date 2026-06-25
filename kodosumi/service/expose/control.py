@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
+from kodosumi.log import logger, slog
 
 import yaml
 import litestar
@@ -89,6 +89,7 @@ async def get_ray_serve_status(ray_dashboard: str) -> dict:
                     result[route_prefix] = app_info.get("status", "UNKNOWN")
                 return result
     except Exception:
+        slog(logger, logging.DEBUG, "expose.ray_status_error", exc_info=True)
         pass
     return {}
 
@@ -121,6 +122,8 @@ async def get_username(user_id: str, state: State) -> str:
             if role:
                 return role.name
     except Exception:
+        slog(logger, logging.DEBUG, "expose.username_lookup_error",
+             user_id=user_id, exc_info=True)
         pass
     return user_id  # Fallback to ID if lookup fails
 

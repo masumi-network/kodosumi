@@ -97,7 +97,7 @@ class RoleControl(litestar.Controller):
         if not role:
             try:
                 uid = uuid.UUID(name)
-            except:
+            except Exception:
                 raise NotFoundException(detail=f"role {name} not found")
             query = select(Role).where(Role.id == uid)
             result = await transaction.execute(query)

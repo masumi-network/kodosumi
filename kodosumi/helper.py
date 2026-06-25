@@ -58,7 +58,7 @@ def debug(port: int=63256):
         if not debugpy.is_client_connected():
             debugpy.listen(("localhost", port))
             debugpy.wait_for_client()
-    except:
+    except Exception:
         print("error in kodosumi.helper.debug()")
     breakpoint()
 
@@ -205,7 +205,7 @@ def get_health_status() -> dict:
         actor = ray.get_actor(SPOOLER_NAME, namespace=NAMESPACE)
         oref = actor.get_meta.remote()
         spooler_status = ray.get(oref)
-    except:
+    except Exception:
         spooler_status = {
             "error": "Spooler not found"
         }

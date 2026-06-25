@@ -6,12 +6,14 @@ for flows with agentIdentifier configured in their meta.data.
 """
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Any, Optional, Tuple
 from kodosumi.const import EVENT_DEBUG
 import httpx
 
 from kodosumi.config import MasumiConfig
+from kodosumi.log import logger, slog
 
 class PaymentError(Exception):
     """Base exception for payment-related errors."""
@@ -176,6 +178,8 @@ class MasumiClient:
                 return resp.json().get("data")
 
             except (httpx.HTTPStatusError, httpx.RequestError):
+                slog(logger, logging.WARNING, "payment.status_error",
+                     exc_info=True)
                 return None
 
     async def wait_for_funds_locked(
