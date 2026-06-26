@@ -29,6 +29,32 @@ from kodosumi.runner.payment import (
 )
 from kodosumi import dtypes
 
+def _effective_lock_deadline(
+    lock_expires_ts: float,
+    payment_deadline_ts: Optional[float],
+) -> float:
+    """Return the earlier of *lock_expires_ts* and *payment_deadline_ts*.
+
+    For non-paid jobs *payment_deadline_ts* is ``None`` and the plain lock
+    expiry is returned unchanged.  For paid jobs the lock wait is bounded by
+    the Masumi ``submitResultTime`` so the lock ends cleanly before the
+    on-chain window closes.
+
+    Args:
+        lock_expires_ts: Absolute epoch-seconds timestamp when the HITL lock
+            expires (computed from ``LOCK_EXPIRES`` or the caller-provided
+            ``timeout``).
+        payment_deadline_ts: Absolute epoch-seconds timestamp of the Masumi
+            ``submitResultTime``, or ``None`` for non-paid jobs.
+
+    Returns:
+        The effective expiry timestamp in epoch seconds.
+    """
+    if payment_deadline_ts is None:
+        return lock_expires_ts
+    return min(lock_expires_ts, payment_deadline_ts)
+
+
 def parse_entry_point(entry_point: str) -> Callable:
     if ":" in entry_point:
         module_name, obj = entry_point.split(":", 1)
@@ -64,13 +90,14 @@ class Runner:
         self.extra = extra  # User-provided extra data (e.g., identifier_from_purchaser)
         self.active = True
         self._payment: Optional[dict] = None
+        self._payment_deadline: Optional[float] = None  # epoch seconds; set for paid jobs only
         self._payment_lock = asyncio.Lock()  # Prevents race condition in prepare()
         self._locks: dict = {}
         self.message_queue = ray.util.queue.Queue()
         self.tracer = Tracer(self.fid, self.message_queue, self.panel_url, jwt)
         self.tracer.init()
 
-    async def get_username(self):
+    async def get_username(self) -> str:
         return self.username
 
     async def get_queue(self):
@@ -358,6 +385,21 @@ class Runner:
             # already called externally, e.g. by sumi endpoint)
             payment = await self.prepare()
 
+            # Store submitResultTime as epoch seconds so lock() can bound the
+            # HITL wait.  pay_data["submitResultTime"] is epoch-milliseconds
+            # (string or int) as set by _calculate_deadlines() and echoed back
+            # by the Masumi API.  Non-paid jobs leave _payment_deadline = None.
+            if payment:
+                raw_srt = payment.get("pay_data", {}).get("submitResultTime")
+                if raw_srt is not None:
+                    try:
+                        self._payment_deadline = float(raw_srt) / 1000.0
+                    except (TypeError, ValueError):
+                        slog(logger, logging.WARNING,
+                             "runner.payment_deadline_parse_error",
+                             fid=self.fid,
+                             detail=str(raw_srt))
+
             # Await payment confirmation if required
             if payment:
                 await self._put_async(EVENT_STATUS, STATUS_PAYMENT)
@@ -468,25 +510,37 @@ class Runner:
     def get_locks(self):
         return self._locks
     
-    async def lock(self, 
-                   name: str, 
-                   lid: str, 
+    async def lock(self,
+                   name: str,
+                   lid: str,
                    expires: float,
-                   data: Optional[dict]=None):
+                   data: Optional[dict] = None):
+        effective_expires = _effective_lock_deadline(
+            expires, self._payment_deadline
+        )
         self._locks[lid] = {
             "name": name,
             "data": data,
             "result": None,
             "app_url": self.app_url,
-            "app_url": self.app_url,
-            "expires": expires
+            "expires": effective_expires,
         }
         while True:
             if self._locks.get(lid, {}).get("result", None) is not None:
                 break
-            if now() > expires:
-                self._locks.pop(lid) 
-                raise TimeoutError(f"Lock {lid} expired at{expires}")
+            current = now()
+            if current > effective_expires:
+                self._locks.pop(lid)
+                if (
+                    self._payment_deadline is not None
+                    and effective_expires <= expires
+                    and current > self._payment_deadline
+                ):
+                    raise TimeoutError(
+                        f"Lock {lid}: payment result window expired "
+                        f"(submitResultTime={self._payment_deadline})"
+                    )
+                raise TimeoutError(f"Lock {lid} expired at {expires}")
             await asyncio.sleep(1)
         return self._locks.pop(lid)["result"]
 
