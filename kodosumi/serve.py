@@ -18,6 +18,7 @@ from kodosumi.helper import HTTPXClient
 from kodosumi.service.inputs.errors import InputsError
 from kodosumi.service.inputs.forms import Checkbox, InputFiles, Model
 from kodosumi.service.proxy import LockNotFound, find_lock
+from kodosumi.spooler import spooler_attached
 
 
 class ServeAPI(FastAPI):
@@ -136,9 +137,20 @@ class ServeAPI(FastAPI):
                     bound_args.arguments['request'] = request
                 bound_args.apply_defaults()
 
+                # D5 (#74b) fail-loud: refuse to create a Runner when no
+                # spooler is attached — without a spooler all execution events
+                # are silently lost (never written to SQLite).
+                if not spooler_attached():
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            "no spooler attached — results cannot be "
+                            "persisted; start the spooler before submitting jobs"
+                        ),
+                    )
                 try:
                     if inspect.iscoroutinefunction(func):
-                        result = await func(*bound_args.args, 
+                        result = await func(*bound_args.args,
                                             **bound_args.kwargs)
                     else:
                         result = func(*bound_args.args, **bound_args.kwargs)

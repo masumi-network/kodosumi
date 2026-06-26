@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import shutil
+import socket
 import sqlite3
 import sys
 from pathlib import Path
@@ -20,6 +21,93 @@ from kodosumi.log import logger, spooler_logger, slog
 from kodosumi.runner.reconcile import (read_last_status,
                                        reconcile_payment_job)
 from kodosumi.helper import now
+
+
+# ---------------------------------------------------------------------------
+# D4 (#69) — sd_notify helper (12-line stdlib, no new dependency)
+# ---------------------------------------------------------------------------
+
+def _sd_notify(state: str) -> None:
+    """Send a datagram to $NOTIFY_SOCKET if set; swallow all errors (no-op
+    when not running under systemd or when the socket is unavailable)."""
+    notify_socket = os.environ.get("NOTIFY_SOCKET")
+    if not notify_socket:
+        return
+    try:
+        # Support Linux abstract-namespace sockets (@name → \0name)
+        if notify_socket.startswith("@"):
+            addr: Union[str, bytes] = "\0" + notify_socket[1:]
+        else:
+            addr = notify_socket
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+            sock.sendto(state.encode(), addr)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# D5 (#74b) — spooler_attached() guard
+# ---------------------------------------------------------------------------
+
+def spooler_attached() -> bool:
+    """Return True iff the SpoolerLock actor "Spooler" is reachable via Ray.
+
+    Used by Launch() and _submit_job() to reject job creation when no spooler
+    is present (which would cause silent event loss).
+    """
+    try:
+        ray.get_actor(SPOOLER_NAME, namespace=NAMESPACE)
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# D5 (#74a) — final-drain helper (extracted for testability)
+# ---------------------------------------------------------------------------
+
+def _drain_remaining(events, save_fn, batch_size: int,
+                     max_iterations: int = 10000) -> int:
+    """Pull all remaining events from *events* queue and persist them via
+    *save_fn(batch)*.
+
+    This is called immediately BEFORE ``ray.kill(runner)`` to ensure no
+    in-RAM events are lost after the main drain loop exits.
+
+    Args:
+        events: A queue object exposing ``size() -> int`` and
+            ``get_nowait_batch(n) -> list`` (Ray ActorQueue API).
+        save_fn: Callable accepting a list of event dicts; persists them.
+        batch_size: Max items to pull per iteration.
+        max_iterations: Hard upper bound to avoid any infinite loop (generous
+            default covers tens-of-thousands of buffered events).
+
+    Returns:
+        Number of additional events drained.
+    """
+    drained = 0
+    prev_size = -1
+    for _ in range(max_iterations):
+        try:
+            size = events.size()
+        except Exception:
+            # Queue actor gone — nothing left to drain.
+            break
+        if size == 0:
+            break
+        if size == prev_size:
+            # No progress — guard against a queue that never empties.
+            break
+        prev_size = size
+        try:
+            batch = events.get_nowait_batch(min(batch_size, size))
+        except Exception:
+            # ActorDiedError or similar — queue is gone.
+            break
+        if batch:
+            save_fn(batch)
+            drained += len(batch)
+    return drained
 
 
 @ray.remote
@@ -204,6 +292,19 @@ class Spooler:
                          fid=fid, records=len(batch))
                     n += len(batch)
                 await asyncio.sleep(0.01)
+            # --- D5 (#74a) FINAL DRAIN: pull every remaining event from the
+            # in-RAM queue before killing the runner actor so no events are
+            # lost.  _drain_remaining() is bounded by max_iterations (default
+            # 10000) and breaks on no-progress, so it cannot loop forever.
+            extra = _drain_remaining(
+                events,
+                lambda batch: self.save(conn, fid, batch),
+                self.batch_size,
+            )
+            if extra:
+                slog(logger, logging.INFO, "spooler.drain",
+                     fid=fid, extra_records=extra)
+                n += extra
             ray.kill(runner)
             slog(logger, logging.INFO, "spooler.finished",
                  fid=fid, status="finished", records=n)
@@ -232,10 +333,32 @@ class Spooler:
         pid = await self.lock.get_pid.remote()
         logger.info(f"exec source path {self.exec_dir}")
         slog(logger, logging.INFO, "spooler.started", pid=pid)
+        # D4 (#69): notify systemd that we are ready (READY=1).
+        # No-op when $NOTIFY_SOCKET is absent (dev/non-systemd environments).
+        _sd_notify("READY=1")
         total = 0
         progress = """|/-\\|/-\\"""
         p = 0
         while not self.shutdown_event.is_set():
+            # D4 (#69): heartbeat so systemd watchdog knows we are alive.
+            _sd_notify("WATCHDOG=1")
+            # D5 (#74c): SpoolerLock recreation — if the head node restarted
+            # while this process kept running the "Spooler" actor may be gone.
+            # Recreate it so /health and spooler_attached() reflect reality.
+            if self.lock is not None:
+                try:
+                    ray.get_actor(SPOOLER_NAME, namespace=NAMESPACE)
+                except Exception:
+                    try:
+                        self.lock = SpoolerLock.options(
+                            name=SPOOLER_NAME,
+                            namespace=NAMESPACE).remote(pid=os.getpid())
+                        slog(logger, logging.INFO, "spooler.lock_recreated",
+                             pid=os.getpid())
+                    except Exception:
+                        logger.warning(
+                            "failed to recreate SpoolerLock actor",
+                            exc_info=True)
             try:
                 states = list_actors(filters=[
                     ("class_name", "=", "Runner"), 

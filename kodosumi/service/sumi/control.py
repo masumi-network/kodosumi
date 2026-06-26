@@ -26,6 +26,7 @@ from kodosumi.const import (
     DB_FILE, KODOSUMI_LAUNCH, NAMESPACE, SLEEP, STATUS_END, STATUS_ERROR, 
     STATUS_PAYMENT, ANNONYMOUS)
 from kodosumi.helper import HTTPXClient, ProxyRequest, proxy_forward
+from kodosumi.spooler import spooler_attached
 from kodosumi.service.expose import db
 from kodosumi.service.expose.models import ExposeMeta
 from kodosumi.service.proxy import LockNotFound, find_lock
@@ -833,6 +834,14 @@ async def _submit_job(
          agent=f"{expose_name}/{meta_name}",
          identifier_from_purchaser=data.identifier_from_purchaser,
          input_data=json.dumps(data.input_data, default=str))
+
+    # D5 (#74b) fail-loud: reject job submission when no spooler is attached.
+    # Without a running spooler all execution events are silently lost.
+    if not spooler_attached():
+        return StartJobErrorResponse(
+            error="no spooler attached — results cannot be persisted; "
+                  "start the spooler before submitting jobs"
+        )
 
     # Convert MIP-003 index arrays to string values for option/radio fields
     # Masumi sends [1] for second option, agents expect "Man"
