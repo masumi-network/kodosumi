@@ -25,6 +25,7 @@ import yaml
 
 import logging
 
+import kodosumi
 from kodosumi.helper import HTTPXClient
 from kodosumi.log import get_audit_logger, logger, slog
 from kodosumi.service.expose import db
@@ -2759,14 +2760,17 @@ async def _real_boot_process(
     running_apps = [name for name, info in final_statuses.items() if info.get("status") == "RUNNING"]
     failed_apps = [name for name, info in final_statuses.items() if info.get("status") != "RUNNING"]
 
-    # Audit: Step B complete with details
+    # Audit: Step B complete with details — structured per-app result via slog
     audit.info(f"BOOT STEP B - health check: {len(running_apps)} running, {len(failed_apps)} failed")
     for name, info in final_statuses.items():
         status = info.get("status", "UNKNOWN")
+        reason = (info.get("message") or "")[:200] or None
         if status == "RUNNING":
             audit.info(f"  EXPOSE {name} - status={status}")
+            slog(logger, logging.INFO, "boot.app_result", app=name, status=status)
         else:
             audit.warning(f"  EXPOSE {name} - status={status}")
+            slog(logger, logging.WARNING, "boot.app_result", app=name, status=status, reason=reason)
 
     if not running_apps:
         audit.warning("BOOT END - no applications running after health check")
@@ -2829,6 +2833,20 @@ async def _real_boot_process(
     # Audit: Boot complete
     boot_duration = (datetime.now() - boot_start_time).total_seconds()
     audit.info(f"BOOT END by {owner} - success in {boot_duration:.1f}s - {len(running_apps)} exposes, {alive_endpoints} endpoints")
+
+    # Structured boot summary for machine-parseable log consumers (D11)
+    failed_names = [n for n in final_statuses if final_statuses[n].get("status") != "RUNNING"]
+    slog(
+        logger,
+        logging.INFO,
+        "boot.summary",
+        version=kodosumi.__version__,
+        running=len(running_apps),
+        failed=len(failed_apps),
+        total=len(final_statuses),
+        failed_apps=failed_names if failed_names else None,
+        duration_ms=round(boot_duration * 1000),
+    )
 
 
 async def run_shutdown(
