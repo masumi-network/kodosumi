@@ -200,6 +200,46 @@ async def proxy_forward(config: ProxyRequest) -> ProxyResponse:
         )
 
 
+def _host_liveness(nodes: list) -> tuple:
+    """Group ray.nodes() incarnations by host; return (alive_hosts, dead_hosts).
+
+    ray.nodes() lists every node *incarnation* in the session, including dead
+    historical ones from past restarts. A host counts as alive if ANY of its
+    incarnations is alive (so a restarted worker reads as 'alive', not 'dead');
+    a host is dead only if all of its incarnations are dead.
+    """
+    alive_by_host: dict = {}
+    for n in nodes:
+        key = (n.get("NodeManagerAddress") or n.get("NodeName")
+               or n.get("NodeID") or id(n))
+        alive_by_host[key] = alive_by_host.get(key, False) or bool(n.get("Alive", False))
+    alive = sum(1 for ok in alive_by_host.values() if ok)
+    dead = sum(1 for ok in alive_by_host.values() if not ok)
+    return alive, dead
+
+
+def compute_health_status(nodes: list, spooler_ok: bool) -> str:
+    """Pure function: derive 'pass'/'warn'/'fail' from ray.nodes() + spooler state.
+
+    Hosts are grouped (see _host_liveness) so dead historical incarnations from
+    restarts do not count against a host that is actually up.
+
+    - 'fail': spooler down, or zero alive hosts (cluster unreachable).
+    - 'warn': at least one host has only dead incarnations (a node went away).
+    - 'pass': spooler ok and every known host has a live incarnation.
+
+    A head-only deployment (no separate worker hosts) is 'pass'.
+    """
+    if not spooler_ok:
+        return "fail"
+    alive_hosts, dead_hosts = _host_liveness(nodes)
+    if alive_hosts == 0:
+        return "fail"
+    if dead_hosts > 0:
+        return "warn"
+    return "pass"
+
+
 def get_health_status() -> dict:
     try:
         actor = ray.get_actor(SPOOLER_NAME, namespace=NAMESPACE)
@@ -209,17 +249,44 @@ def get_health_status() -> dict:
         spooler_status = {
             "error": "Spooler not found"
         }
+
+    raw_nodes = ray.nodes()
+    spooler_ok = ("error" not in spooler_status
+                  if isinstance(spooler_status, dict) else True)
+
+    # Group incarnations by host so restarts don't read as dead nodes.
+    alive_by_host: dict = {}
+    head_hosts: set = set()
+    for n in raw_nodes:
+        key = (n.get("NodeManagerAddress") or n.get("NodeName")
+               or n.get("NodeID") or id(n))
+        alive_by_host[key] = alive_by_host.get(key, False) or bool(n.get("Alive", False))
+        if "node:__internal_head__" in (n.get("Resources") or {}):
+            head_hosts.add(key)
+
+    worker_hosts = [h for h in alive_by_host if h not in head_hosts]
+    alive_workers = sum(1 for h in worker_hosts if alive_by_host[h])
+    total_workers = len(worker_hosts)
+    head_active = any(alive_by_host[h] for h in head_hosts)
+    alive_hosts = sum(1 for ok in alive_by_host.values() if ok)
+    dead_hosts = sum(1 for ok in alive_by_host.values() if not ok)
+
+    services = {
+        "spooler": "active" if spooler_ok else "down",
+        "ray_head": "active" if head_active else "down",
+        "ray_workers": f"{alive_workers}/{total_workers} active",
+    }
+
+    nodes_summary = {"alive": alive_hosts, "dead": dead_hosts}
+    status = compute_health_status(raw_nodes, spooler_ok)
+
     return {
         "kodosumi_version": kodosumi.__version__,
         "python_version": sys.version,
         "ray_version": ray.__version__,
-        "ray_status": ray.nodes(),
-        "spooler_status": spooler_status
+        "ray_status": raw_nodes,
+        "spooler_status": spooler_status,
+        "services": services,
+        "nodes": nodes_summary,
+        "status": status,
     }
-    # return {
-    #     "kodosumi_version": None,
-    #     "python_version": None,
-    #     "ray_version": None,
-    #     "ray_status": [],
-    #     "spooler_status": None
-    # }
