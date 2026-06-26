@@ -8,12 +8,28 @@ for flows with agentIdentifier configured in their meta.data.
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 from kodosumi.const import EVENT_DEBUG
 import httpx
 
 from kodosumi.config import MasumiConfig
 from kodosumi.log import logger, slog
+
+# OD-7: Any concrete non-FundsLocked on-chain state is treated as terminal for
+# a job still in the payment-wait phase.  These are the known states as of the
+# current Masumi API version.  Unknown states (Masumi API evolution) are NOT
+# listed here — the loop continues polling until the deadline before raising
+# PaymentDeadlineTimeoutError, protecting against transient/intermediate states
+# introduced by future Masumi releases.
+KNOWN_TERMINAL_STATES: frozenset = frozenset({
+    "FundsOrDatumInvalid",
+    "RefundRequested",
+    "RefundWithdrawn",
+    "Withdrawn",
+    "Disputed",
+    "ResultSubmitted",
+})
+
 
 class PaymentError(Exception):
     """Base exception for payment-related errors."""
@@ -23,6 +39,106 @@ class PaymentError(Exception):
 class PaymentTimeoutError(PaymentError):
     """Payment was not confirmed within the deadline."""
     pass
+
+
+class BuyerNoActionTimeoutError(PaymentTimeoutError):
+    """Deadline expired and no on-chain state was ever observed.
+
+    The buyer never initiated the on-chain transaction within the payment
+    window.  This is distinct from a terminal failure state — the blockchain
+    simply has no record of the payment.
+
+    Attributes:
+        blockchain_identifier: The blockchain payment identifier.
+        network: Masumi network name ("Preprod" or "Mainnet").
+        agent_identifier: The registered agent identifier on Masumi.
+        deadline_iso: ISO-formatted deadline that was exceeded.
+    """
+
+    def __init__(
+        self,
+        blockchain_identifier: str,
+        network: str,
+        agent_identifier: str,
+        deadline_iso: str,
+    ) -> None:
+        self.blockchain_identifier = blockchain_identifier
+        self.network = network
+        self.agent_identifier = agent_identifier
+        self.deadline_iso = deadline_iso
+        super().__init__(
+            f"Payment deadline expired with no on-chain activity — "
+            f"buyer never acted "
+            f"(blockchain_id={blockchain_identifier}, network={network}, "
+            f"agent={agent_identifier}, deadline={deadline_iso})"
+        )
+
+
+class PaymentRejectedError(PaymentTimeoutError):
+    """A known terminal on-chain state was observed before the deadline.
+
+    Raised immediately when a concrete non-FundsLocked terminal state is
+    seen (e.g. "RefundRequested", "Disputed").  Continuing to poll would be
+    wasteful — the state is deterministic.
+
+    Attributes:
+        blockchain_identifier: The blockchain payment identifier.
+        network: Masumi network name.
+        agent_identifier: The registered agent identifier.
+        on_chain_state: The terminal on-chain state that was observed.
+    """
+
+    def __init__(
+        self,
+        blockchain_identifier: str,
+        network: str,
+        agent_identifier: str,
+        on_chain_state: str,
+    ) -> None:
+        self.blockchain_identifier = blockchain_identifier
+        self.network = network
+        self.agent_identifier = agent_identifier
+        self.on_chain_state = on_chain_state
+        super().__init__(
+            f"Payment reached terminal state '{on_chain_state}' — cannot proceed "
+            f"(blockchain_id={blockchain_identifier}, network={network}, "
+            f"agent={agent_identifier})"
+        )
+
+
+class PaymentDeadlineTimeoutError(PaymentTimeoutError):
+    """Deadline expired after observing an unknown non-FundsLocked state.
+
+    Raised when the deadline passes and the last observed on-chain state was
+    not FundsLocked but also not in KNOWN_TERMINAL_STATES — i.e. Masumi may
+    have introduced a new intermediate state.  Carries the last-seen state for
+    diagnostics.
+
+    Attributes:
+        blockchain_identifier: The blockchain payment identifier.
+        network: Masumi network name.
+        agent_identifier: The registered agent identifier.
+        last_state: The last on-chain state seen (or None if state was present
+            but value was unexpected).
+    """
+
+    def __init__(
+        self,
+        blockchain_identifier: str,
+        network: str,
+        agent_identifier: str,
+        last_state: Optional[str],
+    ) -> None:
+        self.blockchain_identifier = blockchain_identifier
+        self.network = network
+        self.agent_identifier = agent_identifier
+        self.last_state = last_state
+        super().__init__(
+            f"Payment deadline expired with last on-chain state '{last_state}' — "
+            f"payment not confirmed "
+            f"(blockchain_id={blockchain_identifier}, network={network}, "
+            f"agent={agent_identifier})"
+        )
 
 
 class PaymentInitError(PaymentError):
@@ -187,6 +303,8 @@ class MasumiClient:
         blockchain_identifier: str,
         network: str,
         pay_by_time: str,
+        agent_identifier: str = "",
+        on_event: Optional[Callable] = None,
     ) -> dict:
         """
         Poll for payment status until FundsLocked or timeout.
@@ -194,36 +312,142 @@ class MasumiClient:
         Args:
             blockchain_identifier: The blockchain identifier from init_payment
             network: "Preprod" or "Mainnet"
-            pay_by_time: ISO format deadline for payment
+            pay_by_time: Payment deadline as epoch milliseconds (string).
+                         Note: Masumi payByTime is epoch-ms, not ISO — despite
+                         the ISO-looking format of the init_payment request body.
+            agent_identifier: The registered agent identifier (for diagnostics).
+            on_event: Optional async callable invoked before raising, receives
+                      a dict with structured payment-event fields.  Used by
+                      Runner to persist an EVENT_PAYMENT row before the error
+                      propagates.  Errors from on_event are swallowed.
 
         Returns:
             Payment record with FundsLocked status
 
         Raises:
-            PaymentTimeoutError: If payment not confirmed by deadline
+            BuyerNoActionTimeoutError: Deadline expired, no on-chain state seen.
+            PaymentRejectedError: A KNOWN_TERMINAL_STATES state was observed.
+            PaymentDeadlineTimeoutError: Deadline expired with an unknown
+                non-FundsLocked last state (Masumi API evolution guard).
         """
-        # Parse deadline
-        deadline = datetime.fromtimestamp(float(pay_by_time)/1000, timezone.utc)
+        # Parse deadline — payByTime is stored as epoch milliseconds
+        deadline = datetime.fromtimestamp(float(pay_by_time) / 1000, timezone.utc)
+        deadline_iso = deadline.isoformat()
 
+        # Track the last non-None on-chain state seen across poll iterations.
+        last_state: Optional[str] = None
 
         while datetime.now(timezone.utc) < deadline:
             payment = await self.get_payment_status(blockchain_identifier, network)
 
             if payment:
-                state = payment.get("onChainState", None)
-                if state:
-                    if state == "FundsLocked":
-                        return payment
-                    else:
-                        raise PaymentTimeoutError(
-                            f"Payment was {state}, cannot proceed with job"
-                        )
+                state: Optional[str] = payment.get("onChainState")
+                if state is not None:
+                    last_state = state
+
+                if state == "FundsLocked":
+                    return payment
+
+                # OD-7: Any KNOWN_TERMINAL_STATES state is deterministic —
+                # raise immediately rather than waiting until deadline.
+                # Unknown states: keep polling (guard against transient states
+                # from future Masumi API versions).
+                if state in KNOWN_TERMINAL_STATES:
+                    slog(
+                        logger,
+                        logging.WARNING,
+                        "payment.terminal_state",
+                        blockchain_identifier=blockchain_identifier,
+                        network=network,
+                        agent=agent_identifier,
+                        on_chain_state=state,
+                    )
+                    exc = PaymentRejectedError(
+                        blockchain_identifier=blockchain_identifier,
+                        network=network,
+                        agent_identifier=agent_identifier,
+                        on_chain_state=state,
+                    )
+                    if on_event is not None:
+                        try:
+                            await on_event({
+                                "step": "terminal_state",
+                                "reason": "rejected",
+                                "blockchainIdentifier": blockchain_identifier,
+                                "network": network,
+                                "agent": agent_identifier,
+                                "onChainState": state,
+                            })
+                        except Exception:
+                            pass
+                    raise exc
 
             await asyncio.sleep(self.poll_interval)
 
-        raise PaymentTimeoutError(
-            f"Payment not confirmed by deadline {pay_by_time}"
+        # Deadline expired — distinguish "buyer never acted" from "unknown state"
+        if last_state is None:
+            slog(
+                logger,
+                logging.WARNING,
+                "payment.buyer_no_action",
+                blockchain_identifier=blockchain_identifier,
+                network=network,
+                agent=agent_identifier,
+                deadline=deadline_iso,
+            )
+            exc = BuyerNoActionTimeoutError(
+                blockchain_identifier=blockchain_identifier,
+                network=network,
+                agent_identifier=agent_identifier,
+                deadline_iso=deadline_iso,
+            )
+            if on_event is not None:
+                try:
+                    await on_event({
+                        "step": "timeout",
+                        "reason": "buyer_no_action",
+                        "blockchainIdentifier": blockchain_identifier,
+                        "network": network,
+                        "agent": agent_identifier,
+                        "onChainState": None,
+                        "deadline": deadline_iso,
+                    })
+                except Exception:
+                    pass
+            raise exc
+
+        # Deadline expired with an unknown non-FundsLocked state — Masumi API
+        # may have introduced a new intermediate state.
+        slog(
+            logger,
+            logging.WARNING,
+            "payment.deadline_timeout",
+            blockchain_identifier=blockchain_identifier,
+            network=network,
+            agent=agent_identifier,
+            last_state=last_state,
+            deadline=deadline_iso,
         )
+        exc = PaymentDeadlineTimeoutError(
+            blockchain_identifier=blockchain_identifier,
+            network=network,
+            agent_identifier=agent_identifier,
+            last_state=last_state,
+        )
+        if on_event is not None:
+            try:
+                await on_event({
+                    "step": "timeout",
+                    "reason": "deadline_with_unknown_state",
+                    "blockchainIdentifier": blockchain_identifier,
+                    "network": network,
+                    "agent": agent_identifier,
+                    "onChainState": last_state,
+                    "deadline": deadline_iso,
+                })
+            except Exception:
+                pass
+        raise exc
 
     async def submit_result(
         self,
