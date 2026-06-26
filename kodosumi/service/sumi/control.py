@@ -41,6 +41,7 @@ from kodosumi.service.sumi.schema import (
     convert_model_to_schema, convert_mip003_indices_to_values, create_empty_schema)
 from kodosumi.service.jwt import (
     parse_token, sumi_network_guard, sumi_job_network_guard)
+from kodosumi.service.expose.boot import check_app_running
 
 # User identifier for jobs started via Sumi protocol
 # SUMI_USER = "_sumi_"
@@ -48,6 +49,12 @@ from kodosumi.service.jwt import (
 # Pagination limits
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 10
+
+# Availability cache: keyed by expose_name → (timestamp, AvailabilityResponse)
+# 10-second TTL debounces burst requests (e.g. Sokosumi polling) without waking
+# scale-to-zero replicas on every call.
+_AVAILABILITY_CACHE_TTL = 10.0
+_availability_cache: dict[str, tuple[float, "AvailabilityResponse"]] = {}
 
 
 def _parse_meta_data(data_yaml: Optional[str]) -> dict:
@@ -473,21 +480,41 @@ async def _check_availability(
     expose_name: str,
     meta_name: str,
     ray_serve_address: str,
+    ray_dashboard: str = "",
     db_path: Optional[str] = None,
 ) -> AvailabilityResponse:
     """
-    Check availability of a service via HEAD request to Ray Serve.
+    Check availability of a service via the Ray dashboard control-plane API.
+
+    Uses the Ray dashboard (replica-free probe) when available so that
+    scale-to-zero replicas are NOT cold-started. Results are cached for
+    ``_AVAILABILITY_CACHE_TTL`` seconds to debounce burst requests.
+
+    Falls back to a HEAD request (not GET — GET cold-starts replicas) when the
+    dashboard is not configured or unreachable.
 
     Args:
         expose_name: Name of the expose
         meta_name: Name (slug) of the meta entry (empty for root)
-        ray_serve_address: Ray Serve HTTP address
+        ray_serve_address: Ray Serve HTTP address (fallback only)
+        ray_dashboard: Ray dashboard URL (e.g. http://localhost:8265). Empty
+            string disables dashboard probing.
         db_path: Optional database path for testing
 
     Returns:
         AvailabilityResponse with status and message
     """
+    import httpx
+
     service_id = _format_service_id(expose_name, meta_name)
+
+    # Check in-process cache first
+    cached = _availability_cache.get(expose_name)
+    if cached is not None:
+        ts, response = cached
+        if time.monotonic() - ts < _AVAILABILITY_CACHE_TTL:
+            return response
+
     try:
         _, meta = await _get_meta_entry(expose_name, meta_name, db_path)
     except NotFoundException:
@@ -496,19 +523,52 @@ async def _check_availability(
             message=f"Service '{service_id}' not found or not available",
         )
 
-    # Build Ray Serve endpoint URL
-    endpoint_url = ray_serve_address.rstrip("/") + meta.url
-
     # Get display name for messages
     data = _parse_meta_data(meta.data)
     display_name = data.get("display") or meta_name or expose_name
 
-    # Perform GET request to verify endpoint is responding
+    result: AvailabilityResponse
+
+    if ray_dashboard:
+        check = await check_app_running(ray_dashboard, expose_name)
+        if (check.details or {}).get("unreachable"):
+            # Dashboard unreachable — fall back to HEAD (not GET, which would
+            # cold-start a scale-to-zero replica).
+            result = await _head_availability(meta, ray_serve_address, display_name)
+        elif check.valid:
+            result = AvailabilityResponse(
+                status="available",
+                message=f"{display_name} is ready to accept jobs",
+            )
+        else:
+            result = AvailabilityResponse(
+                status="unavailable",
+                message=f"Service is not running: {check.message}",
+            )
+    else:
+        # No dashboard configured — fall back to HEAD probe
+        result = await _head_availability(meta, ray_serve_address, display_name)
+
+    _availability_cache[expose_name] = (time.monotonic(), result)
+    return result
+
+
+async def _head_availability(
+    meta: ExposeMeta,
+    ray_serve_address: str,
+    display_name: str,
+) -> AvailabilityResponse:
+    """
+    Check service availability via HEAD request to Ray Serve.
+
+    HEAD (not GET) is used deliberately: GET cold-starts scale-to-zero replicas.
+    """
+    endpoint_url = ray_serve_address.rstrip("/") + meta.url
     try:
         async with HTTPXClient() as client:
-            resp = await client.get(endpoint_url, timeout=30.0)
+            resp = await client.head(endpoint_url, timeout=10.0)
 
-        if resp.status_code < 400:
+        if resp.status_code < 400 or resp.status_code == 405:
             return AvailabilityResponse(
                 status="available",
                 message=f"{display_name} is ready to accept jobs",
@@ -1073,7 +1133,8 @@ class SumiControl(Controller):
         meta_name = _validate_path_param(meta_name, "meta_name")
 
         ray_serve_address = state["settings"].RAY_SERVE_ADDRESS
-        return await _check_availability(expose_name, meta_name, ray_serve_address)
+        ray_dashboard = state["settings"].RAY_DASHBOARD
+        return await _check_availability(expose_name, meta_name, ray_serve_address, ray_dashboard=ray_dashboard)
 
     @get(
         "/{expose_name:str}/availability",
@@ -1091,7 +1152,8 @@ class SumiControl(Controller):
         """Check if root service is available."""
         expose_name = _validate_path_param(expose_name, "expose_name")
         ray_serve_address = state["settings"].RAY_SERVE_ADDRESS
-        return await _check_availability(expose_name, "", ray_serve_address)
+        ray_dashboard = state["settings"].RAY_DASHBOARD
+        return await _check_availability(expose_name, "", ray_serve_address, ray_dashboard=ray_dashboard)
 
     @get(
         "/{expose_name:str}/input_schema",

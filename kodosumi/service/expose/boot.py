@@ -482,7 +482,7 @@ async def check_app_running(
                 return ValidationResult(
                     valid=False,
                     message=f"Dashboard returned {response.status_code}",
-                    details={"status_code": response.status_code}
+                    details={"status_code": response.status_code, "unreachable": True}
                 )
 
             data = response.json()
@@ -515,13 +515,13 @@ async def check_app_running(
         return ValidationResult(
             valid=False,
             message="Dashboard timeout",
-            details={"error": "timeout"}
+            details={"error": "timeout", "unreachable": True}
         )
     except Exception as e:
         return ValidationResult(
             valid=False,
             message=f"Dashboard error: {str(e)}",
-            details={"error": str(e)}
+            details={"error": str(e), "unreachable": True}
         )
 
 
@@ -1900,29 +1900,57 @@ async def check_flow_health(ray_serve_address: str, path: str, timeout: float = 
 
 async def check_all_flows(
     ray_serve_address: str,
-    flows: List[DiscoveredFlow]
+    flows: List[DiscoveredFlow],
+    ray_dashboard: str = "",
 ) -> Dict[str, List[FlowStatus]]:
     """
     Check health of all flows in parallel, grouped by app_name.
 
+    When ray_dashboard is provided, queries the Ray dashboard control-plane API
+    first (replica-free, does not wake scale-to-zero containers). Falls back to
+    a HEAD request only when the dashboard is unreachable (ConnectError).
+
+    When ray_dashboard is empty, uses the original HEAD probe behaviour.
+
     Args:
         ray_serve_address: Ray Serve address
         flows: List of discovered flows to check
+        ray_dashboard: Ray dashboard URL (e.g. http://localhost:8265). Empty
+            string disables dashboard probing and keeps the HEAD fallback.
 
     Returns:
         Dict mapping app_name to list of FlowStatus objects
     """
+    import httpx
+
     check_time = time.time()
     results: Dict[str, List[FlowStatus]] = {}
 
-    # Create tasks for all flows
     async def check_one(flow: DiscoveredFlow) -> FlowStatus:
+        if ray_dashboard:
+            result = await check_app_running(ray_dashboard, flow.app_name)
+            # Dashboard unreachable (timeout/connect/non-200) → we cannot
+            # determine state from the control plane; fall back to a HEAD probe
+            # for this flow rather than falsely marking it dead.
+            if not (result.details or {}).get("unreachable"):
+                if result.valid:
+                    state = "alive"
+                elif result.message and "not found" in result.message.lower():
+                    state = "not-found"
+                else:
+                    state = "dead"
+                return FlowStatus(
+                    flow=flow,
+                    state=state,
+                    response_code=None,
+                    checked_at=check_time,
+                )
         state, code = await check_flow_health(ray_serve_address, flow.path)
         return FlowStatus(
             flow=flow,
             state=state,
             response_code=code,
-            checked_at=check_time
+            checked_at=check_time,
         )
 
     # Run all checks in parallel
@@ -1941,12 +1969,16 @@ async def check_all_flows(
 async def _step_retrieve_flows(
     ray_serve_address: str,
     discovered_flows: List[DiscoveredFlow],
-    progress: BootProgress
+    progress: BootProgress,
+    ray_dashboard: str = "",
 ) -> AsyncGenerator[BootMessage, None]:
     """
-    Step D: Test each discovered flow endpoint with HEAD requests.
+    Step D: Test each discovered flow endpoint.
 
-    Verifies that each flow endpoint is responding.
+    When ray_dashboard is provided, uses the Ray dashboard control-plane API
+    (replica-free, does not cold-start scale-to-zero containers). Falls back to
+    a HEAD request only when the dashboard is unreachable. When ray_dashboard is
+    empty, uses HEAD probes exclusively.
 
     Yields BootMessage objects for progress tracking.
     """
@@ -1995,7 +2027,7 @@ async def _step_retrieve_flows(
         )
 
     # Check all flows
-    flow_statuses = await check_all_flows(ray_serve_address, discovered_flows)
+    flow_statuses = await check_all_flows(ray_serve_address, discovered_flows, ray_dashboard=ray_dashboard)
 
     # Report results
     total_alive = 0
@@ -2768,7 +2800,7 @@ async def _real_boot_process(
     # Step D: Retrieve Flows
     # =========================================================================
     flow_statuses: Dict[str, List[FlowStatus]] = {}
-    async for msg in _step_retrieve_flows(ray_serve_address, discovered_flows, progress):
+    async for msg in _step_retrieve_flows(ray_serve_address, discovered_flows, progress, ray_dashboard=ray_dashboard):
         yield msg
         if msg.msg_type == MessageType.ERROR:
             audit.error(f"BOOT STEP D FAILED - retrieve flows error: {msg.message}")
