@@ -3,6 +3,7 @@ import inspect
 import json
 import logging
 import os
+import time
 from traceback import format_exc
 from typing import Any, Callable, Optional, Tuple, Union
 
@@ -28,6 +29,33 @@ from kodosumi.runner.payment import (
     MasumiClient, PaymentError, PaymentTimeoutError, create_result_hash
 )
 from kodosumi import dtypes
+
+async def _heartbeat(fid: str, interval: float) -> None:
+    """Emit periodic heartbeat slog lines while the job runs.
+
+    Designed to be run as an asyncio background task inside Runner.run().
+    The task should be cancelled (via task.cancel()) in a try/finally block
+    so it stops immediately when the job finishes or fails.
+
+    Args:
+        fid: Execution ID (same as tracer.fid).
+        interval: Seconds between heartbeat emissions; 0 disables.
+    """
+    if interval <= 0:
+        return
+    start = time.monotonic()
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            elapsed = int(time.monotonic() - start)
+            try:
+                slog(logger, logging.DEBUG, "job.heartbeat",
+                     fid=fid, elapsed_s=elapsed)
+            except Exception:
+                pass  # best-effort; never crash the heartbeat loop
+    except asyncio.CancelledError:
+        pass  # normal cancellation — exit silently
+
 
 def _effective_lock_deadline(
     lock_expires_ts: float,
@@ -249,6 +277,11 @@ class Runner:
                 "blockchain_identifier": blockchain_identifier,
                 "pay_data": pay_data,
             }
+            # #80: link fid ↔ blockchainIdentifier in a greppable structured log line
+            slog(logger, logging.INFO, "payment.init",
+                 fid=self.fid,
+                 blockchain_identifier=blockchain_identifier,
+                 network=pay_conf.get("network"))
             return self._payment
 
     async def _await_payment(self, payment: dict) -> None:
@@ -272,13 +305,31 @@ class Runner:
         )
 
     async def run(self):
+        _run_start = time.monotonic()
         final_kind = STATUS_END
+        # #76: emit job.created at run() start
+        slog(logger, logging.INFO, "job.created", fid=self.fid, status="running")
+        # #76: start heartbeat background task (cancelled in finally)
+        _heartbeat_interval = Settings().HEARTBEAT_INTERVAL
+        _heartbeat_task = asyncio.ensure_future(
+            _heartbeat(self.fid, _heartbeat_interval)
+        )
         try:
             await self.start()
+            # #76: job.finished on success
+            _duration_ms = (time.monotonic() - _run_start) * 1000
+            slog(logger, logging.INFO, "job.finished",
+                 fid=self.fid, status="finished", duration_ms=round(_duration_ms, 1))
         except Exception as exc:
             final_kind = STATUS_ERROR
             await self._put_async(EVENT_ERROR, format_exc())
+            # #76: job.failed on exception
+            _duration_ms = (time.monotonic() - _run_start) * 1000
+            slog(logger, logging.WARNING, "job.failed",
+                 fid=self.fid, status="error", duration_ms=round(_duration_ms, 1))
         finally:
+            # #76: cancel heartbeat task
+            _heartbeat_task.cancel()
             await self._put_async(EVENT_STATUS, final_kind)
             await self.shutdown()
 

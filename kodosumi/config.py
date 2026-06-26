@@ -165,6 +165,7 @@ class Settings(BaseSettings):
     ANONYMOUS: str = "_ANONYMOUS_"
 
     LOCK_EXPIRES: float = 10800  # seconds (3 hours) - how long a lock remains valid
+    HEARTBEAT_INTERVAL: float = 30.0  # seconds - Runner heartbeat log interval (0 disables)
     CHUNK_SIZE: int = 5 * 1024 * 1024  # bytes - chunk size for file operations
     SAVE_CHUNK_SIZE: int = 1024 * 1024  # bytes - chunk size for saving files
 

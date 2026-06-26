@@ -971,6 +971,14 @@ async def _submit_job(
                 job_id, type(exc).__name__, exc
             )
 
+        # #70: one greppable line linking start_job → fid → sokosumi_job → inputHash
+        slog(logger, logging.INFO, "sumi.job_created",
+             fid=job_id,
+             agent=f"{expose_name}/{meta_name}",
+             sokosumi_job=data.identifier_from_purchaser or "-",
+             input_hash=input_hash,
+             blockchain_identifier=blockchain_id or "-")
+
         return JobStatusResponse(
             job_id=job_id,
             status="awaiting_payment" if blockchain_id else "running",
