@@ -10,6 +10,7 @@ This module handles the step-by-step boot process:
 """
 
 import asyncio
+import os
 import re
 import subprocess
 import tempfile
@@ -96,7 +97,9 @@ DEFAULT_SERVE_CONFIG = {
         "encoding": "TEXT",
         "log_level": "WARNING",
         "logs_dir": None,
-        "enable_access_log": True
+        "enable_access_log": os.environ.get(
+            "KODO_SERVE_ACCESS_LOG", "true").strip().lower()
+            not in ("false", "0", "no")
     }
 }
 

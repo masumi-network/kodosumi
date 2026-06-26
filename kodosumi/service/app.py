@@ -32,7 +32,7 @@ from kodosumi import helper
 from kodosumi.config import InternalSettings
 from kodosumi.const import TOKEN_KEY
 from kodosumi.dtypes import Role, RoleCreate
-from kodosumi.log import app_logger, logger
+from kodosumi.log import app_logger, logger, slog, access_log_level
 from kodosumi.service.admin.panel import AdminControl
 from kodosumi.service.auth import LoginControl
 from kodosumi.service.dashboard import DashboardAPI
@@ -187,6 +187,9 @@ async def shutdown(app):
 class LoggingMiddleware(MiddlewareProtocol):
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
+        settings = InternalSettings()
+        self.access_log_enabled = settings.PANEL_ACCESS_LOG
+        self.quiet_paths = tuple(settings.ACCESS_LOG_QUIET_PATHS)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
 
@@ -200,16 +203,19 @@ class LoggingMiddleware(MiddlewareProtocol):
             await send(message)
 
         await self.app(scope, receive, send_wrapper)
-       
+
         if scope["type"] == "http":
             req = Request(scope)
             try:
                 user = req.user
             except Exception:
                 user = "-"
-            logger.info(
-                f"{req.method} {req.url.path} - {status} "
-                f"in {time() - t0:.4f}s ({user})")
+            path = req.url.path
+            level = access_log_level(
+                status, path, self.access_log_enabled, self.quiet_paths)
+            slog(logger, level, "http.access",
+                 method=req.method, path=path, status=status,
+                 duration_ms=round((time() - t0) * 1000, 1), user=str(user))
 
 
 def create_app(**kwargs) -> Litestar:

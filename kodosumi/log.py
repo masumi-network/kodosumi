@@ -88,6 +88,20 @@ def get_log_level(level: str):
     return getattr(logging, level.upper())
 
 
+def access_log_level(status, path, enabled, quiet_paths) -> int:
+    """Pick the log level for a per-request access-log line (#71).
+
+    Errors (status >= 400) are always WARNING so failures stay visible even when
+    access logging is quieted. Quiet path prefixes (high-frequency UI/status
+    polls) and the disabled state are demoted to DEBUG. Everything else is INFO.
+    """
+    if status is not None and status >= 400:
+        return logging.WARNING
+    if not enabled or any(path.startswith(p) for p in quiet_paths):
+        return logging.DEBUG
+    return logging.INFO
+
+
 def _log_setup(settings: Settings, prefix: str):
     global logger
     _log = logging.getLogger("kodo")

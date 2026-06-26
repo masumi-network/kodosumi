@@ -47,6 +47,7 @@ def run(settings: Settings):
         reload=settings.APP_RELOAD,
         factory=True,
         log_config=log_config,
+        access_log=settings.UVICORN_ACCESS_LOG,
         headers=[("server", "kodosumi service")],
         ssl_keyfile=settings.SSL_KEYFILE,
         ssl_certfile=settings.SSL_CERTFILE,

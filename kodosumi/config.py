@@ -125,6 +125,13 @@ class Settings(BaseSettings):
     APP_RELOAD: bool = False
 
     UVICORN_LEVEL: str = "WARNING"
+    # Access-log verbosity (#71). The kodo middleware logs each request richly
+    # (method/path/status/duration/user); uvicorn's own access log is off by
+    # default to avoid logging every request twice.
+    UVICORN_ACCESS_LOG: bool = False  # uvicorn's built-in access log
+    PANEL_ACCESS_LOG: bool = True  # kodo per-request access log; False -> all DEBUG
+    ACCESS_LOG_QUIET_PATHS: List[str] = []  # path prefixes logged at DEBUG (UI/status polls)
+    SERVE_ACCESS_LOG: bool = True  # Ray Serve proxy access log (serve_config.yaml default)
     SECRET_KEY: str = "top secret -- change this in production"
 
     WAIT_FOR_JOB: int = 600  # seconds - how long to wait for job database to appear
@@ -195,10 +202,10 @@ class Settings(BaseSettings):
             Path(v).parent.mkdir(parents=True, exist_ok=True)
         return v
 
-    @field_validator("CORS_ORIGINS", mode="before")
+    @field_validator("CORS_ORIGINS", "ACCESS_LOG_QUIET_PATHS", mode="before")
     def string_to_list(cls, v):
         if isinstance(v, str):
-            return [s.strip() for s in v.split(',')]
+            return [s.strip() for s in v.split(',') if s.strip()]
         return v
 
     @cached_property
