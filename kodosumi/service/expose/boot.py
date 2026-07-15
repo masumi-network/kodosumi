@@ -851,6 +851,42 @@ def load_serve_config(config_path: str = RAY_SERVE_CONFIG) -> dict:
     return config
 
 
+def _coerce_env_vars(env_vars: dict, expose_name: str = "") -> dict:
+    """Coerce YAML-parsed env_vars values to strings for Ray RuntimeEnv.
+
+    Logs a WARNING for every coerced or dropped value so silent masking
+    of config errors is visible in the audit/app log.
+    """
+    import datetime
+
+    result = {}
+    for k, v in env_vars.items():
+        if v is None:
+            slog(logger, logging.WARNING, "boot.env_vars.dropped",
+                 expose=expose_name, key=k, raw=v,
+                 reason="null/~ in env_vars — dropped (use quoted string if intentional)")
+            continue
+        if isinstance(v, float) and (v != v or v == float("inf") or v == float("-inf")):
+            slog(logger, logging.WARNING, "boot.env_vars.dropped",
+                 expose=expose_name, key=k, raw=v,
+                 reason="inf/nan in env_vars — dropped")
+            continue
+        if isinstance(v, str):
+            result[k] = v
+            continue
+        if isinstance(v, bool):
+            coerced = str(v).lower()
+        elif isinstance(v, (datetime.date, datetime.datetime)):
+            coerced = v.isoformat()
+        else:
+            coerced = str(v)
+        slog(logger, logging.WARNING, "boot.env_vars.coerced",
+             expose=expose_name, key=k,
+             raw_type=type(v).__name__, raw=v, coerced=coerced)
+        result[k] = coerced
+    return result
+
+
 def parse_bootstrap(bootstrap_yaml: str, expose_name: str) -> dict:
     """
     Parse expose bootstrap YAML into Ray Serve application config.
@@ -890,6 +926,15 @@ def parse_bootstrap(bootstrap_yaml: str, expose_name: str) -> dict:
     # Add/override name and route_prefix
     app_config["name"] = expose_name
     app_config["route_prefix"] = f"/{expose_name}"
+
+    # Ray requires env_vars values to be strings — YAML silently parses
+    # unquoted true/false as bool, numbers as int/float, null/~ as None,
+    # and bare dates as datetime.date.
+    runtime_env = app_config.get("runtime_env")
+    if isinstance(runtime_env, dict):
+        env_vars = runtime_env.get("env_vars")
+        if isinstance(env_vars, dict):
+            runtime_env["env_vars"] = _coerce_env_vars(env_vars, expose_name)
 
     return app_config
 

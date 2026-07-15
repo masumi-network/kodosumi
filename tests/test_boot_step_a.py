@@ -19,6 +19,7 @@ import yaml
 from kodosumi.service.expose.boot import (
     load_serve_config,
     parse_bootstrap,
+    _coerce_env_vars,
     run_serve_deploy,
     _step_deploy,
     BootStep,
@@ -150,6 +151,168 @@ route_prefix: /original-route
 
         assert result["name"] == "new-name"
         assert result["route_prefix"] == "/new-name"
+
+
+class TestCoerceEnvVars:
+    """Tests for _coerce_env_vars() — YAML type coercion to strings."""
+
+    def test_bools_become_lowercase_strings(self):
+        env = _coerce_env_vars({"A": True, "B": False})
+        assert env == {"A": "true", "B": "false"}
+
+    def test_yaml_bool_aliases(self):
+        """YAML parses yes/no/on/off as booleans too."""
+        import yaml
+        parsed = yaml.safe_load("yes: yes\nno: no\non: on\noff: off")
+        env = _coerce_env_vars(parsed)
+        for v in env.values():
+            assert isinstance(v, str)
+            assert v in ("true", "false")
+
+    def test_ints_become_strings(self):
+        env = _coerce_env_vars({"PORT": 8080, "HEX": 0x1A})
+        assert env == {"PORT": "8080", "HEX": "26"}
+
+    def test_floats_become_strings(self):
+        env = _coerce_env_vars({"RATE": 1.5, "ZERO": 0.0})
+        assert env == {"RATE": "1.5", "ZERO": "0.0"}
+
+    def test_none_values_dropped(self):
+        env = _coerce_env_vars({"KEEP": "val", "DROP": None})
+        assert env == {"KEEP": "val"}
+        assert "DROP" not in env
+
+    def test_inf_nan_dropped(self):
+        env = _coerce_env_vars({
+            "INF": float("inf"),
+            "NINF": float("-inf"),
+            "NAN": float("nan"),
+            "KEEP": "val",
+        })
+        assert env == {"KEEP": "val"}
+
+    def test_dates_become_isoformat(self):
+        import datetime
+        env = _coerce_env_vars({"D": datetime.date(2026, 7, 15)})
+        assert env == {"D": "2026-07-15"}
+
+    def test_strings_unchanged(self):
+        env = _coerce_env_vars({
+            "KEY": "sk-abc123",
+            "URL": "https://example.com",
+            "EMPTY": "",
+        })
+        assert env == {
+            "KEY": "sk-abc123",
+            "URL": "https://example.com",
+            "EMPTY": "",
+        }
+
+    def test_empty_dict(self):
+        assert _coerce_env_vars({}) == {}
+
+    def test_all_values_are_strings(self):
+        """Full YAML round-trip: no non-string value survives."""
+        import yaml
+        raw = yaml.safe_load("""
+          BOOL: true
+          INT: 42
+          FLOAT: 3.14
+          NULL: null
+          STR: hello
+          DATE: 2026-01-01
+          QUOTED: "true"
+        """)
+        env = _coerce_env_vars(raw)
+        for k, v in env.items():
+            assert isinstance(v, str), f"{k}={v!r} is {type(v).__name__}, not str"
+        assert "NULL" not in env
+
+    def test_coercion_logs_warning(self, caplog):
+        """Every coerced value must emit a WARNING for visibility."""
+        import logging
+        with caplog.at_level(logging.WARNING):
+            _coerce_env_vars({"FLAG": True, "PORT": 8080}, expose_name="test-app")
+        coerced = [r for r in caplog.records
+                   if r.msg == "boot.env_vars.coerced"]
+        assert len(coerced) == 2
+        keys = {r._slog["key"] for r in coerced}
+        assert keys == {"FLAG", "PORT"}
+
+    def test_dropped_null_logs_warning(self, caplog):
+        """Dropped None values must emit a WARNING."""
+        import logging
+        with caplog.at_level(logging.WARNING):
+            _coerce_env_vars({"GONE": None}, expose_name="test-app")
+        dropped = [r for r in caplog.records
+                   if r.msg == "boot.env_vars.dropped"]
+        assert len(dropped) == 1
+        assert dropped[0]._slog["key"] == "GONE"
+
+    def test_dropped_inf_logs_warning(self, caplog):
+        """Dropped inf/nan values must emit a WARNING."""
+        import logging
+        with caplog.at_level(logging.WARNING):
+            _coerce_env_vars({"BAD": float("inf")}, expose_name="test-app")
+        dropped = [r for r in caplog.records
+                   if r.msg == "boot.env_vars.dropped"]
+        assert len(dropped) == 1
+
+
+class TestParseBootstrapEnvVars:
+    """Integration: parse_bootstrap coerces env_vars end-to-end."""
+
+    def test_coerces_env_vars_in_bootstrap(self):
+        bootstrap = """
+import_path: mymodule:app
+runtime_env:
+  env_vars:
+    OTEL_SDK_DISABLED: true
+    PORT: 8080
+    VERSION: 1.5
+    API_KEY: sk-abc
+"""
+        result = parse_bootstrap(bootstrap, "test")
+        env = result["runtime_env"]["env_vars"]
+        assert env["OTEL_SDK_DISABLED"] == "true"
+        assert env["PORT"] == "8080"
+        assert env["VERSION"] == "1.5"
+        assert env["API_KEY"] == "sk-abc"
+        for v in env.values():
+            assert isinstance(v, str)
+
+    def test_no_env_vars_still_works(self):
+        bootstrap = """
+import_path: mymodule:app
+runtime_env:
+  pip: [openai]
+"""
+        result = parse_bootstrap(bootstrap, "test")
+        assert "env_vars" not in result["runtime_env"]
+
+    def test_no_runtime_env_still_works(self):
+        result = parse_bootstrap("import_path: mymodule:app", "test")
+        assert "runtime_env" not in result
+
+    def test_ray_accepts_coerced_env_vars(self):
+        """Verify Ray RuntimeEnv accepts the coerced values."""
+        try:
+            from ray.runtime_env import RuntimeEnv
+        except ImportError:
+            pytest.skip("ray not installed")
+
+        bootstrap = """
+import_path: mymodule:app
+runtime_env:
+  env_vars:
+    ENABLED: true
+    COUNT: 42
+    RATE: 0.5
+"""
+        result = parse_bootstrap(bootstrap, "test")
+        env_vars = result["runtime_env"]["env_vars"]
+        rt = RuntimeEnv(env_vars=env_vars)
+        assert rt["env_vars"] == env_vars
 
 
 class TestRunServeDeploy:
