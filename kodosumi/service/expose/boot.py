@@ -75,6 +75,8 @@ BOOT_HEALTH_TIMEOUT = BOOT_HEALTH_TIMEOUT_DEFAULT  # Alias for tests
 BOOT_POLL_INTERVAL = 2  # seconds - interval between status polls during boot
 BOOT_BATCH_SIZE = 4  # Max concurrent deployments in sliding window
 BOOT_DEPLOY_POLL_INTERVAL = 5  # Seconds between status polls during sliding-window deploy
+BOOT_ASYNC_DISCOVERY_TIMEOUT = 180  # Max seconds for background flow discovery retry
+BOOT_ASYNC_DISCOVERY_INTERVAL = 10  # Seconds between retries
 
 # Total number of main steps for progress tracking
 BOOT_TOTAL_STEPS = 5  # A, B, C, D, E
@@ -1878,12 +1880,23 @@ async def _step_register_flows(
                 progress=progress
             )
 
+    # Track apps where OpenAPI discovery failed (cold-start candidates)
+    discovered_app_names = {f.app_name for f in all_flows}
+    pending_discovery = [n for n in running_apps if n not in discovered_app_names]
+
+    msg_text = f"Flow registration complete ({len(all_flows)} discovered)"
+    if pending_discovery:
+        msg_text += f", {len(pending_discovery)} pending async retry"
+
     yield BootMessage(
         step=BootStep.REGISTER,
         msg_type=MessageType.STEP_END,
-        message=f"Flow registration complete ({len(all_flows)} discovered)",
+        message=msg_text,
         progress=progress,
-        data={"discovered_flows": all_flows}
+        data={
+            "discovered_flows": all_flows,
+            "pending_discovery": pending_discovery,
+        }
     )
 
 
@@ -2831,6 +2844,7 @@ async def _real_boot_process(
     # Step C: Register Flows
     # =========================================================================
     discovered_flows: List[DiscoveredFlow] = []
+    pending_discovery: List[str] = []
     async for msg in _step_register_flows(
         ray_serve_address, app_server, running_apps, auth_cookies, progress
     ):
@@ -2841,9 +2855,12 @@ async def _real_boot_process(
         # Capture discovered flows for subsequent steps
         if msg.data and "discovered_flows" in msg.data:
             discovered_flows = msg.data["discovered_flows"]
+        if msg.data and "pending_discovery" in msg.data:
+            pending_discovery = msg.data["pending_discovery"]
 
     # Audit: Step C complete
-    audit.info(f"BOOT STEP C - registered {len(discovered_flows)} flows")
+    audit.info(f"BOOT STEP C - registered {len(discovered_flows)} flows"
+               + (f", {len(pending_discovery)} pending async" if pending_discovery else ""))
 
     # =========================================================================
     # Step D: Retrieve Flows
@@ -2890,8 +2907,92 @@ async def _real_boot_process(
         failed=len(failed_apps),
         total=len(final_statuses),
         failed_apps=failed_names if failed_names else None,
+        pending_discovery=len(pending_discovery) if pending_discovery else None,
         duration_ms=round(boot_duration * 1000),
     )
+
+    # Start background task for apps that failed OpenAPI discovery (cold-start)
+    if pending_discovery:
+        asyncio.create_task(
+            _async_flow_discovery(
+                pending_discovery, ray_serve_address, ray_dashboard,
+                app_server, auth_cookies,
+            )
+        )
+
+
+async def _async_flow_discovery(
+    pending_apps: List[str],
+    ray_serve_address: str,
+    ray_dashboard: str,
+    app_server: str,
+    auth_cookies: Optional[Dict[str, str]],
+):
+    """Background retry for OpenAPI flow discovery on cold-start apps.
+
+    Polls pending apps until their OpenAPI spec becomes available,
+    then runs the same discovery → health-check → meta-update pipeline
+    as the synchronous boot. Idempotent — merge_flow_with_meta handles
+    duplicates by updating existing entries.
+    """
+    audit = get_audit_logger()
+    remaining = list(pending_apps)
+    deadline = time.time() + BOOT_ASYNC_DISCOVERY_TIMEOUT
+
+    slog(logger, logging.INFO, "boot.async_discovery.start",
+         apps=remaining, timeout_s=BOOT_ASYNC_DISCOVERY_TIMEOUT)
+
+    while remaining and time.time() < deadline:
+        await asyncio.sleep(BOOT_ASYNC_DISCOVERY_INTERVAL)
+
+        resolved = []
+        for app_name in remaining:
+            spec, _, error = await fetch_openapi_spec(ray_serve_address, app_name)
+            if spec is None:
+                continue
+
+            flows = extract_kodosumi_endpoints(spec, app_name)
+            if not flows:
+                resolved.append(app_name)
+                continue
+
+            # Run health check (Step D equivalent)
+            flow_statuses: Dict[str, List[FlowStatus]] = {}
+            statuses_list = []
+            for flow in flows:
+                state, code = await check_flow_health(
+                    ray_serve_address, flow.path)
+                statuses_list.append(FlowStatus(
+                    flow=flow, state=state,
+                    response_code=code, checked_at=time.time()))
+            flow_statuses[app_name] = statuses_list
+
+            # Run meta update (Step E equivalent)
+            progress = BootProgress()
+            async for _ in _step_update_meta(
+                app_server, auth_cookies, flow_statuses, progress
+            ):
+                pass  # consume messages silently
+
+            resolved.append(app_name)
+            slog(logger, logging.INFO, "boot.async_discovery.resolved",
+                 app=app_name,
+                 flows=len(flows),
+                 elapsed_s=round(BOOT_ASYNC_DISCOVERY_TIMEOUT
+                                 - (deadline - time.time())))
+            audit.info(f"ASYNC DISCOVERY - {app_name}: "
+                       f"{len(flows)} flow(s) registered")
+
+        for app in resolved:
+            remaining.remove(app)
+
+    if remaining:
+        slog(logger, logging.WARNING, "boot.async_discovery.timeout",
+             unresolved=remaining)
+        audit.warning(f"ASYNC DISCOVERY TIMEOUT - unresolved: {remaining}")
+    else:
+        slog(logger, logging.INFO, "boot.async_discovery.complete",
+             total=len(pending_apps))
 
 
 async def run_shutdown(
