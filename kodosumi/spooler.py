@@ -246,6 +246,8 @@ class Spooler:
             except ValueError:
                 pass
             except Exception:
+                slog(logger, logging.WARNING, "spooler.reconcile.actor_lookup_error",
+                     fid=fid, exc_info=True)
                 continue
             try:
                 result = await reconcile_payment_job(db_path, fid)
