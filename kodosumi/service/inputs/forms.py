@@ -912,6 +912,81 @@ class InputUrl(InputText):
         return "\n".join(ret)
 
 
+class InputFileUrl(InputUrl):
+    """File URL input field.
+
+    Kodosumi behavior: accepts a URL string, rendered as an HTML url input.
+    MIP-003 projection: advertised to external clients as 'file' with
+    outputFormat='url'. Sokosumi uploads the file and sends the resulting
+    URL back as a string, which this field consumes directly.
+
+    Note: reverse conversion (MIP-003 file -> Kodosumi) always produces
+    InputFiles; InputFileUrl is a forward-only convenience type.
+    """
+    type = "file_url"
+
+    def __init__(
+            self,
+            name: str,
+            label: Optional[str] = None,
+            value: Optional[str] = None,
+            required: bool = False,
+            placeholder: Optional[str] = None,
+            size: Optional[int] = None,
+            pattern: Optional[str] = None,
+            min_length: Optional[int] = None,
+            max_length: Optional[int] = None,
+            accept: Optional[str] = None,
+            max_size: Optional[int] = None,
+            error: Optional[List[str]] = None):
+        super().__init__(name, label, value, required, placeholder, size,
+                         pattern, min_length, max_length, error=error)
+        self.accept = accept
+        self.max_size = max_size
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "name": self.name,
+            "label": self.label,
+            "value": self.value,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "size": self.size,
+            "pattern": self.pattern,
+            "min_length": self.min_length,
+            "max_length": self.max_length,
+            "accept": self.accept,
+            "max_size": self.max_size,
+        }
+
+    def render(self) -> str:
+        # Emit type="url" (valid HTML) regardless of the "file_url" kodosumi tag.
+        ret = []
+        ret.append(f'<legend class="inputs-label">{self.label or ""}</legend>')
+        ret.append(f'<div class="field border fill">')
+        attrs = ['type="url"', f'name="{self.name}"']
+        if self.required:
+            attrs.append('required')
+        if self.value:
+            attrs.append(f'value="{self.value}"')
+        if self.placeholder:
+            attrs.append(f'placeholder="{self.placeholder}"')
+        if self.size:
+            attrs.append(f'size="{self.size}"')
+        if self.pattern:
+            attrs.append(f'pattern="{self.pattern}"')
+        if self.min_length:
+            attrs.append(f'minlength="{self.min_length}"')
+        if self.max_length:
+            attrs.append(f'maxlength="{self.max_length}"')
+        ret.append(f'<input {" ".join(attrs)}>')
+        if self.error:
+            ret.append(f'<span class="error">{" ".join(self.error)}</span>')
+        ret.append('</div>')
+        return "\n".join(ret)
+
+
 class InputTel(InputText):
     """Telephone number input field."""
     type = "tel"
@@ -1392,6 +1467,7 @@ class Model:
             # MIP-003 compatible types
             InputEmail,
             InputUrl,
+            InputFileUrl,
             InputTel,
             InputSearch,
             InputMonth,
@@ -1445,7 +1521,7 @@ __all__ = [
     "Errors", "InputArea", "InputDate", "InputTime", "InputDateTime",
     "InputFiles", "InputPassword",
     # MIP-003 compatible types
-    "InputEmail", "InputUrl", "InputTel", "InputSearch",
+    "InputEmail", "InputUrl", "InputFileUrl", "InputTel", "InputSearch",
     "InputMonth", "InputWeek", "InputColor", "InputRange",
     "InputHidden", "InputRadio", "DisplayInfo",
 ]

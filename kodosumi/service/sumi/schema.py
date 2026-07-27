@@ -40,6 +40,8 @@ TYPE_MAP_TO_MIP003 = {
     # Media
     "color": "color",
     "file": "file",
+    "file_url": "file",      # Forward-only: rendered as url input in Kodosumi,
+                             # projected as file upload in MIP-003.
     # Special
     "hidden": "hidden",
     "none": "none",
@@ -72,6 +74,9 @@ TYPE_MAP_FROM_MIP003 = {
     "tel": "tel",
     # Media
     "color": "color",
+    # MIP-003 'file' always maps back to InputFiles. Kodosumi's InputFileUrl
+    # (file_url type) is a forward-only convenience and cannot be reconstructed
+    # from a MIP-003 schema alone.
     "file": "file",
     # Special
     "hidden": "hidden",
@@ -171,8 +176,9 @@ def _convert_validations_to_mip003(element: Dict[str, Any]) -> Optional[List[Dic
         validations.append({"validation": "format", "value": "url"})
     elif elem_type == "tel":
         validations.append({"validation": "format", "value": "tel-pattern"})
-    elif element.get("pattern"):
+    elif element.get("pattern") and elem_type != "file_url":
         # Try to map common patterns to MIP-003 format values
+        # (skipped for file_url since its MIP-003 projection is a file upload)
         pattern = element.get("pattern")
         if pattern in (r"^\S+$", r"\S+"):
             validations.append({"validation": "format", "value": "nonempty"})
@@ -233,13 +239,17 @@ def _convert_data_to_mip003(element: Dict[str, Any]) -> Optional[Dict[str, Any]]
         if element.get("step") is not None:
             data["step"] = element["step"]
 
-    # File type specific fields
-    if elem_type == "file":
+    # File type specific fields (both file and file_url)
+    if elem_type in ("file", "file_url"):
         if element.get("multiple"):
             data["multiple"] = True
         # Kodosumi uses URL-based file handling
         data["outputFormat"] = "url"
-        # accept and maxSize would need to be added to Kodosumi if needed
+        # file_url may pass through accept/maxSize hints for Sokosumi clients
+        if element.get("accept"):
+            data["accept"] = element["accept"]
+        if element.get("max_size") is not None:
+            data["maxSize"] = element["max_size"]
 
     # Hidden type requires value in data
     if elem_type == "hidden":
