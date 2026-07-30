@@ -2209,6 +2209,7 @@ async def _step_update_meta(
     app_server: str,
     auth_cookies: Optional[Dict[str, str]],
     flow_statuses: Dict[str, List[FlowStatus]],
+    final_statuses: Dict[str, dict],
     progress: BootProgress
 ) -> AsyncGenerator[BootMessage, None]:
     """
@@ -2222,10 +2223,15 @@ async def _step_update_meta(
         app_server: Kodosumi app server URL
         auth_cookies: Authentication cookies
         flow_statuses: Dict mapping app_name to list of FlowStatus from Step D
+        final_statuses: Dict mapping app_name to status dict (with status
+            key) from Step A/B. Used to distinguish level-1 deployment
+            vs level-2 warm-replica state. See #73.
         progress: Progress tracker
 
     Yields BootMessage objects for progress tracking.
     """
+    audit = get_audit_logger()
+
     progress.current_step = 4
     progress.step_name = "Update Meta"
     progress.activities_done = 0
@@ -2326,6 +2332,22 @@ async def _step_update_meta(
                 # Get state from Step D, default to "alive" if not checked
                 # Step D uses the flow.path which should match our url_path
                 state, checked_at = flow_state_lookup.get(url_path, ("alive", time.time()))
+
+                # Fix for #73: at scale-to-zero (min_replicas: 0), the HEAD
+                # check times out because no warm replica is responding
+                # yet. The agent IS deployed (RUNNING per Ray) but the
+                # cold-start latency exceeds our 10s timeout. Reclassify
+                # such cases as "alive" so the agent appears in /sumi/.
+                # A "dead" state from 5xx is preserved (real failure).
+                if state == "timeout":
+                    app_status = final_statuses.get(expose_name)
+                    if app_status and app_status.get("status") == "RUNNING":
+                        state = "alive"
+                        audit.info(
+                            f"  EXPOSE {expose_name} - HEAD timeout on "
+                            f"{url_path} but app is RUNNING; treating as alive "
+                            f"(scale-to-zero cold-start)"
+                        )
 
                 # Find existing meta by path (normalize trailing slash)
                 existing = existing_by_path.get(url_path.rstrip("/"))
@@ -2774,7 +2796,7 @@ async def _real_boot_process(
     # =========================================================================
     # Step E: Update Meta
     # =========================================================================
-    async for msg in _step_update_meta(app_server, auth_cookies, flow_statuses, progress):
+    async for msg in _step_update_meta(app_server, auth_cookies, flow_statuses, final_statuses, progress):
         yield msg
         if msg.msg_type == MessageType.ERROR:
             audit.error(f"BOOT STEP E FAILED - update meta error: {msg.message}")
