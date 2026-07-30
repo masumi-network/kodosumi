@@ -129,6 +129,135 @@ class TestFetchOpenAPISpec:
             mock_instance.get.assert_called_with("http://localhost:8005/my-app/openapi.json")
 
 
+    @pytest.mark.asyncio
+    async def test_retries_on_timeout_then_succeeds(self):
+        """#84: a cold-start agent times out on first attempt, succeeds on retry."""
+        mock_spec = {
+            "openapi": "3.0.0",
+            "paths": {"/run": {"post": {"summary": "Run"}}}
+        }
+        import httpx
+
+        # First call times out, second succeeds
+        call_count = {"n": 0}
+        def get_side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise httpx.TimeoutException("cold-start")
+            return MagicMock(
+                status_code=200,
+                json=lambda: mock_spec,
+                raise_for_status=lambda: None,
+            )
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.side_effect = get_side_effect
+            mock_client.return_value.__aenter__.return_value = mock_instance
+
+            # Use short delay to keep the test fast
+            spec, url, error = await fetch_openapi_spec(
+                "http://localhost:8005", "my-app",
+                max_attempts=3, delay=0.01
+            )
+
+            assert spec == mock_spec
+            assert error is None
+            assert call_count["n"] == 2  # Failed once, succeeded on retry
+
+    @pytest.mark.asyncio
+    async def test_stops_on_404_immediately(self):
+        """404 should NOT be retried (cold-start returns 200 once ready, not 404)."""
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = MagicMock(status_code=404)
+            mock_client.return_value.__aenter__.return_value = mock_instance
+
+            spec, url, error = await fetch_openapi_spec(
+                "http://localhost:8005", "my-app",
+                max_attempts=4, delay=0.01
+            )
+
+            assert spec is None
+            assert "404" in error
+            # Should only call once — 404 means endpoint is permanently missing
+            assert mock_instance.get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_exhausts_all_attempts_on_persistent_timeout(self):
+        """All retries exhausted on persistent timeout returns failure."""
+        import httpx
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.side_effect = httpx.TimeoutException("never ready")
+            mock_client.return_value.__aenter__.return_value = mock_instance
+
+            spec, url, error = await fetch_openapi_spec(
+                "http://localhost:8005", "my-app",
+                max_attempts=3, delay=0.01
+            )
+
+            assert spec is None
+            assert "Timeout" in error
+            assert "3/3" in error  # All 3 attempts failed
+            assert mock_instance.get.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_default_max_attempts_is_4(self):
+        """#84 default: 4 attempts to cover cold-start latency."""
+        import httpx
+
+        call_count = {"n": 0}
+        def get_side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            raise httpx.TimeoutException("cold-start")
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.side_effect = get_side_effect
+            mock_client.return_value.__aenter__.return_value = mock_instance
+
+            spec, url, error = await fetch_openapi_spec(
+                "http://localhost:8005", "my-app",
+                delay=0.01  # short delay for test speed
+            )
+
+            assert spec is None
+            assert call_count["n"] == 4  # Default max_attempts=4
+
+    @pytest.mark.asyncio
+    async def test_retries_on_connection_error(self):
+        """ConnectionError on first attempt, success on retry."""
+        mock_spec = {"openapi": "3.0.0", "paths": {}}
+        import httpx
+
+        call_count = {"n": 0}
+        def get_side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise httpx.ConnectError("refused")
+            return MagicMock(
+                status_code=200,
+                json=lambda: mock_spec,
+                raise_for_status=lambda: None,
+            )
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.side_effect = get_side_effect
+            mock_client.return_value.__aenter__.return_value = mock_instance
+
+            spec, url, error = await fetch_openapi_spec(
+                "http://localhost:8005", "my-app",
+                max_attempts=3, delay=0.01
+            )
+
+            assert spec == mock_spec
+            assert call_count["n"] == 2
+
+
+
 class TestExtractKodosumiEndpoints:
     """Tests for extract_kodosumi_endpoints()."""
 
