@@ -881,6 +881,27 @@ def parse_bootstrap(bootstrap_yaml: str, expose_name: str) -> dict:
     if "import_path" not in app_config:
         raise ValueError(f"Bootstrap missing 'import_path' for '{expose_name}'")
 
+    # Validate runtime_env (especially env_vars) per Ray's own validator.
+    # See #82: a single bad config (e.g. env_vars=False from unquoted YAML)
+    # can poison the ServeController recovery path and crash the entire
+    # Serve deployment. kodosumi must validate before persisting/deploying.
+    runtime_env = app_config.get("runtime_env")
+    if isinstance(runtime_env, dict):
+        env_vars = runtime_env.get("env_vars")
+        if env_vars is not None and env_vars != {}:
+            try:
+                from ray._private.runtime_env.validation import parse_and_validate_env_vars
+                # Returns None if empty, validated dict otherwise.
+                # Raises TypeError if any key or value is not a string.
+                parse_and_validate_env_vars(env_vars)
+            except TypeError as e:
+                raise ValueError(
+                    f"Invalid runtime_env.env_vars in bootstrap for '{expose_name}': "
+                    f"{e}. Every key and value must be a string (YAML scalars like "
+                    f"true/false/yes/no/on/off, integers, floats, null, or nested "
+                    f"structures must be quoted explicitly in the YAML)."
+                ) from e
+
     # Add/override name and route_prefix
     app_config["name"] = expose_name
     app_config["route_prefix"] = f"/{expose_name}"

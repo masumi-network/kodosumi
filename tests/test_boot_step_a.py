@@ -10,6 +10,7 @@ Tests the following functions:
 
 import asyncio
 import tempfile
+import textwrap
 from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -151,6 +152,138 @@ route_prefix: /original-route
         assert result["name"] == "new-name"
         assert result["route_prefix"] == "/new-name"
 
+
+    def test_rejects_env_vars_with_bool_value(self):
+        """Should reject env_vars with non-string values (bool, the #82 incident)."""
+        # The exact incident case from #82: UPLOAD_FILES unquoted -> Python bool
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars:
+    UPLOAD_FILES: false
+    DEBUG: "true"
+'''
+        with pytest.raises(ValueError, match="Invalid runtime_env.env_vars"):
+            parse_bootstrap(bootstrap, "demo-agent")
+
+    def test_rejects_env_vars_with_int_value(self):
+        """Should reject env_vars with int values (e.g. unquoted port numbers)."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars:
+    PORT: 8080
+'''
+        with pytest.raises(ValueError, match="Invalid runtime_env.env_vars"):
+            parse_bootstrap(bootstrap, "demo-agent")
+
+    def test_rejects_env_vars_with_float_value(self):
+        """Should reject env_vars with float values."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars:
+    RATE_LIMIT: 1.5
+'''
+        with pytest.raises(ValueError, match="Invalid runtime_env.env_vars"):
+            parse_bootstrap(bootstrap, "demo-agent")
+
+    def test_rejects_env_vars_with_null_value(self):
+        """Should reject env_vars with null values."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars:
+    EMPTY_VAR:
+'''
+        with pytest.raises(ValueError, match="Invalid runtime_env.env_vars"):
+            parse_bootstrap(bootstrap, "demo-agent")
+
+    def test_rejects_env_vars_with_nested_dict_value(self):
+        """Should reject env_vars with nested structures."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars:
+    CONFIG:
+      nested: value
+'''
+        with pytest.raises(ValueError, match="Invalid runtime_env.env_vars"):
+            parse_bootstrap(bootstrap, "demo-agent")
+
+    def test_rejects_env_vars_with_list_value(self):
+        """Should reject env_vars with list values."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars:
+    SERVERS:
+      - host1
+      - host2
+'''
+        with pytest.raises(ValueError, match="Invalid runtime_env.env_vars"):
+            parse_bootstrap(bootstrap, "demo-agent")
+
+    def test_accepts_valid_string_env_vars(self):
+        """Should accept env_vars with all string keys and values."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars:
+    OPENAI_API_KEY: "sk-abc123"
+    DEBUG: "true"
+    PORT: "8080"
+'''
+        result = parse_bootstrap(bootstrap, "demo-agent")
+        assert "runtime_env" in result
+        assert result["runtime_env"]["env_vars"]["OPENAI_API_KEY"] == "sk-abc123"
+
+    def test_accepts_missing_env_vars(self):
+        """Should accept runtime_env without env_vars field."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  pip: [openai]
+'''
+        result = parse_bootstrap(bootstrap, "demo-agent")
+        assert result["runtime_env"]["pip"] == ["openai"]
+
+    def test_accepts_empty_env_vars(self):
+        """Should accept runtime_env with empty env_vars dict."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars: {}
+  pip: [openai]
+'''
+        result = parse_bootstrap(bootstrap, "demo-agent")
+        assert result["runtime_env"]["env_vars"] == {}
+
+    def test_error_message_includes_expose_name(self):
+        """Error message should include expose name for diagnostics."""
+        bootstrap = '''
+import_path: agents.demo:app
+runtime_env:
+  env_vars:
+    UPLOAD_FILES: false
+'''
+        with pytest.raises(ValueError) as exc_info:
+            parse_bootstrap(bootstrap, "my-specific-agent")
+        assert "my-specific-agent" in str(exc_info.value)
+
+    def test_error_message_includes_ray_validator_message(self):
+        """Error message should include Ray validator error for diagnostics."""
+        bootstrap = textwrap.dedent("""\
+            import_path: agents.demo:app
+            runtime_env:
+              env_vars:
+                UPLOAD_FILES: false
+        """)
+        with pytest.raises(ValueError) as exc_info:
+            parse_bootstrap(bootstrap, "demo-agent")
+        msg = str(exc_info.value)
+        # Should mention the type that caused the issue
+        assert "bool" in msg or "Dict" in msg
 
 class TestRunServeDeploy:
     """Tests for run_serve_deploy()"""
