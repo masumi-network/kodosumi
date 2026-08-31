@@ -309,7 +309,7 @@ class TestStepUpdateMeta:
         with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch:
             mock_fetch.return_value = []
 
-            async for msg in _step_update_meta("http://localhost:3370", None, {}, progress):
+            async for msg in _step_update_meta("http://localhost:3370", None, {}, {}, progress):
                 messages.append(msg)
 
         assert messages[0].msg_type == MessageType.STEP_START
@@ -324,7 +324,7 @@ class TestStepUpdateMeta:
         with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch:
             mock_fetch.return_value = []
 
-            async for msg in _step_update_meta("http://localhost:3370", None, {}, progress):
+            async for msg in _step_update_meta("http://localhost:3370", None, {}, {}, progress):
                 messages.append(msg)
 
         warnings = [m for m in messages if m.msg_type == MessageType.WARNING]
@@ -376,7 +376,7 @@ class TestStepUpdateMeta:
             mock_existing.return_value = []
             mock_update.return_value = None
 
-            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, progress):
+            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, {}, progress):
                 messages.append(msg)
 
         # Check message flow
@@ -444,7 +444,7 @@ class TestStepUpdateMeta:
             mock_fetch.return_value = mock_flows
             mock_existing.return_value = [existing_meta]
 
-            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, progress):
+            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, {}, progress):
                 pass
 
         # Parse saved meta
@@ -503,7 +503,7 @@ class TestStepUpdateMeta:
             mock_fetch.return_value = mock_flows
             mock_existing.return_value = []  # No existing meta
 
-            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, progress):
+            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, {}, progress):
                 pass
 
         # Parse saved meta
@@ -551,7 +551,7 @@ class TestStepUpdateMeta:
             mock_fetch.return_value = mock_flows
             mock_existing.return_value = [existing_meta]
 
-            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, progress):
+            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, {}, progress):
                 messages.append(msg)
 
         end_msg = next(m for m in messages if m.msg_type == MessageType.STEP_END)
@@ -589,7 +589,7 @@ class TestStepUpdateMeta:
             mock_existing.return_value = []
             mock_update.side_effect = Exception("Database error")
 
-            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, progress):
+            async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, {}, progress):
                 messages.append(msg)
 
         warnings = [m for m in messages if m.msg_type == MessageType.WARNING]
@@ -644,7 +644,7 @@ class TestUpdateMetaIntegration:
             mock_fetch.return_value = mock_flows
             mock_existing.return_value = [existing_meta]
 
-            async for _ in _step_update_meta("http://localhost:3370", None, flow_statuses, BootProgress()):
+            async for _ in _step_update_meta("http://localhost:3370", None, flow_statuses, {}, BootProgress()):
                 pass
 
         # Parse saved YAML
@@ -662,3 +662,132 @@ class TestUpdateMetaIntegration:
         status_entry = next(e for e in parsed if e["url"] == "/agent/status")
         assert "# Flow metadata configuration" in status_entry["data"]  # Template
         assert status_entry["state"] == "alive"
+
+
+
+# =============================================================================
+# Tests for #73: scale-to-zero agents marked 'dead' on boot
+# =============================================================================
+
+class TestScaleToZeroColdStart:
+    """Regression tests for #73.
+
+    The bug: when an agent has min_replicas: 0 and has never had a
+    warm replica, the HEAD check in boot Step D times out (10s). The
+    state 'timeout' is then written to meta.state, which causes the
+    /sumi/ list to filter it out. The agent is invisible despite being
+    deployed and RUNNING.
+
+    The fix: in boot Step E, when state is 'timeout' but the parent
+    app is RUNNING, override to 'alive'. A 'dead' state from 5xx is
+    preserved (real failure).
+    """
+
+    def _make_flow(self, app_name, path, state="timeout", response_code=None,
+                   status_when_checked="RUNNING"):
+        flow = DiscoveredFlow(
+            app_name=app_name,
+            path=path,
+            method="POST",
+            summary="",
+            description="",
+            tags=[],
+        )
+        flow_statuses = {
+            app_name: [
+                FlowStatus(
+                    flow=flow,
+                    state=state,
+                    response_code=response_code,
+                    checked_at=time.time(),
+                ),
+            ]
+        }
+        mock_flows = [
+            {
+                "base_url": f"http://localhost:8005{path}",
+                "summary": app_name,
+                "description": "",
+                "author": None,
+                "organization": None,
+                "tags": [],
+            }
+        ]
+        final_statuses = {app_name: {"status": status_when_checked}}
+        return flow_statuses, mock_flows, final_statuses
+
+    async def _run_step(self, flow_statuses, mock_flows, final_statuses):
+        progress = BootProgress()
+        captured = {}
+
+        def capture(name, yaml_text):
+            captured[name] = yaml_text
+
+        with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch, \
+             patch("kodosumi.service.expose.boot.get_existing_meta") as mock_existing, \
+             patch("kodosumi.service.expose.boot.db.update_expose_meta") as mock_save:
+            mock_fetch.return_value = mock_flows
+            mock_existing.return_value = []
+            mock_save.side_effect = capture
+
+            async for msg in _step_update_meta(
+                "http://localhost:3370", None, flow_statuses, final_statuses, progress
+            ):
+                pass
+
+        return captured
+
+    @pytest.mark.asyncio
+    async def test_timeout_overridden_to_alive_when_app_running(self):
+        flow_statuses, mock_flows, final_statuses = self._make_flow(
+            "scale-to-zero", "/scale-to-zero/endpoint",
+            state="timeout", status_when_checked="RUNNING",
+        )
+        captured = await self._run_step(flow_statuses, mock_flows, final_statuses)
+        assert "scale-to-zero" in captured
+        parsed = yaml.safe_load(captured["scale-to-zero"])
+        assert len(parsed) == 1
+        assert parsed[0]["state"] == "alive"
+        assert parsed[0]["url"] == "/scale-to-zero/endpoint"
+
+    @pytest.mark.asyncio
+    async def test_timeout_preserved_when_app_not_running(self):
+        flow_statuses, mock_flows, final_statuses = self._make_flow(
+            "failed", "/failed/endpoint",
+            state="timeout", status_when_checked="DEPLOY_FAILED",
+        )
+        captured = await self._run_step(flow_statuses, mock_flows, final_statuses)
+        assert "failed" in captured
+        parsed = yaml.safe_load(captured["failed"])
+        assert len(parsed) == 1
+        assert parsed[0]["state"] == "timeout"
+
+    @pytest.mark.asyncio
+    async def test_dead_state_preserved_when_app_running(self):
+        flow_statuses, mock_flows, final_statuses = self._make_flow(
+            "weird", "/weird/endpoint",
+            state="dead", response_code=500, status_when_checked="RUNNING",
+        )
+        captured = await self._run_step(flow_statuses, mock_flows, final_statuses)
+        parsed = yaml.safe_load(captured["weird"])
+        assert parsed[0]["state"] == "dead"
+
+    @pytest.mark.asyncio
+    async def test_alive_state_preserved_when_app_running(self):
+        flow_statuses, mock_flows, final_statuses = self._make_flow(
+            "warm", "/warm/endpoint",
+            state="alive", response_code=200, status_when_checked="RUNNING",
+        )
+        captured = await self._run_step(flow_statuses, mock_flows, final_statuses)
+        parsed = yaml.safe_load(captured["warm"])
+        assert parsed[0]["state"] == "alive"
+
+    @pytest.mark.asyncio
+    async def test_empty_final_statuses_does_not_override(self):
+        flow_statuses, mock_flows, _ = self._make_flow(
+            "free", "/free/endpoint",
+            state="timeout", status_when_checked="RUNNING",
+        )
+        captured = await self._run_step(flow_statuses, mock_flows, final_statuses={})
+        parsed = yaml.safe_load(captured["free"])
+        assert parsed[0]["state"] == "timeout"
