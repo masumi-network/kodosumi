@@ -1627,13 +1627,28 @@ class DiscoveredFlow:
     organization: Optional[str] = None
 
 
-async def fetch_openapi_spec(ray_serve_address: str, app_name: str) -> tuple[Optional[dict], Optional[str], Optional[str]]:
+async def fetch_openapi_spec(
+    ray_serve_address: str,
+    app_name: str,
+    max_attempts: int = 4,
+    timeout: float = 15.0,
+    delay: float = 5.0,
+) -> tuple[Optional[dict], Optional[str], Optional[str]]:
     """
     Fetch and parse OpenAPI JSON from a deployed app.
+
+    For cold-start agents (min_replicas: 0, container never pulled),
+    the OpenAPI endpoint may not be available for 30-60s after Ray
+    Serve reports the app as RUNNING. See #84.
 
     Args:
         ray_serve_address: Ray Serve address (e.g., http://localhost:8005)
         app_name: Name of the application
+        max_attempts: How many times to retry on timeout/connection
+            errors. Default 4 (each with a 15s timeout and a 5s delay
+            between attempts → ~80s total worst case).
+        timeout: Per-attempt timeout in seconds. Default 15s.
+        delay: Delay between attempts in seconds. Default 5s.
 
     Returns:
         Tuple of (spec_dict, url, error_message):
@@ -1644,19 +1659,27 @@ async def fetch_openapi_spec(ray_serve_address: str, app_name: str) -> tuple[Opt
 
     url = f"{ray_serve_address.rstrip('/')}/{app_name}/openapi.json"
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url)
-            if response.status_code == 404:
-                return (None, url, f"404 Not Found")
-            response.raise_for_status()
-            return (response.json(), url, None)
-    except httpx.TimeoutException:
-        return (None, url, f"Timeout")
-    except httpx.ConnectError as e:
-        return (None, url, f"Connection error: {e}")
-    except Exception as e:
-        return (None, url, f"Error: {e}")
+    last_error = "unknown"
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    # 404 means the endpoint is permanently missing,
+                    # not a cold-start. Stop retrying.
+                    return (None, url, f"404 Not Found")
+                response.raise_for_status()
+                return (response.json(), url, None)
+        except httpx.TimeoutException:
+            last_error = f"Timeout (attempt {attempt}/{max_attempts})"
+        except httpx.ConnectError as e:
+            last_error = f"Connection error (attempt {attempt}/{max_attempts}): {e}"
+        except Exception as e:
+            last_error = f"Error (attempt {attempt}/{max_attempts}): {e}"
+        # Sleep between attempts (not after the last one)
+        if attempt < max_attempts:
+            await asyncio.sleep(delay)
+    return (None, url, last_error)
 
 
 def extract_kodosumi_endpoints(openapi_spec: dict, app_name: str) -> List[DiscoveredFlow]:
