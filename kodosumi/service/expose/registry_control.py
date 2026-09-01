@@ -488,6 +488,15 @@ class RegistryControl(litestar.Controller):
         if not agent_id:
             raise ClientException(detail="No agentIdentifier found — not registered", status_code=422)
 
+        # Burning the live agent while its replacement is still minting would
+        # leave the flow unlisted on both rails.
+        if meta_data.get("pendingMigration"):
+            raise ClientException(
+                detail="A migration to Web3CardanoV2 is waiting for "
+                       "confirmation. Wait for it, then deregister.",
+                status_code=409,
+            )
+
         from kodosumi.service.expose.registry import deregister_agent
         try:
             result = await deregister_agent(masumi, agent_id)
