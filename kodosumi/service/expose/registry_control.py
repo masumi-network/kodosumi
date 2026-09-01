@@ -18,6 +18,9 @@ from litestar.exceptions import ClientException, NotFoundException
 
 from kodosumi.service.jwt import operator_guard
 from kodosumi.service.expose import db
+from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
+from kodosumi.service.expose.registration import (
+    build_agent_fields, sumi_api_base_url)
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +62,7 @@ class RegistryControl(litestar.Controller):
             return {"registered": False, "error": str(e)}
 
         # Parse meta to find the flow
-        meta_data = self._get_flow_meta(row, flow_url)
+        meta_data = get_flow_meta(row, flow_url)
         if meta_data is None:
             return {"registered": False, "error": "Flow not found"}
 
@@ -104,7 +107,7 @@ class RegistryControl(litestar.Controller):
         # 409 conflicts when the user tries to save the form.
         result_reg_id = result.get("id")
         if agent_id and not reg_id and result_reg_id and flow_url:
-            await self._update_flow_meta(row, name, flow_url, {
+            await update_flow_meta(row, name, flow_url, {
                 "registrationId": result_reg_id,
             })
 
@@ -230,7 +233,7 @@ class RegistryControl(litestar.Controller):
                     status_code=422,
                 )
         else:
-            meta_data = self._get_flow_meta(row, flow_url)
+            meta_data = get_flow_meta(row, flow_url)
         if meta_data is None:
             raise ClientException(detail=f"Flow '{flow_url}' not found", status_code=404)
 
@@ -241,29 +244,7 @@ class RegistryControl(litestar.Controller):
             )
 
         # Build registration data from YAML
-        display_name = meta_data.get("display", name)
-        description = meta_data.get("description", "")
-        tags = meta_data.get("tags", [])
-        author_data = meta_data.get("author")
-        capability_data = meta_data.get("capability")
-        legal_data = meta_data.get("legal")
-
-        # Build author dict for registry
-        author = None
-        if author_data and isinstance(author_data, dict):
-            author = {
-                "name": author_data.get("name") or "",
-                "contactEmail": author_data.get("contact_email") or "",
-                "organization": author_data.get("organization") or "",
-            }
-
-        # Build capability dict
-        capability = None
-        if capability_data and isinstance(capability_data, dict):
-            capability = {
-                "name": capability_data.get("name") or "",
-                "version": str(capability_data.get("version", "1.0")),
-            }
+        fields = build_agent_fields(meta_data, name)
 
         # Determine pricing
         pricing_type = data.get("pricing_type")
@@ -287,8 +268,8 @@ class RegistryControl(litestar.Controller):
             )
 
         # Compute apiBaseUrl
-        sumi_address = state["settings"].sumi_address.rstrip("/")
-        api_base_url = f"{sumi_address}/sumi{flow_url}"
+        api_base_url = sumi_api_base_url(
+            state["settings"].sumi_address, flow_url)
 
         # V2 prices each advertised payment source on its own and rejects the
         # top-level AgentPricing field.
@@ -307,14 +288,14 @@ class RegistryControl(litestar.Controller):
         try:
             result = await register_agent(
                 masumi=masumi,
-                name=display_name,
-                description=description,
+                name=fields["name"],
+                description=fields["description"],
                 api_base_url=api_base_url,
-                tags=tags,
+                tags=fields["tags"],
                 pricing=None if is_v2 else registry_pricing,
-                author=author,
-                capability=capability,
-                legal=legal_data,
+                author=fields["author"],
+                capability=fields["capability"],
+                legal=fields["legal"],
                 wallet_vkey=wallet_vkey,
                 supported_payment_sources=supported_payment_sources,
             )
@@ -336,7 +317,7 @@ class RegistryControl(litestar.Controller):
             "supportedPaymentSourceIndex":
                 DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX if is_v2 else None,
         }
-        updated_yaml = await self._update_flow_meta(
+        updated_yaml = await update_flow_meta(
             row, name, flow_url, meta_updates,
             base_data=frontend_yaml or None,
         )
@@ -382,7 +363,7 @@ class RegistryControl(litestar.Controller):
             return {"error": str(e)}
 
         flow_url = data.get("flow_url", "")
-        meta_data = self._get_flow_meta(row, flow_url)
+        meta_data = get_flow_meta(row, flow_url)
         if meta_data is None:
             return {"error": "Flow not found"}
 
@@ -413,7 +394,7 @@ class RegistryControl(litestar.Controller):
         # If confirmed, write agentIdentifier to YAML
         updated_yaml = None
         if reg_state == "RegistrationConfirmed" and new_agent_id:
-            updated_yaml = await self._update_flow_meta(row, name, flow_url, {
+            updated_yaml = await update_flow_meta(row, name, flow_url, {
                 "agentIdentifier": new_agent_id,
             })
 
@@ -463,7 +444,7 @@ class RegistryControl(litestar.Controller):
             raise ClientException(detail=str(e), status_code=422)
 
         flow_url = data.get("flow_url", "")
-        meta_data = self._get_flow_meta(row, flow_url)
+        meta_data = get_flow_meta(row, flow_url)
         if meta_data is None:
             raise ClientException(detail=f"Flow '{flow_url}' not found", status_code=404)
 
@@ -480,7 +461,7 @@ class RegistryControl(litestar.Controller):
         # Remove agentIdentifier, registrationId and the V2 payment markers
         # from YAML. A later re-registration writes them again if it picks a
         # V2 wallet.
-        await self._update_flow_meta(row, name, flow_url, {
+        await update_flow_meta(row, name, flow_url, {
             "agentIdentifier": None,
             "registrationId": None,
             "paymentSourceType": None,
@@ -491,98 +472,6 @@ class RegistryControl(litestar.Controller):
             "success": True,
             "state": result.get("state", "DeregistrationRequested"),
         }
-
-    def _get_flow_meta(self, row: dict, flow_url: Optional[str]) -> Optional[dict]:
-        """Parse meta YAML and return the data dict for a specific flow URL."""
-        if not row.get("meta"):
-            return None
-
-        try:
-            meta_list = yaml.safe_load(row["meta"])
-            if not meta_list:
-                return None
-        except yaml.YAMLError:
-            return None
-
-        for entry in meta_list:
-            entry_url = entry.get("url", "")
-            if flow_url and entry_url != flow_url:
-                continue
-            # Parse the data YAML string
-            data_str = entry.get("data", "")
-            if not data_str:
-                return {}
-            try:
-                parsed = yaml.safe_load(data_str)
-                return parsed if isinstance(parsed, dict) else {}
-            except yaml.YAMLError:
-                return {}
-
-        return None
-
-    async def _update_flow_meta(
-        self, row: dict, expose_name: str, flow_url: str, updates: dict,
-        base_data: Optional[str] = None,
-    ) -> Optional[str]:
-        """Update fields in a flow's meta YAML data and save to DB.
-
-        If base_data is provided, it replaces the stored data YAML for
-        this flow before applying updates.  This allows the caller to
-        pass the live textarea content so unsaved edits are preserved.
-
-        Returns the updated data YAML string for the flow, or None.
-        """
-        if not row.get("meta"):
-            return None
-
-        try:
-            meta_list = yaml.safe_load(row["meta"])
-            if not meta_list:
-                return None
-        except yaml.YAMLError:
-            return None
-
-        updated = False
-        updated_data_yaml = None
-        for entry in meta_list:
-            if entry.get("url") != flow_url:
-                continue
-
-            data_str = base_data if base_data else entry.get("data", "")
-            try:
-                parsed = yaml.safe_load(data_str) if data_str else {}
-                if not isinstance(parsed, dict):
-                    parsed = {}
-            except yaml.YAMLError:
-                parsed = {}
-
-            for key, value in updates.items():
-                if value is None:
-                    parsed.pop(key, None)
-                else:
-                    parsed[key] = value
-
-            updated_data_yaml = yaml.dump(
-                parsed,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            )
-            entry["data"] = updated_data_yaml
-            updated = True
-            break
-
-        if updated:
-            new_meta_yaml = yaml.dump(
-                meta_list,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            )
-            await db.update_expose_meta(expose_name, new_meta_yaml)
-
-        return updated_data_yaml
-
 
 class WalletsControl(litestar.Controller):
     """Controller for wallet listing endpoint."""
