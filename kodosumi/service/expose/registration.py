@@ -7,6 +7,8 @@ payment rail send the same display fields, so they are read in one place.
 
 from typing import Any, Dict, Optional
 
+from kodosumi.service.expose.registry import PAYMENT_SOURCE_TYPE_V1
+
 
 def build_agent_fields(meta_data: dict, fallback_name: str) -> Dict[str, Any]:
     """Read display, description, tags, author, capability and legal.
@@ -54,3 +56,18 @@ def build_agent_fields(meta_data: dict, fallback_name: str) -> Dict[str, Any]:
 def sumi_api_base_url(sumi_address: str, flow_url: str) -> str:
     """Build the public MIP-003 base url a buyer calls for this flow."""
     return f"{sumi_address.rstrip('/')}/sumi{flow_url}"
+
+
+def rail_fields(meta_data: dict) -> Dict[str, Any]:
+    """Return the payment rail of a registered flow for the admin UI.
+
+    A flow registered before V2 existed carries no marker, and a V1
+    registration never writes one, so an absent value means V1.
+    """
+    return {
+        "paymentSourceType": (
+            meta_data.get("paymentSourceType") or PAYMENT_SOURCE_TYPE_V1),
+        "supportedPaymentSourceIndex": meta_data.get(
+            "supportedPaymentSourceIndex"),
+        "previousRegistration": meta_data.get("previousRegistration"),
+    }

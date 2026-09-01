@@ -20,7 +20,7 @@ from kodosumi.service.jwt import operator_guard
 from kodosumi.service.expose import db
 from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
 from kodosumi.service.expose.registration import (
-    build_agent_fields, sumi_api_base_url)
+    build_agent_fields, rail_fields, sumi_api_base_url)
 
 logger = logging.getLogger(__name__)
 
@@ -95,11 +95,13 @@ class RegistryControl(litestar.Controller):
                     "state": "RegistrationConfirmed",
                     "agentIdentifier": agent_id,
                     "registrationId": reg_id,
+                    **rail_fields(meta_data),
                 }
             return {
                 "registered": False,
                 "state": "Polling",
                 "registrationId": reg_id,
+                **rail_fields(meta_data),
             }
 
         # Backfill registrationId only — this is a one-time essential fix.
@@ -127,6 +129,9 @@ class RegistryControl(litestar.Controller):
             "name": result.get("name"),
             "transaction": tx or None,
             "errorMessage": error_message,
+            # The rail comes from the flow meta, not from the registry
+            # response: it decides which button the operator gets next.
+            **rail_fields(meta_data),
         }
 
     @post(
@@ -374,7 +379,11 @@ class RegistryControl(litestar.Controller):
             return {"state": "NotRegistered"}
 
         if agent_id:
-            return {"state": "RegistrationConfirmed", "agentIdentifier": agent_id}
+            return {
+                "state": "RegistrationConfirmed",
+                "agentIdentifier": agent_id,
+                **rail_fields(meta_data),
+            }
 
         # Poll registry
         from kodosumi.service.expose.registry import get_registration_status
@@ -412,6 +421,7 @@ class RegistryControl(litestar.Controller):
             "errorMessage": error_message,
             "transaction": tx or None,
             "updatedYaml": updated_yaml,
+            **rail_fields(meta_data),
         }
 
     @post(

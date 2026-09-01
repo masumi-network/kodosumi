@@ -182,6 +182,18 @@
         text-transform: uppercase;
         letter-spacing: 0.3px;
     }
+    .rail-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        border: 1px solid var(--outline);
+        color: var(--on-surface-variant);
+    }
+    .rail-v2 { border-color: var(--primary); color: var(--primary); }
     .reg-not-registered { background: #616161; color: white; }
     .reg-pending { background: #f9a825; color: #1a1a1a; }
     .reg-confirmed { background: #2e7d32; color: white; }
@@ -434,6 +446,7 @@ deployments:
                                 <div class="registry-status-row">
                                     <span style="font-size: 0.85rem;">Status:</span>
                                     <span class="registry-badge reg-not-registered" id="reg_badge_{{ loop.index0 }}">Loading...</span>
+                                    <span class="rail-badge" id="reg_rail_{{ loop.index0 }}" style="display:none;" title="Payment rail of this registration"></span>
                                     <span class="agent-id-text" id="reg_agent_id_{{ loop.index0 }}" style="display:none;"></span>
                                     <button type="button" class="small" id="reg_copy_{{ loop.index0 }}" style="display:none;" onclick="copyAgentId({{ loop.index0 }})" title="Copy Agent ID">
                                         <i>content_copy</i>
@@ -929,6 +942,7 @@ function updateRegistryUI(idx, data) {
     var agentId = data.agentIdentifier;
 
     updateBadge(idx, state, agentId);
+    updateRailBadge(idx, data);
 
     var regBtn = document.getElementById('reg_btn_' + idx);
     var deregBtn = document.getElementById('dereg_btn_' + idx);
@@ -1018,6 +1032,29 @@ function updateBadge(idx, state, agentId) {
         if (agentIdEl) agentIdEl.style.display = 'none';
         if (copyBtn) copyBtn.style.display = 'none';
     }
+}
+
+// The rail decides which escrow contract a buyer pays into, so the operator
+// has to see it on a registration they did not just create themselves.
+function updateRailBadge(idx, data) {
+    var el = document.getElementById('reg_rail_' + idx);
+    if (!el) return;
+    var state = data.state || 'NotRegistered';
+    var rail = data.paymentSourceType;
+    if (state === 'NotRegistered' || !rail) {
+        el.style.display = 'none';
+        return;
+    }
+    var isV2 = rail === 'Web3CardanoV2';
+    el.className = 'rail-badge' + (isV2 ? ' rail-v2' : '');
+    el.textContent = isV2 ? 'V2' : 'V1';
+    var title = 'Payment rail: ' + rail;
+    if (isV2 && data.supportedPaymentSourceIndex !== null &&
+            data.supportedPaymentSourceIndex !== undefined) {
+        title += ' (source index ' + data.supportedPaymentSourceIndex + ')';
+    }
+    el.title = title;
+    el.style.display = '';
 }
 
 function copyAgentId(idx) {

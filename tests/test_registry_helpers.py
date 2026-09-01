@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
 from kodosumi.service.expose.registration import (
-    build_agent_fields, sumi_api_base_url)
+    build_agent_fields, rail_fields, sumi_api_base_url)
 
 
 def _row(flows: dict) -> dict:
@@ -63,6 +63,29 @@ class TestSumiApiBaseUrl:
     def test_keeps_a_plain_address(self):
         assert sumi_api_base_url("http://host:3370", "/app/flow") == \
             "http://host:3370/sumi/app/flow"
+
+
+class TestRailFields:
+    """A flow with no marker is a V1 registration, not an unknown one."""
+
+    def test_absent_marker_reads_as_v1(self):
+        fields = rail_fields({"agentIdentifier": "id1"})
+        assert fields["paymentSourceType"] == "Web3CardanoV1"
+        assert fields["supportedPaymentSourceIndex"] is None
+
+    def test_v2_marker_and_index_are_passed_through(self):
+        fields = rail_fields({
+            "paymentSourceType": "Web3CardanoV2",
+            "supportedPaymentSourceIndex": 0,
+        })
+        assert fields["paymentSourceType"] == "Web3CardanoV2"
+        # Index 0 is a real selection and must not read as absent.
+        assert fields["supportedPaymentSourceIndex"] == 0
+
+    def test_previous_registration_is_reported(self):
+        previous = {"agentIdentifier": "old", "paymentSourceType": "Web3CardanoV1"}
+        assert rail_fields({"previousRegistration": previous})[
+            "previousRegistration"] == previous
 
 
 class TestGetFlowMeta:
