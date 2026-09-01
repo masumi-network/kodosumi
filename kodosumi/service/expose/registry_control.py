@@ -516,6 +516,10 @@ class RegistryControl(litestar.Controller):
             "paymentSourceType": None,
             "supportedPaymentSourceIndex": None,
             "migrationError": None,
+            # The panel offers a burn button for this record. Keeping it on
+            # a flow that is no longer registered offers an action against
+            # an agent the operator has already moved off.
+            "previousRegistration": None,
         })
 
         return {

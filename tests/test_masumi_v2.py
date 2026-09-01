@@ -385,6 +385,23 @@ class TestSupportedSourcePricingBounds:
                 {"pricingType": "Fixed", "Pricing": [{"unit": ""}]},
                 "Preprod", "addr_test1contract")
 
+    def test_leading_zeros_are_normalised_away(self):
+        # The node bounds the amount STRING at 19 characters, so padding
+        # would push a valid amount over a limit it never reached.
+        sources = registry_pricing_to_supported_sources(
+            {"pricingType": "Fixed",
+             "Pricing": [{"amount": "0" * 20 + "10000000", "unit": ""}]},
+            "Preprod", "addr_test1contract")
+        assert sources[0]["pricing"]["fixed"][0]["amount"] == "10000000"
+
+    def test_an_amount_above_the_node_ceiling_raises(self):
+        with pytest.raises(ValueError) as err:
+            registry_pricing_to_supported_sources(
+                {"pricingType": "Fixed",
+                 "Pricing": [{"amount": "9223372036854775808", "unit": ""}]},
+                "Preprod", "addr_test1contract")
+        assert "largest amount" in str(err.value)
+
     def test_more_than_five_priced_assets_raises(self):
         prices = [{"amount": "10", "unit": str(i)} for i in range(6)]
         with pytest.raises(ValueError):
@@ -446,6 +463,26 @@ class TestWalletPagination:
         assert len(wallets) == 102
         assert [w["walletVkey"] for w in wallets[-2:]] == ["vkey100", "vkey101"]
         assert "cursorId=w99" in client.get.call_args_list[2].args[0]
+
+    @pytest.mark.asyncio
+    async def test_wallets_without_an_id_are_all_kept(self):
+        # Deduping on a missing id would treat every id-less row after the
+        # first as the cursor's repeat and drop it.
+        sources = {"data": {"PaymentSources": [{
+            "id": "src1",
+            "network": "Preprod",
+            "paymentSourceType": PAYMENT_SOURCE_TYPE_V2,
+            "smartContractAddress": "addr_test1contract",
+        }]}}
+        page = {"data": {"Wallets": [
+            {"walletVkey": "vkey1", "walletAddress": "addr1"},
+            {"walletVkey": "vkey2", "walletAddress": "addr2"},
+        ]}}
+        _, patcher = _patch_registry_client(get_responses=[
+            _json_response(sources), _json_response(page)])
+        with patcher:
+            wallets = await list_wallets(_make_config())
+        assert [w["walletVkey"] for w in wallets] == ["vkey1", "vkey2"]
 
     @pytest.mark.asyncio
     async def test_a_short_page_ends_the_listing(self):

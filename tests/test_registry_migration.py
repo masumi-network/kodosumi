@@ -153,7 +153,10 @@ class TestFailedAndCancelledMigration:
     def test_a_cancelled_migration_clears_the_pending_record(self):
         updates = cancel_migration_updates()
         assert updates["pendingMigration"] is None
-        assert "cancelled" in updates["migrationError"]
+        # A cancel is a deliberate act, not a failure. Recording it as a
+        # migrationError would leave a standing error in the panel that the
+        # operator has no way to acknowledge.
+        assert updates["migrationError"] is None
 
 
 def _stateful_meta(meta: dict):
@@ -288,6 +291,21 @@ class TestAdvanceMigration:
         assert result["deregisteredPrevious"] == "v1-agent"
         assert mock_write.call_args.args[3] == {
             "previousRegistration": None, "migrationError": None}
+
+    @pytest.mark.asyncio
+    async def test_a_burn_on_its_own_still_reports_a_finished_migration(self):
+        # The panel stops polling on the state. Without one, a burn that a
+        # read only call deferred would poll until the budget runs out.
+        meta = {**_registered_meta(),
+                "agentIdentifier": "v2-agent",
+                "paymentSourceType": "Web3CardanoV2",
+                "previousRegistration": _previous()}
+        status, dereg, write, read = self._patch(None)
+        with status, dereg, write, read:
+            result = await advance_migration(
+                _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
+        assert result["migrationState"] == "MigrationConfirmed"
+        assert result["deregisteredPrevious"] == "v1-agent"
 
     @pytest.mark.asyncio
     async def test_old_agent_is_burned_only_after_the_swap_is_written(self):

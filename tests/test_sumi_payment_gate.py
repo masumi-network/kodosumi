@@ -97,9 +97,14 @@ class TestPaidFlowWithoutAPayment:
         result = await _run(
             _meta(paymentSourceType="Web3CardanoV2"),
             prepare_error=RuntimeError(
-                "Payment init failed: supportedPaymentSourceIndex required"))
+                "Payment init failed at https://node/api/v1: "
+                "supportedPaymentSourceIndex required\n  File \"main.py\""))
         assert isinstance(result, StartJobErrorResponse)
-        assert "supportedPaymentSourceIndex" in result.error
+        assert "Payment could not be initialized" in result.error
+        # The buyer is an external MIP-003 consumer. A Ray remote call
+        # raises with the whole remote traceback attached.
+        assert "https://node" not in result.error
+        assert "File \"main.py\"" not in result.error
 
     @pytest.mark.asyncio
     async def test_a_missing_runner_is_reported_as_an_error(self):
@@ -112,7 +117,7 @@ class TestPaidFlowWithoutAPayment:
         # For a registered agent that means the job would run unpriced.
         result = await _run(_meta(), prepare_result=None)
         assert isinstance(result, StartJobErrorResponse)
-        assert "registered agent" in result.error
+        assert "Payment could not be initialized" in result.error
 
 
 class TestFlowsThatStillRun:

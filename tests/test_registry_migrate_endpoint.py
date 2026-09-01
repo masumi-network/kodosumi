@@ -227,7 +227,7 @@ class TestMigrateRefusals:
 
     @pytest.mark.asyncio
     async def test_unsaved_pricing_edit_is_refused(self):
-        """The dialog promises the V1 price is carried over."""
+        """The dialog promises the V1 listing is carried over."""
         edited = _meta(agentPricing=[{
             "pricingType": "Fixed",
             "fixedPricing": [{"amount": "9999999", "unit": ""}]}])
@@ -242,6 +242,35 @@ class TestMigrateRefusals:
         assert err.value.status_code == 409
         assert "Save the flow first" in err.value.detail
         register.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unsaved_identity_edit_is_refused(self):
+        # The name, description and tags are minted into the V2 entry too,
+        # so guarding the pricing alone still lets the listings diverge.
+        edited = _meta(display="A Different Name")
+        mocks = _patches()
+        with mocks["init"], mocks["row"], mocks["meta"], mocks["write"], \
+                mocks["wallets"], mocks["register"] as register:
+            with pytest.raises(ClientException) as err:
+                await MIGRATE(
+                    None, name="expose",
+                    data=_body(meta_yaml=yaml.dump(edited)),
+                    state=_state())
+        assert err.value.status_code == 409
+        register.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_unrelated_saved_flow_still_migrates(self):
+        # The editor content matches what is saved, so the mint proceeds.
+        mocks = _patches()
+        with mocks["init"], mocks["row"], mocks["meta"], mocks["write"], \
+                mocks["wallets"], mocks["register"] as register:
+            result = await MIGRATE(
+                None, name="expose",
+                data=_body(meta_yaml=yaml.dump(_meta())),
+                state=_state())
+        assert result["success"] is True
+        register.assert_called_once()
 
 
 class TestMigrateSuccess:
@@ -303,6 +332,9 @@ class TestCancel:
                 state=_state())
         assert result["success"] is True
         assert write.call_args.args[3]["pendingMigration"] is None
+        # A cancel is deliberate, so it leaves no standing error behind.
+        assert write.call_args.args[3]["migrationError"] is None
+        assert "cancelled" in result["notice"]
 
     @pytest.mark.asyncio
     async def test_refuses_when_nothing_is_pending(self):

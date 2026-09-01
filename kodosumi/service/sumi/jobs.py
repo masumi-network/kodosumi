@@ -304,7 +304,6 @@ async def _submit_job(
         seller_vkey = None
         payment_source_type = None
         source_index = None
-        prepare_error = None
         try:
             # Use asyncio.to_thread to avoid blocking the event loop
             runner = await asyncio.to_thread(ray.get_actor, job_id, namespace=NAMESPACE)
@@ -327,7 +326,6 @@ async def _submit_job(
         except Exception as e:
             # Actor not found, or payment init was refused. A free flow can
             # carry on; a registered one cannot, see the check below.
-            prepare_error = str(e)
             logger.warning(
                 "prepare() failed for job %s of %s%s: %s",
                 job_id, expose_name, meta.url, e,
@@ -337,11 +335,19 @@ async def _submit_job(
         # the buyer has nothing to pay against, so answering "running" would
         # hide the failure behind a job that goes on to error inside the
         # runner. Report the payment failure instead.
+        #
+        # The cause stays in the log. A Ray remote call raises with the whole
+        # remote traceback attached, and this response goes to an external
+        # Sumi consumer, which the rest of this module never gives internals
+        # to either.
         if agent_identifier and not blockchain_id:
+            logger.error(
+                "Refusing job %s of %s%s: no payment for a registered agent",
+                job_id, expose_name, meta.url,
+            )
             return _error_response(
-                "Payment could not be initialized for this agent"
-                + (f": {prepare_error}" if prepare_error else
-                   ". The runner reported no payment for a registered agent.")
+                "Payment could not be initialized for this agent. "
+                "Try again later, or contact the agent operator."
             )
 
         return JobStatusResponse(

@@ -47,7 +47,10 @@ DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX = 0
 # field the operator has to correct.
 MIN_FIXED_PRICING_ENTRIES = 1
 MAX_FIXED_PRICING_ENTRIES = 5
+# The node bounds the amount string at 19 characters and parses it into a
+# Postgres bigint, so leading zeros count and the value has a ceiling.
 MAX_ATOMIC_AMOUNT_DIGITS = 19
+MAX_ATOMIC_AMOUNT = 9223372036854775807
 
 # Page size of the /wallet endpoint. The node caps `take` at 100 and its
 # cursor is inclusive, so a page repeats the row the cursor names.
@@ -163,9 +166,12 @@ def _atomic_amount(amount: Any) -> str:
     """
     Render one price as the atomic amount string the payment node accepts.
 
-    The node takes digits only, at most 19 of them, and rejects zero. A
-    missing amount used to default to "0" and was refused on chain with an
-    error that never named the flow YAML.
+    The node takes digits only, at most 19 characters of them, and rejects
+    zero. A missing amount used to default to "0" and was refused on chain
+    with an error that never named the flow YAML.
+
+    The result is normalised, so leading zeros written in the YAML cannot
+    push an otherwise valid amount past the node's 19 character bound.
     """
     text = str(amount if amount is not None else "").strip()
     if not text.isdigit() or int(text) <= 0:
@@ -173,12 +179,19 @@ def _atomic_amount(amount: Any) -> str:
             f"Pricing amount must be a positive whole number of base units, "
             f"got '{amount}'."
         )
-    if len(text.lstrip("0")) > MAX_ATOMIC_AMOUNT_DIGITS:
+    value = int(text)
+    if value > MAX_ATOMIC_AMOUNT:
+        raise ValueError(
+            f"Pricing amount is above the largest amount the payment node "
+            f"stores ({MAX_ATOMIC_AMOUNT}): '{amount}'."
+        )
+    normalised = str(value)
+    if len(normalised) > MAX_ATOMIC_AMOUNT_DIGITS:
         raise ValueError(
             f"Pricing amount has more than {MAX_ATOMIC_AMOUNT_DIGITS} digits: "
             f"'{amount}'."
         )
-    return text
+    return normalised
 
 
 def registry_pricing_to_supported_sources(
@@ -273,8 +286,11 @@ async def _list_source_selling_wallets(
         page = resp.json().get("data", {}).get("Wallets", [])
         # The node's cursor is inclusive, so a page repeats the row the
         # cursor names. Without the id check that row would be listed twice.
-        fresh = [w for w in page if w.get("id") not in seen_ids]
-        seen_ids.update(w.get("id") for w in fresh)
+        # A row without an id cannot be matched, and dropping every one of
+        # them after the first would lose wallets, so they are all kept.
+        fresh = [w for w in page
+                 if not w.get("id") or w.get("id") not in seen_ids]
+        seen_ids.update(w["id"] for w in fresh if w.get("id"))
         wallets.extend(fresh)
         if len(page) < WALLET_PAGE_SIZE or not fresh:
             return wallets

@@ -142,14 +142,20 @@ def failed_migration_updates(
     }
 
 
+# Shown once when the operator cancels. It is not written to the flow
+# metadata: migrationError drives a standing error in the panel, and a
+# deliberate cancel is not a failure to keep reporting.
+CANCEL_NOTICE = (
+    "The migration was cancelled. If the Web3CardanoV2 agent still confirms "
+    "on chain, deregister it in the Masumi admin interface."
+)
+
+
 def cancel_migration_updates() -> Dict[str, Any]:
     """Meta keys written when the operator gives up on a pending mint."""
     return {
         "pendingMigration": None,
-        "migrationError": (
-            "The migration was cancelled. If the Web3CardanoV2 agent still "
-            "confirms on chain, deregister it in the Masumi admin interface."
-        ),
+        "migrationError": None,
     }
 
 
@@ -196,7 +202,10 @@ async def advance_migration(
         if allow_burn and burn_target(meta_data):
             burn = await _burn_previous(
                 masumi, row, expose_name, flow_url, meta_data)
-            report = {**report, **burn}
+            # A burn on its own still ends a migration, and the panel stops
+            # polling on the state rather than on the keys below it.
+            report = {"migrationState": "MigrationConfirmed",
+                      **report, **burn}
 
         return report or None
 

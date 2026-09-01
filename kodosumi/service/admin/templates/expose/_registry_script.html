@@ -190,14 +190,20 @@ async function checkRegistryStatus(idx, flowUrl) {
         if (data.migration && data.migration.updatedYaml) {
             syncMetaYaml(idx, data.migration.updatedYaml);
         }
+        // The burn of the replaced agent runs on the poll endpoint only,
+        // because this one is a GET. Keep polling until it has happened,
+        // or the burn the operator asked for is never performed.
+        var pendingBurn = !!(data.previousRegistration &&
+            data.previousRegistration.deregisterRequested);
         if (data.migration &&
-                data.migration.migrationState === 'MigrationConfirmed') {
+                data.migration.migrationState === 'MigrationConfirmed' &&
+                !pendingBurn) {
             return;
         }
 
         // A migrating flow reports its confirmed V1 agent, so the state
         // alone would stop the panel from following the new mint.
-        if (data.migration) {
+        if (data.migration || pendingBurn) {
             startPolling(idx, flowUrl, true);
             return;
         }
@@ -369,12 +375,15 @@ function updateMigrationUI(idx, data) {
         }
     }
     // migrationError is stored in the flow metadata, so the reason a
-    // migration stopped survives the page load that follows it.
+    // migration stopped survives the page load that follows it. It is
+    // cleared when the next attempt starts, so clear the banner with it.
     if (data.migrationError) {
         showRegError(idx, data.migrationError);
     } else if (migration && migration.deregisterError) {
         showRegError(idx, 'Migrated, but the V1 agent could not be ' +
             'deregistered: ' + migration.deregisterError);
+    } else if (migration || data.previousRegistration) {
+        hideRegError(idx);
     }
 
     var previous = data.previousRegistration;
@@ -455,6 +464,12 @@ async function cancelMigration(idx) {
             delete pollIntervals[idx];
         }
         syncMetaYaml(idx, data.updatedYaml);
+        var info = document.getElementById('reg_info_' + idx);
+        if (info && data.notice) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = data.notice;
+        }
         checkRegistryStatus(idx, flowUrl);
     } catch (e) {
         showRegError(idx, 'Could not cancel the migration: ' + e);

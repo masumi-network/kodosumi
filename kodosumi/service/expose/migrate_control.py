@@ -22,7 +22,8 @@ from kodosumi.service.jwt import operator_guard
 from kodosumi.service.expose import db
 from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
 from kodosumi.service.expose.migration import (
-    cancel_migration_updates, pending_migration, start_migration_updates)
+    CANCEL_NOTICE, cancel_migration_updates, pending_migration,
+    start_migration_updates)
 from kodosumi.service.expose.registration import (
     build_agent_fields, sumi_api_base_url)
 
@@ -136,15 +137,17 @@ class RegistryMigrateControl(litestar.Controller):
                 status_code=422,
             )
 
-        # The V2 agent is minted with the price read here, and the dialog
-        # tells the operator that the V1 price is carried over. An unsaved
-        # edit in the editor would quietly make that false.
-        saved_pricing = (get_flow_meta(row, flow_url) or {}).get("agentPricing")
-        if legacy_pricing != saved_pricing:
+        # The dialog tells the operator that the migration carries the V1
+        # listing over. Everything the mint advertises therefore has to come
+        # from the saved metadata, not from an unsaved edit in the editor.
+        saved_meta = get_flow_meta(row, flow_url) or {}
+        fields = build_agent_fields(meta_data, name)
+        if (fields != build_agent_fields(saved_meta, name)
+                or legacy_pricing != saved_meta.get("agentPricing")):
             raise ClientException(
-                detail="The pricing in the editor differs from the saved flow "
-                       "metadata. Save the flow first, so the new agent is "
-                       "minted with the price the V1 listing advertises.",
+                detail="The editor holds unsaved changes to the agent name, "
+                       "description, tags or pricing. Save the flow first, so "
+                       "the new agent matches the V1 listing it replaces.",
                 status_code=409,
             )
 
@@ -158,7 +161,6 @@ class RegistryMigrateControl(litestar.Controller):
         except ValueError as e:
             raise ClientException(detail=str(e), status_code=422)
 
-        fields = build_agent_fields(meta_data, name)
         try:
             result = await register_agent(
                 masumi=masumi,
@@ -228,11 +230,11 @@ class RegistryMigrateControl(litestar.Controller):
             raise ClientException(
                 detail="This flow has no pending migration.", status_code=409)
 
-        updates = cancel_migration_updates()
-        updated_yaml = await update_flow_meta(row, name, flow_url, updates)
+        updated_yaml = await update_flow_meta(
+            row, name, flow_url, cancel_migration_updates())
         return {
             "success": True,
-            "migrationError": updates["migrationError"],
+            "notice": CANCEL_NOTICE,
             "updatedYaml": updated_yaml,
         }
 
