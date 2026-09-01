@@ -75,9 +75,10 @@ class RegistryControl(litestar.Controller):
 
         # A migration mints a second agent while the first one keeps
         # serving. Finish the swap here so the panel reports the rail the
-        # flow actually runs on.
+        # flow actually runs on. allow_burn stays off: this is a GET, and
+        # deregistering the replaced agent cannot be undone.
         migration = await advance_migration(
-            masumi, row, name, flow_url, meta_data)
+            masumi, row, name, flow_url, meta_data, allow_burn=False)
         if migration and migration.get("updatedYaml"):
             row = await db.get_expose(name) or row
             meta_data = get_flow_meta(row, flow_url) or meta_data
@@ -393,8 +394,10 @@ class RegistryControl(litestar.Controller):
         if not reg_id and not agent_id:
             return {"state": "NotRegistered"}
 
+        # This is the POST the panel repeats while it waits, so it is where
+        # the replaced agent is burned once the operator asked for it.
         migration = await advance_migration(
-            masumi, row, name, flow_url, meta_data)
+            masumi, row, name, flow_url, meta_data, allow_burn=True)
         if migration and migration.get("updatedYaml"):
             row = await db.get_expose(name) or row
             meta_data = get_flow_meta(row, flow_url) or meta_data
@@ -493,7 +496,8 @@ class RegistryControl(litestar.Controller):
         if meta_data.get("pendingMigration"):
             raise ClientException(
                 detail="A migration to Web3CardanoV2 is waiting for "
-                       "confirmation. Wait for it, then deregister.",
+                       "confirmation. Wait for it, or cancel the migration, "
+                       "then deregister.",
                 status_code=409,
             )
 
@@ -511,6 +515,7 @@ class RegistryControl(litestar.Controller):
             "registrationId": None,
             "paymentSourceType": None,
             "supportedPaymentSourceIndex": None,
+            "migrationError": None,
         })
 
         return {

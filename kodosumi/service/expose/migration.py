@@ -11,14 +11,20 @@ The meta YAML of the flow carries the whole state:
 
     pendingMigration      the V2 registration that is still minting
     previousRegistration  the V1 agent that is still on chain after the swap
+    migrationError        why the last attempt stopped, cleared on retry
+
+A migration moves in two steps, and each one is written back before the
+next begins: confirm the new mint, then burn the replaced agent. The burn
+is irreversible, so it never runs as a side effect of a read.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
 from kodosumi.config import MasumiConfig
 from kodosumi.service.expose import db
-from kodosumi.service.expose.flow_meta import update_flow_meta
+from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
 from kodosumi.service.expose.registry import (
     DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX,
     PAYMENT_SOURCE_TYPE_V1,
@@ -29,6 +35,21 @@ from kodosumi.service.expose.registry import (
 
 logger = logging.getLogger(__name__)
 
+# The one terminal failure the payment node reports for a mint. Every other
+# state is still in flight and keeps the migration waiting.
+FAILED_REGISTRATION_STATE = "RegistrationFailed"
+CONFIRMED_REGISTRATION_STATE = "RegistrationConfirmed"
+
+# One lock per flow. The admin panel calls in from every open tab, and
+# without this two callers read the same pre swap metadata, both write the
+# swap, and both burn the same agent.
+_MIGRATION_LOCKS: Dict[str, asyncio.Lock] = {}
+
+
+def _migration_lock(expose_name: str, flow_url: str) -> asyncio.Lock:
+    return _MIGRATION_LOCKS.setdefault(
+        f"{expose_name}\n{flow_url}", asyncio.Lock())
+
 
 def pending_migration(meta_data: dict) -> Optional[Dict[str, Any]]:
     """Return the migration a flow is waiting on, or None."""
@@ -36,6 +57,20 @@ def pending_migration(meta_data: dict) -> Optional[Dict[str, Any]]:
     if isinstance(pending, dict) and pending.get("registrationId"):
         return pending
     return None
+
+
+def burn_target(meta_data: dict) -> Optional[Dict[str, Any]]:
+    """Return the replaced agent this migration still has to burn, or None.
+
+    The intent to burn outlives pendingMigration on purpose: the swap and
+    the burn are separate steps and can land in separate requests.
+    """
+    previous = meta_data.get("previousRegistration")
+    if not isinstance(previous, dict):
+        return None
+    if not previous.get("agentIdentifier"):
+        return None
+    return previous if previous.get("deregisterRequested") else None
 
 
 def start_migration_updates(
@@ -54,6 +89,8 @@ def start_migration_updates(
                 DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX,
             "deregisterPrevious": bool(deregister_previous),
         },
+        # A new attempt starts clean: the error of the last one is history.
+        "migrationError": None,
     }
 
 
@@ -71,6 +108,7 @@ def confirmed_migration_updates(
         "registrationId": meta_data.get("registrationId"),
         "paymentSourceType": (
             meta_data.get("paymentSourceType") or PAYMENT_SOURCE_TYPE_V1),
+        "deregisterRequested": bool(pending.get("deregisterPrevious")),
     }
     return {
         "agentIdentifier": new_agent_id,
@@ -85,27 +123,93 @@ def confirmed_migration_updates(
     }
 
 
+def failed_migration_updates(
+    state: str, error: Optional[str] = None
+) -> Dict[str, Any]:
+    """Meta keys written when the V2 mint failed for good.
+
+    Clearing pendingMigration is what lets the operator try again. While it
+    stands, the migrate endpoint answers 409 "already waiting", the plain
+    deregister endpoint answers 409 too, and the panel hides both buttons,
+    so a failed mint would leave the flow with no way forward.
+    """
+    return {
+        "pendingMigration": None,
+        "migrationError": error or (
+            f"The Web3CardanoV2 registration ended in {state}. "
+            "Check the selling wallet balance and start the migration again."
+        ),
+    }
+
+
+def cancel_migration_updates() -> Dict[str, Any]:
+    """Meta keys written when the operator gives up on a pending mint."""
+    return {
+        "pendingMigration": None,
+        "migrationError": (
+            "The migration was cancelled. If the Web3CardanoV2 agent still "
+            "confirms on chain, deregister it in the Masumi admin interface."
+        ),
+    }
+
+
 async def advance_migration(
     masumi: MasumiConfig,
     row: dict,
     expose_name: str,
     flow_url: str,
     meta_data: dict,
+    allow_burn: bool = False,
 ) -> Optional[Dict[str, Any]]:
-    """Check the pending V2 mint and swap the flow over once it confirms.
+    """Move a migration one step and write the result back.
 
-    Returns None when the flow has no pending migration. Otherwise returns
-    the migration state for the admin panel. Safe to call repeatedly: after
-    the swap the flow no longer has a pending migration.
+    Returns None when the flow has nothing to advance. Otherwise returns
+    the migration state for the admin panel. Safe to call repeatedly and
+    from several requests at once.
+
+    allow_burn stays False on read only paths. Burning the replaced agent
+    is irreversible and must never be a side effect of opening a page.
     """
-    pending = pending_migration(meta_data)
-    if not pending:
-        return None
     if not flow_url:
-        # Without the url the swap cannot be written back, and a burn that
-        # is not recorded would repeat on every call.
+        # Without the url nothing can be written back, and work that is not
+        # recorded would repeat on every call.
+        return None
+    if not pending_migration(meta_data) and not burn_target(meta_data):
         return None
 
+    async with _migration_lock(expose_name, flow_url):
+        # Re-read inside the lock: another request may have finished the
+        # swap while this one waited for it.
+        row = await db.get_expose(expose_name) or row
+        meta_data = get_flow_meta(row, flow_url) or meta_data
+
+        report: Dict[str, Any] = {}
+        pending = pending_migration(meta_data)
+        if pending:
+            report = await _confirm_mint(
+                masumi, row, expose_name, flow_url, meta_data, pending)
+            if not report.get("updatedYaml"):
+                return report
+            row = await db.get_expose(expose_name) or row
+            meta_data = get_flow_meta(row, flow_url) or meta_data
+
+        if allow_burn and burn_target(meta_data):
+            burn = await _burn_previous(
+                masumi, row, expose_name, flow_url, meta_data)
+            report = {**report, **burn}
+
+        return report or None
+
+
+async def _confirm_mint(
+    masumi: MasumiConfig,
+    row: dict,
+    expose_name: str,
+    flow_url: str,
+    meta_data: dict,
+    pending: dict,
+) -> Dict[str, Any]:
+    """Check the pending V2 mint and swap the flow over once it confirms."""
     try:
         result = await get_registration_status(
             masumi,
@@ -123,42 +227,75 @@ async def advance_migration(
 
     state = result.get("state", "Unknown")
     new_agent_id = result.get("agentIdentifier")
-    if state != "RegistrationConfirmed" or not new_agent_id:
+
+    if state == FAILED_REGISTRATION_STATE:
+        updates = failed_migration_updates(state)
+        updated_yaml = await update_flow_meta(
+            row, expose_name, flow_url, updates)
+        logger.warning(
+            "Migration of %s%s failed on chain, cleared the pending record",
+            expose_name, flow_url)
+        return {
+            "migrationState": state,
+            "migrationError": updates["migrationError"],
+            "updatedYaml": updated_yaml,
+        }
+
+    if state != CONFIRMED_REGISTRATION_STATE or not new_agent_id:
         return {"migrationState": state}
 
     # Record the swap before burning anything. A burn that is not written
     # back would repeat, and the old agent stays reachable for a manual
     # burn if this process stops right here.
-    old_agent_id = meta_data.get("agentIdentifier")
     updated_yaml = await update_flow_meta(
         row, expose_name, flow_url,
         confirmed_migration_updates(
             meta_data, pending, new_agent_id, keep_previous=True),
     )
-
-    deregister_error = None
-    if pending.get("deregisterPrevious") and old_agent_id:
-        try:
-            await deregister_agent(masumi, old_agent_id)
-        except Exception as e:
-            # Non fatal: the V2 agent is live either way, and the panel
-            # offers the old entry for a manual burn.
-            deregister_error = str(e)
-            logger.warning(
-                "Migration could not deregister %s: %s", old_agent_id, e)
-        else:
-            # Re-read: the row in hand still carries the pre swap meta.
-            fresh = await db.get_expose(expose_name)
-            updated_yaml = await update_flow_meta(
-                fresh or row, expose_name, flow_url,
-                {"previousRegistration": None},
-            ) or updated_yaml
-
     return {
         "migrationState": "MigrationConfirmed",
         "agentIdentifier": new_agent_id,
         "paymentSourceType": pending.get(
             "paymentSourceType", PAYMENT_SOURCE_TYPE_V2),
-        "deregisterError": deregister_error,
+        "updatedYaml": updated_yaml,
+    }
+
+
+async def _burn_previous(
+    masumi: MasumiConfig,
+    row: dict,
+    expose_name: str,
+    flow_url: str,
+    meta_data: dict,
+) -> Dict[str, Any]:
+    """Deregister the agent the migration replaced."""
+    previous = burn_target(meta_data) or {}
+    old_agent_id = previous.get("agentIdentifier", "")
+    try:
+        await deregister_agent(masumi, old_agent_id)
+    except Exception as e:
+        # Non fatal: the V2 agent is live either way. Drop the automatic
+        # intent so a node that keeps refusing is not called on every poll,
+        # and record why, because the panel forgets between page loads.
+        logger.warning(
+            "Migration could not deregister %s: %s", old_agent_id, e)
+        updated_yaml = await update_flow_meta(
+            row, expose_name, flow_url,
+            {
+                "previousRegistration": {
+                    **previous, "deregisterRequested": False},
+                "migrationError":
+                    f"Could not deregister the replaced agent "
+                    f"{old_agent_id}: {e}",
+            },
+        )
+        return {"deregisterError": str(e), "updatedYaml": updated_yaml}
+
+    updated_yaml = await update_flow_meta(
+        row, expose_name, flow_url,
+        {"previousRegistration": None, "migrationError": None},
+    )
+    return {
+        "deregisteredPrevious": old_agent_id,
         "updatedYaml": updated_yaml,
     }

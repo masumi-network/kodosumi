@@ -1,0 +1,358 @@
+"""
+Tests for the migrate endpoints of the admin panel.
+
+Every branch here decides whether a second agent is minted on chain, so
+each refusal is checked on its own: a mint that should not have happened
+cannot be taken back.
+"""
+
+import pytest
+import yaml
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from litestar.exceptions import ClientException, NotFoundException
+
+from kodosumi.config import MasumiConfig
+from kodosumi.service.expose.migrate_control import RegistryMigrateControl
+
+MIGRATE = RegistryMigrateControl.migrate.fn
+CANCEL = RegistryMigrateControl.cancel.fn
+DEREGISTER_PREVIOUS = RegistryMigrateControl.deregister_previous.fn
+
+V1 = "Web3CardanoV1"
+V2 = "Web3CardanoV2"
+
+
+def _state(network="Preprod") -> dict:
+    settings = MagicMock()
+    settings.sumi_address = "https://host"
+    settings.get_masumi.return_value = MasumiConfig(
+        network=network,
+        base_url="https://test.masumi.network/api/v1",
+        token="test-token",
+        poll_interval=1.0,
+    )
+    return {"settings": settings}
+
+
+def _row(network="Preprod") -> dict:
+    return {"name": "expose", "network": network, "meta": "[]"}
+
+
+def _meta(**overrides) -> dict:
+    meta = {
+        "display": "My Agent",
+        "agentIdentifier": "v1-agent",
+        "registrationId": "v1-reg",
+        "agentPricing": [{"pricingType": "Free"}],
+    }
+    meta.update(overrides)
+    return meta
+
+
+def _v2_wallet(**overrides) -> dict:
+    wallet = {
+        "walletVkey": "vkey-v2",
+        "walletAddress": "addr_test1w",
+        "sourceId": "src1",
+        "network": "Preprod",
+        "paymentSourceType": V2,
+        "smartContractAddress": "addr_test1contract",
+    }
+    wallet.update(overrides)
+    return wallet
+
+
+def _body(**overrides) -> dict:
+    body = {"flow_url": "/flow", "wallet_vkey": "vkey-v2"}
+    body.update(overrides)
+    return body
+
+
+def _patches(row=None, meta=None, wallets=None, register=None,
+             deregister=None):
+    """Patch everything the handlers reach outside their own module."""
+    meta = _meta() if meta is None else meta
+    return {
+        "init": patch(
+            "kodosumi.service.expose.migrate_control.db.init_database",
+            new_callable=AsyncMock),
+        "row": patch(
+            "kodosumi.service.expose.migrate_control.db.get_expose",
+            new_callable=AsyncMock,
+            return_value=_row() if row is None else row),
+        "meta": patch(
+            "kodosumi.service.expose.migrate_control.get_flow_meta",
+            return_value=meta),
+        "write": patch(
+            "kodosumi.service.expose.migrate_control.update_flow_meta",
+            new_callable=AsyncMock, return_value="display: My Agent\n"),
+        "wallets": patch(
+            "kodosumi.service.expose.registry.list_wallets",
+            new_callable=AsyncMock,
+            return_value=[_v2_wallet()] if wallets is None else wallets),
+        "register": patch(
+            "kodosumi.service.expose.registry.register_agent",
+            new_callable=AsyncMock,
+            return_value=register or {"id": "v2-reg",
+                                      "state": "RegistrationRequested"}),
+        "deregister": patch(
+            "kodosumi.service.expose.registry.deregister_agent",
+            new_callable=AsyncMock,
+            **({"side_effect": deregister}
+               if isinstance(deregister, Exception)
+               else {"return_value": deregister or
+                     {"state": "DeregistrationRequested"}})),
+    }
+
+
+async def _call_migrate(body=None, **patch_kwargs):
+    mocks = _patches(**patch_kwargs)
+    with mocks["init"], mocks["row"], mocks["meta"], \
+            mocks["write"] as write, mocks["wallets"], \
+            mocks["register"] as register, mocks["deregister"]:
+        result = await MIGRATE(
+            None, name="expose", data=_body(**(body or {})), state=_state())
+    return result, write, register
+
+
+class TestMigrateRefusals:
+    """Each of these must stop before a second agent is minted."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_expose(self):
+        mocks = _patches(row=False)
+        with mocks["init"], mocks["row"], mocks["register"] as register:
+            with pytest.raises(NotFoundException):
+                await MIGRATE(None, name="nope", data=_body(),
+                              state=_state())
+        register.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_expose_without_a_network(self):
+        mocks = _patches(row={"name": "expose", "network": ""})
+        with mocks["init"], mocks["row"], mocks["register"] as register:
+            with pytest.raises(ClientException) as err:
+                await MIGRATE(None, name="expose", data=_body(),
+                              state=_state())
+        assert err.value.status_code == 422
+        register.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_missing_flow_url(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate({"flow_url": ""})
+        assert err.value.status_code == 422
+        assert "flow_url" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_missing_wallet(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate({"wallet_vkey": ""})
+        assert err.value.status_code == 422
+        assert "wallet_vkey" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_unregistered_flow(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(meta=_meta(agentIdentifier=None))
+        assert err.value.status_code == 409
+        assert "not registered" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_flow_already_on_v2(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(meta=_meta(paymentSourceType=V2))
+        assert err.value.status_code == 409
+        assert "already runs" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_migration_already_pending(self):
+        pending = {"registrationId": "v2-reg", "paymentSourceType": V2}
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(meta=_meta(pendingMigration=pending))
+        assert err.value.status_code == 409
+        assert "already waiting" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_unknown_wallet(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(wallets=[])
+        assert err.value.status_code == 422
+        assert "not found" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_v1_wallet_is_refused(self):
+        # The wallet decides the rail, so a V1 wallet would mint another V1
+        # agent and the migration would achieve nothing.
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(
+                wallets=[_v2_wallet(paymentSourceType=V1)])
+        assert err.value.status_code == 422
+        assert "Web3CardanoV2" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_flow_without_pricing(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(meta=_meta(agentPricing=None))
+        assert err.value.status_code == 422
+        assert "No pricing" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_wallet_without_a_contract_address(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(
+                wallets=[_v2_wallet(smartContractAddress="")])
+        assert err.value.status_code == 422
+        assert "smart contract address" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_pricing_written_as_a_mapping_is_a_422(self):
+        # Hand edited YAML reaches this shape often. It used to raise a
+        # KeyError inside the converter and answer 500.
+        bad = _meta(agentPricing={"pricingType": "Fixed",
+                                  "fixedPricing": [{"amount": "0"}]})
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(meta=bad)
+        assert err.value.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_fixed_pricing_without_an_amount_is_a_422(self):
+        bad = _meta(agentPricing=[{"pricingType": "Fixed",
+                                   "fixedPricing": []}])
+        with pytest.raises(ClientException) as err:
+            await _call_migrate(meta=bad)
+        assert err.value.status_code == 422
+        assert "Fixed pricing needs" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_unsaved_pricing_edit_is_refused(self):
+        """The dialog promises the V1 price is carried over."""
+        edited = _meta(agentPricing=[{
+            "pricingType": "Fixed",
+            "fixedPricing": [{"amount": "9999999", "unit": ""}]}])
+        mocks = _patches()
+        with mocks["init"], mocks["row"], mocks["meta"], mocks["write"], \
+                mocks["wallets"], mocks["register"] as register:
+            with pytest.raises(ClientException) as err:
+                await MIGRATE(
+                    None, name="expose",
+                    data=_body(meta_yaml=yaml.dump(edited)),
+                    state=_state())
+        assert err.value.status_code == 409
+        assert "Save the flow first" in err.value.detail
+        register.assert_not_called()
+
+
+class TestMigrateSuccess:
+
+    @pytest.mark.asyncio
+    async def test_mints_a_v2_agent_and_records_it_as_pending(self):
+        result, write, register = await _call_migrate()
+        assert result["success"] is True
+        assert result["registrationId"] == "v2-reg"
+        assert result["migrationState"] == "Polling"
+
+        sources = register.call_args.kwargs["supported_payment_sources"]
+        assert sources == [{
+            "chain": "Cardano",
+            "network": "Preprod",
+            "paymentSourceType": V2,
+            "address": "addr_test1contract",
+            "pricing": {"pricingType": "Free"},
+        }]
+        # V2 rejects the top level pricing field outright.
+        assert register.call_args.kwargs["pricing"] is None
+
+        updates = write.call_args.args[3]
+        assert updates["pendingMigration"]["registrationId"] == "v2-reg"
+        # The V1 agent keeps answering jobs until the new mint confirms.
+        assert "agentIdentifier" not in updates
+
+    @pytest.mark.asyncio
+    async def test_the_deregister_choice_is_carried_into_the_record(self):
+        _, write, _ = await _call_migrate({"deregister_previous": True})
+        assert write.call_args.args[3][
+            "pendingMigration"]["deregisterPrevious"] is True
+
+    @pytest.mark.asyncio
+    async def test_fixed_pricing_is_converted_into_a_v2_source(self):
+        meta = _meta(agentPricing=[{
+            "pricingType": "Fixed",
+            "fixedPricing": [{"amount": "10000000", "unit": "lovelace"}]}])
+        _, _, register = await _call_migrate(meta=meta)
+        pricing = register.call_args.kwargs[
+            "supported_payment_sources"][0]["pricing"]
+        assert pricing == {
+            "pricingType": "Fixed",
+            "fixed": [{"asset": "", "amount": "10000000"}],
+        }
+
+
+class TestCancel:
+    """A mint that will not confirm must not wedge the flow."""
+
+    @pytest.mark.asyncio
+    async def test_clears_the_pending_record(self):
+        pending = {"registrationId": "v2-reg", "paymentSourceType": V2}
+        mocks = _patches(meta=_meta(pendingMigration=pending))
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["write"] as write:
+            result = await CANCEL(
+                None, name="expose", data={"flow_url": "/flow"},
+                state=_state())
+        assert result["success"] is True
+        assert write.call_args.args[3]["pendingMigration"] is None
+
+    @pytest.mark.asyncio
+    async def test_refuses_when_nothing_is_pending(self):
+        mocks = _patches()
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["write"] as write:
+            with pytest.raises(ClientException) as err:
+                await CANCEL(None, name="expose",
+                             data={"flow_url": "/flow"}, state=_state())
+        assert err.value.status_code == 409
+        write.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_requires_a_flow_url(self):
+        mocks = _patches()
+        with mocks["init"], mocks["row"], mocks["write"] as write:
+            with pytest.raises(ClientException) as err:
+                await CANCEL(None, name="expose", data={}, state=_state())
+        assert err.value.status_code == 422
+        write.assert_not_called()
+
+
+class TestDeregisterPrevious:
+
+    @pytest.mark.asyncio
+    async def test_burns_the_replaced_agent(self):
+        meta = _meta(
+            agentIdentifier="v2-agent",
+            paymentSourceType=V2,
+            previousRegistration={"agentIdentifier": "v1-agent",
+                                  "registrationId": "v1-reg"})
+        mocks = _patches(meta=meta)
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["write"] as write, mocks["deregister"] as deregister:
+            result = await DEREGISTER_PREVIOUS(
+                None, name="expose", data={"flow_url": "/flow"},
+                state=_state())
+        assert result["success"] is True
+        assert deregister.call_args.args[1] == "v1-agent"
+        assert write.call_args.args[3] == {
+            "previousRegistration": None, "migrationError": None}
+
+    @pytest.mark.asyncio
+    async def test_refuses_without_a_previous_registration(self):
+        mocks = _patches()
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["deregister"] as deregister:
+            with pytest.raises(ClientException) as err:
+                await DEREGISTER_PREVIOUS(
+                    None, name="expose", data={"flow_url": "/flow"},
+                    state=_state())
+        assert err.value.status_code == 409
+        deregister.assert_not_called()

@@ -70,4 +70,8 @@ def rail_fields(meta_data: dict) -> Dict[str, Any]:
         "supportedPaymentSourceIndex": meta_data.get(
             "supportedPaymentSourceIndex"),
         "previousRegistration": meta_data.get("previousRegistration"),
+        # Why the last migration attempt stopped. It lives in the metadata
+        # so the reason survives the page load that follows the failure.
+        "migrationError": meta_data.get("migrationError"),
+        "pendingMigration": meta_data.get("pendingMigration"),
     }

@@ -21,7 +21,8 @@ from litestar.exceptions import ClientException, NotFoundException
 from kodosumi.service.jwt import operator_guard
 from kodosumi.service.expose import db
 from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
-from kodosumi.service.expose.migration import start_migration_updates
+from kodosumi.service.expose.migration import (
+    cancel_migration_updates, pending_migration, start_migration_updates)
 from kodosumi.service.expose.registration import (
     build_agent_fields, sumi_api_base_url)
 
@@ -135,6 +136,18 @@ class RegistryMigrateControl(litestar.Controller):
                 status_code=422,
             )
 
+        # The V2 agent is minted with the price read here, and the dialog
+        # tells the operator that the V1 price is carried over. An unsaved
+        # edit in the editor would quietly make that false.
+        saved_pricing = (get_flow_meta(row, flow_url) or {}).get("agentPricing")
+        if legacy_pricing != saved_pricing:
+            raise ClientException(
+                detail="The pricing in the editor differs from the saved flow "
+                       "metadata. Save the flow first, so the new agent is "
+                       "minted with the price the V1 listing advertises.",
+                status_code=409,
+            )
+
         reg_network = masumi.registry_network
         try:
             supported_payment_sources = registry_pricing_to_supported_sources(
@@ -178,6 +191,48 @@ class RegistryMigrateControl(litestar.Controller):
             "state": result.get("state", "RegistrationRequested"),
             "migrationState": "Polling",
             "deregisterPrevious": deregister_previous,
+            "updatedYaml": updated_yaml,
+        }
+
+    @post(
+        "/cancel",
+        summary="Stop waiting for a pending migration",
+        description="Clear the pendingMigration record of a flow. Use it when the Web3CardanoV2 mint will not confirm. The flow keeps serving its current agent, and the migrate button comes back.",
+        operation_id="registry_migrate_cancel",
+    )
+    async def cancel(self, name: str, data: dict, state: State) -> dict:
+        """
+        Give up on a pending migration and let the operator start over.
+
+        The mint itself cannot be recalled. If it confirms later, the new
+        agent stays on chain and has to be deregistered in the Masumi admin
+        interface.
+
+        Body:
+            flow_url: str - Flow URL path
+        """
+        await db.init_database()
+        row = await db.get_expose(name)
+        if not row:
+            raise NotFoundException(detail=f"Expose '{name}' not found")
+
+        flow_url = data.get("flow_url", "")
+        if not flow_url:
+            raise ClientException(detail="flow_url is required", status_code=422)
+
+        meta_data = get_flow_meta(row, flow_url)
+        if meta_data is None:
+            raise ClientException(
+                detail=f"Flow '{flow_url}' not found", status_code=404)
+        if not pending_migration(meta_data):
+            raise ClientException(
+                detail="This flow has no pending migration.", status_code=409)
+
+        updates = cancel_migration_updates()
+        updated_yaml = await update_flow_meta(row, name, flow_url, updates)
+        return {
+            "success": True,
+            "migrationError": updates["migrationError"],
             "updatedYaml": updated_yaml,
         }
 
@@ -231,7 +286,8 @@ class RegistryMigrateControl(litestar.Controller):
             raise ClientException(detail=str(e), status_code=502)
 
         updated_yaml = await update_flow_meta(
-            row, name, flow_url, {"previousRegistration": None})
+            row, name, flow_url,
+            {"previousRegistration": None, "migrationError": None})
 
         return {
             "success": True,
