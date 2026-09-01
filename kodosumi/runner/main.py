@@ -27,6 +27,12 @@ from kodosumi.runner.payment import (
 )
 from kodosumi import dtypes
 
+# Highest index a registry entry can hold. The payment node caps
+# supportedPaymentSources at 25 entries (MAX_SUPPORTED_PAYMENT_SOURCES in
+# @masumi/payment-core), so index 24 is the last one that can ever resolve.
+MAX_SUPPORTED_PAYMENT_SOURCE_INDEX = 24
+
+
 def _parse_source_index(value: Any) -> Optional[int]:
     """
     Read a supportedPaymentSourceIndex out of flow metadata.
@@ -35,6 +41,9 @@ def _parse_source_index(value: Any) -> Optional[int]:
     as a string. Anything else means "not configured" and must not become
     index 0: a wrong index selects a different price, and V1 agents reject
     the field outright.
+
+    An index above the node's own ceiling names no payment source that can
+    exist, so it counts as junk instead of being sent on to be refused.
     """
     if isinstance(value, bool) or value is None:
         return None
@@ -44,7 +53,9 @@ def _parse_source_index(value: Any) -> Optional[int]:
         index = int(value.strip())
     else:
         return None
-    return index if index >= 0 else None
+    if 0 <= index <= MAX_SUPPORTED_PAYMENT_SOURCE_INDEX:
+        return index
+    return None
 
 
 def parse_entry_point(entry_point: str) -> Callable:

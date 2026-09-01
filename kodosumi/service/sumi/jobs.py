@@ -103,6 +103,50 @@ async def _heal_agent_identifier(
     return agent_id
 
 
+async def _advance_pending_migration(
+    expose_name: str,
+    meta: ExposeMeta,
+    meta_data_dict: dict,
+    network: str,
+    state,
+) -> dict:
+    """
+    Finish a V1 to V2 migration whose new mint already confirmed.
+
+    The admin panel is the only other caller, so a flow whose operator has
+    the page closed would keep quoting the replaced agent identifier and
+    the old rail for every buyer. Returns the metadata to price this job
+    with, unchanged when there is nothing to advance.
+    """
+    from kodosumi.service.expose.db import get_expose
+    from kodosumi.service.expose.flow_meta import get_flow_meta
+    from kodosumi.service.expose.migration import (
+        advance_migration, pending_migration)
+
+    if state is None or not pending_migration(meta_data_dict):
+        return meta_data_dict
+
+    try:
+        row = await get_expose(expose_name)
+        if not row:
+            return meta_data_dict
+        masumi_cfg = state["settings"].get_masumi(
+            network or row.get("network") or "")
+        # allow_burn stays off: a job must never burn an agent.
+        migration = await advance_migration(
+            masumi_cfg, row, expose_name, meta.url, meta_data_dict)
+        if not (migration and migration.get("updatedYaml")):
+            return meta_data_dict
+        row = await get_expose(expose_name) or row
+        return get_flow_meta(row, meta.url) or meta_data_dict
+    except Exception as e:
+        # A job must not fail because a migration could not advance.
+        logger.warning(
+            "Could not advance the migration of %s%s: %s",
+            expose_name, meta.url, e)
+        return meta_data_dict
+
+
 async def _submit_job(
     expose_name: str,
     meta_name: str,
@@ -146,6 +190,10 @@ async def _submit_job(
 
     service_id = _format_service_id(expose_name, meta_name)
     meta_data_dict = _parse_meta_data(meta.data)
+    # A migration that confirmed on chain has to reach the serving path,
+    # not only the admin panel: this job must be priced on the new rail.
+    meta_data_dict = await _advance_pending_migration(
+        expose_name, meta, meta_data_dict, network, state)
     agent_identifier = meta_data_dict.get("agentIdentifier")
     registration_id = meta_data_dict.get("registrationId")
 
@@ -256,6 +304,7 @@ async def _submit_job(
         seller_vkey = None
         payment_source_type = None
         source_index = None
+        prepare_error = None
         try:
             # Use asyncio.to_thread to avoid blocking the event loop
             runner = await asyncio.to_thread(ray.get_actor, job_id, namespace=NAMESPACE)
@@ -275,9 +324,25 @@ async def _submit_job(
                 pay_conf = prepare_data.get("pay_conf") or {}
                 payment_source_type = pay_conf.get("paymentSourceType")
                 source_index = pay_conf.get("supportedPaymentSourceIndex")
-        except Exception:
-            # Actor not found or prepare failed — proceed without payment
-            pass
+        except Exception as e:
+            # Actor not found, or payment init was refused. A free flow can
+            # carry on; a registered one cannot, see the check below.
+            prepare_error = str(e)
+            logger.warning(
+                "prepare() failed for job %s of %s%s: %s",
+                job_id, expose_name, meta.url, e,
+            )
+
+        # A registered agent is a paid agent. Without a blockchainIdentifier
+        # the buyer has nothing to pay against, so answering "running" would
+        # hide the failure behind a job that goes on to error inside the
+        # runner. Report the payment failure instead.
+        if agent_identifier and not blockchain_id:
+            return _error_response(
+                "Payment could not be initialized for this agent"
+                + (f": {prepare_error}" if prepare_error else
+                   ". The runner reported no payment for a registered agent.")
+            )
 
         return JobStatusResponse(
             job_id=job_id,
