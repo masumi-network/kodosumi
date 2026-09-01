@@ -1,0 +1,387 @@
+// ─── Register Dialog ────────────────────────────────────────────
+
+function openRegisterDialog(idx) {
+    if (!getNetwork()) {
+        showRegError(idx, 'Set network first.');
+        return;
+    }
+
+    var walletSelect = getWalletSelect(idx);
+    if (!walletSelect || !walletSelect.value) {
+        showRegError(idx, 'Select a wallet first.');
+        return;
+    }
+    hideRegError(idx);
+
+    activeDialogIdx = idx;
+    var section = document.getElementById('registry_' + idx);
+    var flowUrl = section.dataset.flowUrl;
+
+    // Parse YAML from textarea using js-yaml
+    var textarea = document.querySelector('[name="meta_data_' + idx + '"]');
+    var parsed = {};
+    try {
+        parsed = jsyaml.load(textarea.value) || {};
+    } catch (e) {
+        console.warn('YAML parse error:', e.message);
+    }
+
+    document.getElementById('dlg_name').textContent = parsed.display || exposeName;
+    document.getElementById('dlg_description').textContent = parsed.description || '(not set)';
+    var tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+    document.getElementById('dlg_tags').textContent = tags.join(', ') || '(none)';
+
+    var sumiAddress = '{{ app_server }}';
+    document.getElementById('dlg_api_url').textContent = sumiAddress + '/sumi' + flowUrl;
+
+    // Pre-fill pricing from YAML if available
+    var dlgPricingType = document.getElementById('dlg_pricing_type');
+    var dlgAmount = document.getElementById('dlg_amount');
+    var dlgCurrency = document.getElementById('dlg_currency');
+    var pricing = Array.isArray(parsed.agentPricing) ? parsed.agentPricing[0] : null;
+    if (pricing) {
+        dlgPricingType.value = pricing.pricingType || 'Fixed';
+        var fp = Array.isArray(pricing.fixedPricing) ? pricing.fixedPricing[0] : null;
+        if (fp && fp.amount) {
+            dlgAmount.value = parseInt(fp.amount) / 1000000;
+            dlgCurrency.value = fp.unit ? 'USDM' : 'ADA';
+        }
+    }
+    updatePricingFields();
+
+    // Optional fields
+    var hasAuthor = parsed.author && typeof parsed.author === 'object' &&
+        Object.values(parsed.author).some(function(v) { return v !== null; });
+    var hasCapability = parsed.capability && typeof parsed.capability === 'object';
+    var hasLegal = parsed.legal && typeof parsed.legal === 'object';
+
+    var walletOpt = walletSelect.options[walletSelect.selectedIndex];
+    document.getElementById('dlg_wallet').textContent = walletOpt.textContent;
+
+    var optParts = [];
+    if (!hasAuthor) optParts.push('Author: not set');
+    if (!hasCapability) optParts.push('Capability: not set');
+    if (!hasLegal) optParts.push('Legal: not set');
+    document.getElementById('dlg_optional_info').textContent = optParts.length ? optParts.join(' | ') : 'All set';
+
+    document.getElementById('dlg_error').style.display = 'none';
+    updateCalc();
+    document.getElementById('register-dialog').showModal();
+}
+
+function updatePricingFields() {
+    var type = document.getElementById('dlg_pricing_type').value;
+    var show = type === 'Fixed';
+    document.getElementById('dlg_amount_container').style.display = show ? '' : 'none';
+    document.getElementById('dlg_currency').style.display = show ? '' : 'none';
+    document.getElementById('dlg_calc').style.display = show ? '' : 'none';
+    if (show) updateCalc();
+}
+
+function parseAmount(str) {
+    if (!str) return 0;
+    return parseFloat(str.replace(',', '.')) || 0;
+}
+
+function updateCalc() {
+    var amountEl = document.getElementById('dlg_amount');
+    var currencyEl = document.getElementById('dlg_currency');
+    var calcEl = document.getElementById('dlg_calc');
+    if (!amountEl || !calcEl) return;
+    var amount = parseAmount(amountEl.value);
+    var currency = currencyEl ? currencyEl.value : 'USDM';
+    var baseUnits = Math.round(amount * 1000000);
+    var net = getNetwork();
+    var unitName = currency === 'ADA' ? 'lovelace' : (net && net.indexOf('Mainnet') === -1 ? 'tUSDM' : 'USDM');
+    calcEl.textContent = '= ' + baseUnits.toLocaleString() + ' ' + unitName;
+}
+
+async function submitRegistration() {
+    var idx = activeDialogIdx;
+    if (idx === null) return;
+
+    var section = document.getElementById('registry_' + idx);
+    var flowUrl = section.dataset.flowUrl;
+    var walletSelect = getWalletSelect(idx);
+    var walletVkey = walletSelect ? walletSelect.value : '';
+    var pricingType = document.getElementById('dlg_pricing_type').value;
+    var amount = parseAmount(document.getElementById('dlg_amount').value);
+    var currency = document.getElementById('dlg_currency').value;
+
+    var submitBtn = document.getElementById('dlg_submit');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="reg-spinner"></span>\u00a0Submitting...';
+
+    // Send current textarea YAML so backend uses live edits, not stale DB data
+    var textarea = document.querySelector('[name="meta_data_' + idx + '"]');
+    var metaYaml = textarea ? textarea.value : '';
+
+    try {
+        var body = {
+            flow_url: flowUrl,
+            wallet_vkey: walletVkey,
+            pricing_type: pricingType,
+            meta_yaml: metaYaml
+        };
+        if (pricingType === 'Fixed') {
+            body.amount = amount;
+            body.currency = currency;
+        }
+
+        var resp = await fetch('/expose/' + exposeName + '/registry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body)
+        });
+        var data = await resp.json();
+
+        if (!resp.ok) {
+            document.getElementById('dlg_error').style.display = 'block';
+            document.getElementById('dlg_error').textContent = data.detail || 'Registration failed';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i>app_registration</i> Register Agent';
+            return;
+        }
+
+        // Success
+        document.getElementById('register-dialog').close();
+        updateBadge(idx, data.state || 'RegistrationRequested', data.agentIdentifier);
+
+        // Update textarea with new YAML (registrationId, agentPricing)
+        if (data.updatedYaml) {
+            var ta = document.querySelector('[name="meta_data_' + idx + '"]');
+            if (ta) ta.value = data.updatedYaml;
+        }
+
+        var regBtn = document.getElementById('reg_btn_' + idx);
+        var actionsRow = document.getElementById('reg_actions_' + idx);
+        if (regBtn) regBtn.style.display = 'none';
+        if (actionsRow) actionsRow.style.display = 'none';
+
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = 'Registration submitted. Waiting for on-chain confirmation (~1-5 min)...';
+        }
+
+        startPolling(idx, flowUrl);
+    } catch (e) {
+        document.getElementById('dlg_error').style.display = 'block';
+        document.getElementById('dlg_error').textContent = 'Network error: ' + e.message;
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i>app_registration</i> Register Agent';
+    }
+}
+
+// ─── Migrate Dialog ─────────────────────────────────────────────
+
+function openMigrateDialog(idx) {
+    hideRegError(idx);
+    activeDialogIdx = idx;
+
+    var textarea = document.querySelector('[name="meta_data_' + idx + '"]');
+    var parsed = {};
+    try {
+        parsed = jsyaml.load(textarea ? textarea.value : '') || {};
+    } catch (e) {
+        console.warn('YAML parse error:', e.message);
+    }
+
+    var agentEl = document.getElementById('mig_current_agent');
+    agentEl.textContent = parsed.agentIdentifier || '(not registered)';
+
+    var pricing = Array.isArray(parsed.agentPricing) ? parsed.agentPricing[0] : null;
+    var pricingEl = document.getElementById('mig_pricing');
+    if (!pricing) {
+        pricingEl.textContent = 'No agentPricing in the flow YAML. Add it before migrating.';
+    } else if (pricing.pricingType === 'Fixed') {
+        var fp = Array.isArray(pricing.fixedPricing) ? pricing.fixedPricing[0] : null;
+        pricingEl.textContent = fp
+            ? 'Fixed, ' + fp.amount + ' ' + (fp.unit ? 'USDM' : 'lovelace') +
+              ', carried over into the V2 payment source'
+            : 'Fixed';
+    } else {
+        pricingEl.textContent = pricing.pricingType || 'Free';
+    }
+
+    var select = document.getElementById('mig_wallet');
+    select.innerHTML = '';
+    var v2Wallets = loadedWallets.filter(function(w) {
+        return w.paymentSourceType === 'Web3CardanoV2';
+    });
+    var submitBtn = document.getElementById('mig_submit');
+    var errEl = document.getElementById('mig_error');
+    if (v2Wallets.length === 0) {
+        errEl.style.display = 'block';
+        errEl.textContent = 'No Web3CardanoV2 selling wallet on this network. ' +
+            'Add one in the Masumi payment service first.';
+        submitBtn.disabled = true;
+    } else {
+        errEl.style.display = 'none';
+        submitBtn.disabled = false;
+        v2Wallets.forEach(function(w) {
+            var opt = document.createElement('option');
+            opt.value = w.walletVkey;
+            opt.textContent = (w.note || w.walletAddress || w.walletVkey) + ' [V2]';
+            select.appendChild(opt);
+        });
+    }
+
+    document.getElementById('mig_deregister').checked = false;
+    document.getElementById('migrate-dialog').showModal();
+}
+
+async function submitMigration() {
+    var idx = activeDialogIdx;
+    if (idx === null) return;
+
+    var section = document.getElementById('registry_' + idx);
+    var flowUrl = section.dataset.flowUrl;
+    var walletSelect = document.getElementById('mig_wallet');
+    var textarea = document.querySelector('[name="meta_data_' + idx + '"]');
+    var submitBtn = document.getElementById('mig_submit');
+    var errEl = document.getElementById('mig_error');
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="reg-spinner"></span>\u00a0Migrating...';
+
+    try {
+        var resp = await fetch('/expose/' + exposeName + '/registry/migrate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                flow_url: flowUrl,
+                wallet_vkey: walletSelect.value,
+                deregister_previous: document.getElementById('mig_deregister').checked,
+                meta_yaml: textarea ? textarea.value : ''
+            })
+        });
+        var data = await resp.json();
+
+        if (!resp.ok) {
+            errEl.style.display = 'block';
+            errEl.textContent = data.detail || 'Migration failed';
+            return;
+        }
+
+        document.getElementById('migrate-dialog').close();
+        if (data.updatedYaml && textarea) textarea.value = data.updatedYaml;
+
+        var migrateBtn = document.getElementById('migrate_btn_' + idx);
+        if (migrateBtn) migrateBtn.style.display = 'none';
+        var deregBtn = document.getElementById('dereg_btn_' + idx);
+        if (deregBtn) deregBtn.style.display = 'none';
+
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = 'Migration submitted. The V1 agent keeps ' +
+                'serving until the new mint confirms (~1-5 min)...';
+        }
+        startPolling(idx, flowUrl);
+    } catch (e) {
+        errEl.style.display = 'block';
+        errEl.textContent = 'Network error: ' + e.message;
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i>upgrade</i> Migrate Agent';
+    }
+}
+
+async function deregisterPrevious(idx) {
+    if (!confirm('Deregister the V1 agent this migration replaced?')) return;
+
+    var section = document.getElementById('registry_' + idx);
+    var flowUrl = section.dataset.flowUrl;
+    var btn = document.getElementById('prev_dereg_btn_' + idx);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="reg-spinner"></span>\u00a0Deregistering...';
+    }
+
+    try {
+        var resp = await fetch(
+            '/expose/' + exposeName + '/registry/migrate/deregister-previous', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ flow_url: flowUrl })
+            });
+        var data = await resp.json();
+        if (!resp.ok) {
+            showRegError(idx, data.detail || 'Deregistration failed');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i>remove_circle</i><span>Deregister V1</span>';
+            }
+            return;
+        }
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = 'Deregistration submitted. Reloading...';
+        }
+        setTimeout(function() { window.location.reload(); }, 1500);
+    } catch (e) {
+        showRegError(idx, 'Network error: ' + e.message);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i>remove_circle</i><span>Deregister V1</span>';
+        }
+    }
+}
+
+
+// ─── Deregister ─────────────────────────────────────────────────
+
+async function deregisterAgent(idx) {
+    if (!confirm('Deregister this agent from the on-chain registry?')) return;
+
+    var section = document.getElementById('registry_' + idx);
+    var flowUrl = section.dataset.flowUrl;
+    var deregBtn = document.getElementById('dereg_btn_' + idx);
+
+    if (deregBtn) {
+        deregBtn.disabled = true;
+        deregBtn.innerHTML = '<span class="reg-spinner"></span>\u00a0Deregistering...';
+    }
+
+    try {
+        var resp = await fetch('/expose/' + exposeName + '/registry/deregister', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ flow_url: flowUrl })
+        });
+        var data = await resp.json();
+
+        if (!resp.ok) {
+            showRegError(idx, data.detail || 'Deregistration failed');
+            if (deregBtn) {
+                deregBtn.disabled = false;
+                deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
+            }
+            return;
+        }
+
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = 'Deregistration submitted. Reloading...';
+        }
+        setTimeout(function() { window.location.reload(); }, 1500);
+    } catch (e) {
+        showRegError(idx, 'Network error: ' + e.message);
+        if (deregBtn) {
+            deregBtn.disabled = false;
+            deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
+        }
+    }
+}

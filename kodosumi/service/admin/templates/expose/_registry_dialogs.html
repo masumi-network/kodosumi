@@ -1,0 +1,99 @@
+    <!-- Migrate Agent Dialog -->
+    <dialog id="migrate-dialog" class="register-dialog">
+        <h5>Migrate Agent to Web3CardanoV2</h5>
+        <div class="dialog-field">
+            <label>What happens</label>
+            <div class="dialog-readonly" style="font-size: 0.8rem;">
+                Masumi cannot upgrade a registration in place, so this mints a
+                second agent with a new agent identifier on the selected V2
+                payment source. The current V1 agent keeps answering jobs until
+                the new mint is confirmed, then this flow switches over.
+            </div>
+        </div>
+        <div class="dialog-field">
+            <label>Current V1 agent</label>
+            <div class="dialog-readonly" id="mig_current_agent" style="font-family: monospace; font-size: 0.8rem;"></div>
+        </div>
+        <div class="dialog-field">
+            <label>Pricing</label>
+            <div class="dialog-readonly" id="mig_pricing" style="font-size: 0.8rem;"></div>
+        </div>
+        <div class="dialog-field">
+            <label>V2 selling wallet</label>
+            <select id="mig_wallet"></select>
+        </div>
+        <div class="dialog-field">
+            <label style="display:flex; align-items:center; gap:8px; text-transform:none;">
+                <input type="checkbox" id="mig_deregister" style="width:auto; margin:0;">
+                <span>Deregister the V1 agent once the new one is confirmed</span>
+            </label>
+            <div class="dialog-readonly" style="font-size: 0.75rem;">
+                Leave this off to stay listed on both rails. The V1 agent is
+                then kept in the flow metadata and can be deregistered later.
+            </div>
+        </div>
+        <div class="dlg-error" id="mig_error" style="display:none;"></div>
+        <nav>
+            <button type="button" class="secondary" onclick="document.getElementById('migrate-dialog').close()">Cancel</button>
+            <button type="button" class="primary" id="mig_submit" onclick="submitMigration()">
+                <i>upgrade</i>
+                Migrate Agent
+            </button>
+        </nav>
+    </dialog>
+
+    <!-- Register Agent Dialog -->
+    <dialog id="register-dialog" class="register-dialog">
+        <h5>Register Agent on Masumi</h5>
+        <div class="dialog-field">
+            <label>Name</label>
+            <div class="dialog-readonly" id="dlg_name"></div>
+        </div>
+        <div class="dialog-field">
+            <label>Description</label>
+            <div class="dialog-readonly" id="dlg_description"></div>
+        </div>
+        <div class="dialog-field">
+            <label>Tags</label>
+            <div class="dialog-readonly" id="dlg_tags"></div>
+        </div>
+        <div class="dialog-field">
+            <label>API Base URL</label>
+            <div class="dialog-readonly" id="dlg_api_url" style="font-family: monospace; font-size: 0.8rem;"></div>
+        </div>
+        <hr style="border-color: var(--outline); margin: 12px 0;">
+        <div class="dialog-field">
+            <label>Pricing</label>
+            <div class="pricing-row">
+                <select id="dlg_pricing_type" onchange="updatePricingFields()">
+                    <option value="Free">Free</option>
+                    <option value="Fixed" selected>Fixed</option>
+                </select>
+                <div class="field border label" style="margin: 0; width: 150px;" id="dlg_amount_container">
+                    <input type="text" inputmode="decimal" id="dlg_amount" value="0.01" oninput="updateCalc()" pattern="[0-9]*[.,]?[0-9]*">
+                    <label>Amount</label>
+                </div>
+                <select id="dlg_currency" onchange="updateCalc()">
+                    <option value="USDM">USDM</option>
+                    <option value="ADA">ADA</option>
+                </select>
+                <span class="calc-display" id="dlg_calc"></span>
+            </div>
+        </div>
+        <div class="dialog-field">
+            <label>Wallet</label>
+            <div class="dialog-readonly" id="dlg_wallet"></div>
+        </div>
+        <div class="dialog-field" id="dlg_optional">
+            <label>Optional (from YAML)</label>
+            <div class="dialog-readonly" id="dlg_optional_info" style="font-size: 0.8rem;"></div>
+        </div>
+        <div class="dlg-error" id="dlg_error" style="display:none;"></div>
+        <nav>
+            <button type="button" class="secondary" onclick="document.getElementById('register-dialog').close()">Cancel</button>
+            <button type="button" class="primary" id="dlg_submit" onclick="submitRegistration()">
+                <i>app_registration</i>
+                Register Agent
+            </button>
+        </nav>
+    </dialog>

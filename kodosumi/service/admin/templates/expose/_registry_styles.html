@@ -1,0 +1,145 @@
+    .registry-section {
+        border: 1px solid var(--outline);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 12px 0;
+    }
+    .registry-section .registry-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--on-surface-variant);
+    }
+    .registry-section .registry-status-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+    .registry-section .registry-actions-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .registry-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .rail-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        border: 1px solid var(--outline);
+        color: var(--on-surface-variant);
+    }
+    .rail-v2 { border-color: var(--primary); color: var(--primary); }
+    .reg-not-registered { background: #616161; color: white; }
+    .reg-pending { background: #f9a825; color: #1a1a1a; }
+    .reg-confirmed { background: #2e7d32; color: white; }
+    .reg-failed { background: #c62828; color: white; }
+    .reg-spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(0,0,0,0.2);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .agent-id-text {
+        font-family: monospace;
+        font-size: 0.75rem;
+        color: var(--on-surface-variant);
+        word-break: break-all;
+        max-width: 400px;
+        display: inline-block;
+    }
+    .registry-error {
+        font-size: 0.8rem;
+        color: var(--error);
+        margin-top: 6px;
+        padding: 4px 0;
+    }
+    .registry-info {
+        font-size: 0.75rem;
+        color: var(--on-surface-variant);
+        margin-top: 4px;
+    }
+    .calc-display {
+        font-size: 0.75rem;
+        color: var(--on-surface-variant);
+        margin-left: 4px;
+    }
+    /* Register dialog */
+    .register-dialog {
+        max-width: 520px;
+        width: 90vw;
+        border-radius: 12px;
+        border: 1px solid var(--outline);
+        padding: 24px;
+    }
+    .register-dialog::backdrop {
+        background: rgba(0, 0, 0, 0.6);
+    }
+    .register-dialog h5 {
+        margin-top: 0;
+        margin-bottom: 16px;
+    }
+    .register-dialog .dialog-field {
+        margin-bottom: 14px;
+    }
+    .register-dialog .dialog-field label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: block;
+        margin-bottom: 4px;
+    }
+    .register-dialog .dialog-readonly {
+        font-size: 0.85rem;
+        color: var(--on-surface-variant);
+        padding: 4px 0;
+    }
+    .register-dialog select {
+        background: var(--surface-variant);
+        color: var(--on-surface);
+        border: 1px solid var(--outline);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 0.85rem;
+        appearance: auto;
+        -webkit-appearance: auto;
+    }
+    .register-dialog .pricing-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+    }
+    .register-dialog nav {
+        margin-top: 16px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+    .register-dialog .dlg-error {
+        font-size: 0.8rem;
+        color: var(--error);
+        padding: 8px 0;
+    }
+</style>
+<script src="/static/js-yaml.min.js"></script>
