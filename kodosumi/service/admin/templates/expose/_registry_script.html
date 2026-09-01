@@ -184,18 +184,21 @@ async function checkRegistryStatus(idx, flowUrl) {
         var data = await resp.json();
         updateRegistryUI(idx, data);
 
-        // Opening the page can be what completes a migration, and the YAML
-        // in the textarea is the pre swap one, so start over once.
+        // Opening the page can be what completes a migration, so the YAML
+        // in the textarea is the pre swap one. Write the new one in place:
+        // a reload here would throw away whatever the operator has typed.
+        if (data.migration && data.migration.updatedYaml) {
+            syncMetaYaml(idx, data.migration.updatedYaml);
+        }
         if (data.migration &&
                 data.migration.migrationState === 'MigrationConfirmed') {
-            window.location.reload();
             return;
         }
 
         // A migrating flow reports its confirmed V1 agent, so the state
         // alone would stop the panel from following the new mint.
         if (data.migration) {
-            startPolling(idx, flowUrl);
+            startPolling(idx, flowUrl, true);
             return;
         }
 
@@ -335,11 +338,13 @@ function updateRailBadge(idx, data) {
 function updateMigrationUI(idx, data) {
     var migrateBtn = document.getElementById('migrate_btn_' + idx);
     var deregBtn = document.getElementById('dereg_btn_' + idx);
+    var cancelBtn = document.getElementById('cancel_mig_btn_' + idx);
     var prevRow = document.getElementById('prev_reg_row_' + idx);
     var prevId = document.getElementById('prev_reg_id_' + idx);
     var migration = data.migration;
-    var pending = !!(migration &&
-        migration.migrationState !== 'MigrationConfirmed');
+    // The metadata is what decides, not the last response: a mint that
+    // failed clears its record and must leave the buttons usable again.
+    var pending = !!data.pendingMigration;
     var isV1 = (data.paymentSourceType || 'Web3CardanoV1') === 'Web3CardanoV1';
 
     if (migrateBtn) {
@@ -351,6 +356,9 @@ function updateMigrationUI(idx, data) {
         // Burning the live agent mid migration would leave the flow unlisted.
         deregBtn.style.display = 'none';
     }
+    if (cancelBtn) {
+        cancelBtn.style.display = pending ? '' : 'none';
+    }
     if (pending) {
         var info = document.getElementById('reg_info_' + idx);
         if (info) {
@@ -360,7 +368,11 @@ function updateMigrationUI(idx, data) {
                 'confirm. The V1 agent keeps serving until then.';
         }
     }
-    if (migration && migration.deregisterError) {
+    // migrationError is stored in the flow metadata, so the reason a
+    // migration stopped survives the page load that follows it.
+    if (data.migrationError) {
+        showRegError(idx, data.migrationError);
+    } else if (migration && migration.deregisterError) {
         showRegError(idx, 'Migrated, but the V1 agent could not be ' +
             'deregistered: ' + migration.deregisterError);
     }
@@ -403,20 +415,71 @@ function hideRegError(idx) {
     if (el) el.style.display = 'none';
 }
 
+// The backend rewrites the flow metadata when a registration or a migration
+// moves on. Write the result straight into the editor instead of reloading:
+// the operator may be halfway through an edit of the same field.
+function syncMetaYaml(idx, yamlText) {
+    if (!yamlText) return;
+    var ta = document.querySelector('[name="meta_data_' + idx + '"]');
+    if (ta) ta.value = yamlText;
+}
+
+// Give up on a mint that will not confirm. Without this the flow keeps a
+// pendingMigration record that blocks both a retry and a deregistration.
+async function cancelMigration(idx) {
+    var section = document.getElementById('registry_' + idx);
+    if (!section) return;
+    var flowUrl = section.dataset.flowUrl;
+    if (!confirm('Stop waiting for the Web3CardanoV2 mint?\n\n' +
+            'The flow keeps serving its current agent. If the mint still ' +
+            'confirms later, deregister the new agent in the Masumi admin ' +
+            'interface.')) {
+        return;
+    }
+    hideRegError(idx);
+    try {
+        var resp = await fetch(
+            '/expose/' + exposeName + '/registry/migrate/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ flow_url: flowUrl })
+            });
+        var data = await resp.json();
+        if (!resp.ok) {
+            showRegError(idx, data.detail || 'Could not cancel the migration');
+            return;
+        }
+        if (pollIntervals[idx]) {
+            clearInterval(pollIntervals[idx]);
+            delete pollIntervals[idx];
+        }
+        syncMetaYaml(idx, data.updatedYaml);
+        checkRegistryStatus(idx, flowUrl);
+    } catch (e) {
+        showRegError(idx, 'Could not cancel the migration: ' + e);
+    }
+}
+
 
 // ─── Polling ────────────────────────────────────────────────────
 
-function startPolling(idx, flowUrl) {
+function startPolling(idx, flowUrl, isMigration) {
     if (pollIntervals[idx]) return;
 
     var pollCount = 0;
-    var maxPolls = 20; // 20 * 15s = 5 minutes max
+    // A migration waits for a second mint, which can outlast the budget a
+    // plain registration needs, so it gets its own.
+    var maxPolls = isMigration ? 80 : 20; // 15s each: 20 or 5 minutes
     pollIntervals[idx] = setInterval(async function() {
         pollCount++;
         if (pollCount > maxPolls) {
             clearInterval(pollIntervals[idx]);
             delete pollIntervals[idx];
-            showRegError(idx, 'Registration is taking longer than expected. Reload page to check status.');
+            showRegError(idx, isMigration
+                ? 'The migration is taking longer than expected. It carries ' +
+                  'on in the background. Reload the page to check it.'
+                : 'Registration is taking longer than expected. Reload page to check status.');
             return;
         }
         try {
@@ -430,27 +493,25 @@ function startPolling(idx, flowUrl) {
             var data = await resp.json();
 
             // Update textarea with latest YAML from backend
-            if (data.updatedYaml) {
-                var ta = document.querySelector('[name="meta_data_' + idx + '"]');
-                if (ta) ta.value = data.updatedYaml;
-            }
+            syncMetaYaml(idx, data.updatedYaml);
 
             // During a migration the flow still reports its confirmed V1
             // agent, so the migration state decides when to stop.
             if (data.migration) {
-                if (data.migration.migrationState === 'MigrationConfirmed') {
+                updateRegistryUI(idx, data);
+                var migState = data.migration.migrationState;
+                if (migState === 'MigrationConfirmed' ||
+                        migState === 'RegistrationFailed') {
                     clearInterval(pollIntervals[idx]);
                     delete pollIntervals[idx];
-                    updateRegistryUI(idx, data);
                     var migInfo = document.getElementById('reg_info_' + idx);
-                    if (migInfo) {
+                    if (migInfo && migState === 'MigrationConfirmed') {
                         migInfo.style.display = 'block';
                         migInfo.style.color = 'var(--on-surface-variant)';
-                        migInfo.textContent = 'Migrated to V2. Reloading...';
+                        migInfo.textContent = 'Migrated to V2.';
+                    } else if (migInfo) {
+                        migInfo.style.display = 'none';
                     }
-                    setTimeout(function() { window.location.reload(); }, 2000);
-                } else {
-                    updateRegistryUI(idx, data);
                 }
                 return;
             }
