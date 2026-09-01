@@ -30,6 +30,17 @@ CURRENCY_UNITS = {
 # All currencies have 6 decimal places
 CURRENCY_DECIMALS = 6
 
+# Masumi payment source types. A payment source is the deployed escrow
+# contract a selling wallet belongs to, and it decides the registration
+# shape: V1 entries carry top-level AgentPricing, V2 entries carry a
+# supportedPaymentSources list that prices every source on its own.
+PAYMENT_SOURCE_TYPE_V1 = "Web3CardanoV1"
+PAYMENT_SOURCE_TYPE_V2 = "Web3CardanoV2"
+
+# Index into supportedPaymentSources that Kodosumi registers and pays with.
+# Kodosumi advertises exactly one source per agent, so the index is always 0.
+DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX = 0
+
 
 def human_to_base_amount(amount: float) -> str:
     """Convert human-readable amount (e.g. 0.01) to base units string (e.g. '10000')."""
@@ -113,11 +124,91 @@ def pricing_to_yaml_format(pricing_type: str, amount: float, currency: str, netw
     }]
 
 
+def registry_pricing_to_supported_sources(
+    registry_pricing: Dict,
+    network: str,
+    smart_contract_address: str,
+) -> List[Dict]:
+    """
+    Convert V1 registry pricing into the V2 supportedPaymentSources list.
+
+    V2 registrations reject the top-level AgentPricing field. Each entry in
+    supportedPaymentSources names one escrow contract and owns its price.
+    Kodosumi advertises the single contract the selling wallet belongs to.
+
+    Registry format (V1):
+        {"pricingType": "Fixed", "Pricing": [{"amount": "10000", "unit": ""}]}
+
+    Supported source format (V2):
+        [{"chain": "Cardano", "network": "Preprod",
+          "paymentSourceType": "Web3CardanoV2", "address": "addr_test1...",
+          "pricing": {"pricingType": "Fixed",
+                      "fixed": [{"asset": "", "amount": "10000"}]}}]
+    """
+    if not smart_contract_address:
+        raise ValueError(
+            "V2 registration requires the smart contract address of the "
+            "selling wallet payment source"
+        )
+
+    pricing_type = registry_pricing.get("pricingType", "Free")
+    if pricing_type == "Fixed":
+        pricing: Dict[str, Any] = {
+            "pricingType": "Fixed",
+            "fixed": [
+                {
+                    "asset": price.get("unit", ""),
+                    "amount": str(price.get("amount", "0")),
+                }
+                for price in registry_pricing.get("Pricing", [])
+            ],
+        }
+    else:
+        pricing = {"pricingType": pricing_type}
+
+    return [{
+        "chain": "Cardano",
+        "network": network,
+        "paymentSourceType": PAYMENT_SOURCE_TYPE_V2,
+        "address": smart_contract_address,
+        "pricing": pricing,
+    }]
+
+
+async def _list_source_selling_wallets(
+    client: Any, masumi: MasumiConfig, headers: Dict, source_id: str
+) -> List[Dict]:
+    """
+    Read selling wallets of one payment source from the /wallet endpoint.
+
+    Payment nodes used to embed SellingWallets in the /payment-source
+    response and newer ones do not, so this is the fallback for sources
+    that come back without them.
+    """
+    if not source_id:
+        return []
+    url = (
+        f"{masumi.base_url}/wallet"
+        f"?paymentSourceId={source_id}&walletType=Selling&take=100"
+    )
+    resp = await client.get(url, headers=headers)
+    if resp.status_code != 200:
+        logger.warning(
+            "Failed to list wallets of payment source %s: %s",
+            source_id, resp.text,
+        )
+        return []
+    return resp.json().get("data", {}).get("Wallets", [])
+
+
 async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
     """
     List selling wallets from Masumi Payment API.
 
     Returns list of dicts with walletVkey, walletAddress, and source info.
+    Each entry carries the paymentSourceType and smartContractAddress of
+    its payment source, because the wallet selects the registration
+    version: a Web3CardanoV2 wallet registers a V2 agent.
     """
     url = f"{masumi.base_url}/payment-source?network={masumi.registry_network}"
     headers = {"accept": "application/json", "token": masumi.token}
@@ -131,12 +222,24 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
             data = resp.json().get("data", {})
             wallets = []
             for source in data.get("PaymentSources", []):
-                for wallet in source.get("SellingWallets", []):
+                source_network = source.get("network")
+                if source_network and source_network != masumi.registry_network:
+                    continue
+                source_wallets = source.get("SellingWallets") or []
+                if not source_wallets:
+                    source_wallets = await _list_source_selling_wallets(
+                        client, masumi, headers, source.get("id", "")
+                    )
+                for wallet in source_wallets:
                     wallets.append({
                         "walletVkey": wallet.get("walletVkey", ""),
                         "walletAddress": wallet.get("walletAddress", ""),
                         "sourceId": source.get("id", ""),
-                        "note": wallet.get("note", ""),
+                        "note": wallet.get("note") or "",
+                        "network": source_network or "",
+                        "paymentSourceType": source.get("paymentSourceType", ""),
+                        "smartContractAddress": source.get(
+                            "smartContractAddress", ""),
                     })
             return wallets
     except Exception as e:
@@ -150,14 +253,20 @@ async def register_agent(
     description: str,
     api_base_url: str,
     tags: List[str],
-    pricing: Dict,
+    pricing: Optional[Dict] = None,
     author: Optional[Dict] = None,
     capability: Optional[Dict] = None,
     legal: Optional[Dict] = None,
     wallet_vkey: str = "",
+    supported_payment_sources: Optional[List[Dict]] = None,
 ) -> Dict:
     """
     Register an agent on the Masumi on-chain registry.
+
+    Pass supported_payment_sources to register against a Web3CardanoV2
+    payment source. The node rejects a V2 registration that also sets
+    AgentPricing, and a V1 registration that sets supportedPaymentSources,
+    so exactly one of the two is sent.
 
     Returns the registration response dict.
     """
@@ -176,11 +285,15 @@ async def register_agent(
         "apiBaseUrl": api_base_url,
         "Tags": tags or [],
         "ExampleOutputs": [],
-        "AgentPricing": pricing,
         "Capability": capability or {"name": "", "version": "1.0"},
         "Author": author or {"name": "", "contactEmail": "", "organization": ""},
         "Legal": legal or {},
     }
+
+    if supported_payment_sources:
+        body["supportedPaymentSources"] = supported_payment_sources
+    else:
+        body["AgentPricing"] = pricing
 
     async with HTTPXClient() as client:
         resp = await client.post(url, headers=headers, json=body)
@@ -196,11 +309,15 @@ async def get_registration_status(
     registration_id: Optional[str] = None,
     agent_identifier: Optional[str] = None,
     search_query: Optional[str] = None,
+    payment_source_type: Optional[str] = None,
 ) -> Optional[Dict]:
     """
     Check registration status from Masumi Registry.
 
     Looks up by registrationId, agentIdentifier, or searchQuery.
+    Pass payment_source_type for a V2 registration: the registry list
+    endpoint falls back to Web3CardanoV1 when no type is given, so a V2
+    registration never appears in the paginated search without it.
     Returns the matching registration dict or None.
     """
     headers = {"accept": "application/json", "token": masumi.token}
@@ -223,6 +340,10 @@ async def get_registration_status(
                             "description": meta.get("description"),
                             "apiBaseUrl": meta.get("apiBaseUrl"),
                             "AgentPricing": meta.get("AgentPricing"),
+                            # Null for V1 metadata, set for V2 entries whose
+                            # price lives inside the advertised sources.
+                            "supportedPaymentSources": meta.get(
+                                "supportedPaymentSources"),
                             "Tags": meta.get("Tags", []),
                         }
         except Exception as e:
@@ -239,6 +360,8 @@ async def get_registration_status(
                     f"?network={masumi.registry_network}"
                     f"&limit={limit}"
                 )
+                if payment_source_type:
+                    url += f"&filterPaymentSourceType={payment_source_type}"
                 if cursor_id:
                     url += f"&cursorId={cursor_id}"
                 if search_query:

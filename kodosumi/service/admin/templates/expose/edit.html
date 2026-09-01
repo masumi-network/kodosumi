@@ -869,6 +869,12 @@ async function loadWallets() {
                 var vk = w.walletVkey;
                 var shortId = vk.substring(0, 6) + '\u2026' + vk.substring(vk.length - 6);
                 var label = w.note ? w.note + ' (' + shortId + ')' : shortId;
+                // The wallet selects the registration version, so name it.
+                if (w.paymentSourceType === 'Web3CardanoV2') {
+                    label += ' [V2]';
+                } else if (w.paymentSourceType === 'Web3CardanoV1') {
+                    label += ' [V1]';
+                }
                 var opt = document.createElement('option');
                 opt.value = vk;
                 opt.textContent = label;

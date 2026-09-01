@@ -556,6 +556,7 @@ class RegistryControl(litestar.Controller):
                 masumi,
                 registration_id=reg_id,
                 agent_identifier=agent_id,
+                payment_source_type=meta_data.get("paymentSourceType"),
             )
         except Exception as e:
             logger.warning("Registry API error for %s: %s", name, e)
@@ -643,6 +644,9 @@ class RegistryControl(litestar.Controller):
         from kodosumi.service.expose.registry import (
             register_agent, pricing_yaml_to_registry, pricing_to_yaml_format,
             update_meta_yaml_field, list_wallets,
+            registry_pricing_to_supported_sources,
+            DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX,
+            PAYMENT_SOURCE_TYPE_V1, PAYMENT_SOURCE_TYPE_V2,
         )
 
         # Quick health check to validate token
@@ -676,6 +680,15 @@ class RegistryControl(litestar.Controller):
                 detail=f"Wallet '{wallet_vkey[:8]}...' not found. Available: {[v[:8] + '...' for v in valid_vkeys]}",
                 status_code=422,
             )
+
+        # The selected wallet decides the registration version: a wallet of
+        # a Web3CardanoV2 payment source registers a V2 agent, everything
+        # else stays on the V1 shape.
+        selected_wallet = next(
+            w for w in wallets if w["walletVkey"] == wallet_vkey)
+        payment_source_type = (
+            selected_wallet.get("paymentSourceType") or PAYMENT_SOURCE_TYPE_V1)
+        is_v2 = payment_source_type == PAYMENT_SOURCE_TYPE_V2
 
         # Parse meta YAML — prefer live textarea content from frontend
         # over stale DB data, so unsaved edits are used for registration.
@@ -755,6 +768,19 @@ class RegistryControl(litestar.Controller):
         sumi_address = state["settings"].sumi_address.rstrip("/")
         api_base_url = f"{sumi_address}/sumi{flow_url}"
 
+        # V2 prices each advertised payment source on its own and rejects the
+        # top-level AgentPricing field.
+        supported_payment_sources = None
+        if is_v2:
+            try:
+                supported_payment_sources = registry_pricing_to_supported_sources(
+                    registry_pricing,
+                    reg_network,
+                    selected_wallet.get("smartContractAddress", ""),
+                )
+            except ValueError as e:
+                raise ClientException(detail=str(e), status_code=422)
+
         # Register
         try:
             result = await register_agent(
@@ -763,11 +789,12 @@ class RegistryControl(litestar.Controller):
                 description=description,
                 api_base_url=api_base_url,
                 tags=tags,
-                pricing=registry_pricing,
+                pricing=None if is_v2 else registry_pricing,
                 author=author,
                 capability=capability,
                 legal=legal_data,
                 wallet_vkey=wallet_vkey,
+                supported_payment_sources=supported_payment_sources,
             )
         except RuntimeError as e:
             raise ClientException(detail=str(e), status_code=502)
@@ -776,16 +803,28 @@ class RegistryControl(litestar.Controller):
 
         # Update meta YAML with registrationId and pricing.
         # Use frontend_yaml as base so unsaved textarea edits are preserved.
-        updated_yaml = await self._update_flow_meta(row, name, flow_url, {
+        # V2 flows also record the rail and the advertised source index, which
+        # every later payment and start_job response has to repeat. Both keys
+        # are removed again for V1 so a re-registration cannot leave a stale
+        # V2 marker behind.
+        meta_updates = {
             "registrationId": registration_id,
             "agentPricing": yaml_pricing if pricing_type else meta_data.get("agentPricing"),
-        }, base_data=frontend_yaml or None)
+            "paymentSourceType": payment_source_type if is_v2 else None,
+            "supportedPaymentSourceIndex":
+                DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX if is_v2 else None,
+        }
+        updated_yaml = await self._update_flow_meta(
+            row, name, flow_url, meta_updates,
+            base_data=frontend_yaml or None,
+        )
 
         return {
             "success": True,
             "registrationId": registration_id,
             "state": result.get("state", "RegistrationRequested"),
             "agentIdentifier": result.get("agentIdentifier"),
+            "paymentSourceType": payment_source_type,
             "updatedYaml": updated_yaml,
         }
 
@@ -840,6 +879,7 @@ class RegistryControl(litestar.Controller):
             masumi,
             registration_id=reg_id,
             agent_identifier=agent_id,
+            payment_source_type=meta_data.get("paymentSourceType"),
         )
 
         if not result:
@@ -915,10 +955,14 @@ class RegistryControl(litestar.Controller):
         except RuntimeError as e:
             raise ClientException(detail=str(e), status_code=502)
 
-        # Remove agentIdentifier and registrationId from YAML
+        # Remove agentIdentifier, registrationId and the V2 payment markers
+        # from YAML. A later re-registration writes them again if it picks a
+        # V2 wallet.
         await self._update_flow_meta(row, name, flow_url, {
             "agentIdentifier": None,
             "registrationId": None,
+            "paymentSourceType": None,
+            "supportedPaymentSourceIndex": None,
         })
 
         return {
