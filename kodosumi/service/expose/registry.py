@@ -315,17 +315,19 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
             # Sources without embedded wallets cost one request each. Run
             # them together: the register and migrate dialogs both wait on
             # this call before they can show anything.
-            fetched = await asyncio.gather(*[
+            missing = [index for index, source in enumerate(sources)
+                       if not source.get("SellingWallets")]
+            fetched = dict(zip(missing, await asyncio.gather(*[
                 _list_source_selling_wallets(
-                    client, masumi, headers, source.get("id", ""))
-                for source in sources if not source.get("SellingWallets")
-            ])
-            pending = iter(fetched)
+                    client, masumi, headers, sources[index].get("id", ""))
+                for index in missing
+            ])))
 
             wallets = []
-            for source in sources:
+            for index, source in enumerate(sources):
                 source_network = source.get("network")
-                source_wallets = source.get("SellingWallets") or next(pending)
+                source_wallets = (
+                    source.get("SellingWallets") or fetched.get(index) or [])
                 for wallet in source_wallets:
                     wallets.append({
                         "walletVkey": wallet.get("walletVkey", ""),
