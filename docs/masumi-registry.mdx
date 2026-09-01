@@ -205,8 +205,12 @@ action:
    V1 `agentIdentifier` and keeps answering jobs, so no job is lost while the
    mint waits for confirmation.
 2. When the mint confirms, the flow switches to the new identifier and rail.
-   The admin panel finishes this step, so keep the page open or open it again
-   after the mint.
+   The admin panel finishes this step while it is open, and `start_job`
+   finishes it otherwise, so a migration completes even with the page closed.
+
+The pricing comes from the **saved** flow metadata, so the V2 agent is priced
+exactly like the V1 listing. Save the flow before you migrate if you changed
+`agentPricing` in the editor. Kodosumi refuses the migration otherwise.
 
 While a migration waits, the flow meta YAML carries the pending mint:
 
@@ -231,14 +235,34 @@ previousRegistration:
   agentIdentifier: "7e8bdaf2..."
   registrationId: "cm5..."
   paymentSourceType: Web3CardanoV1
+  deregisterRequested: false # true asks Kodosumi to burn it
 ```
 
 The V1 agent stays on chain and stays listed. Deregister it with the
 **Deregister V1** button in the same row, or tick *Deregister the V1 agent
 once the new one is confirmed* in the migrate dialog to burn it
-automatically. The automatic burn runs only after the V2 agent exists, and a
+automatically. The automatic burn runs only after the swap is written, and a
 failed burn never fails the migration: the old entry stays recorded so you
 can retry it by hand.
+
+#### When a mint does not confirm
+
+A mint that ends in `RegistrationFailed` clears `pendingMigration` on its own
+and writes the reason to `migrationError`, so the **Migrate to V2** button
+comes back. For a mint that never reaches any state, use **Cancel migration**
+next to the status badge. Both leave the flow on its current agent.
+
+```yaml
+agentIdentifier: "7e8bdaf2..." # unchanged, still serving
+registrationId: "cm5..."
+migrationError: "The Web3CardanoV2 registration ended in RegistrationFailed."
+```
+
+<Warning>
+Cancelling stops Kodosumi from waiting. It does not recall the mint. If the
+V2 agent still confirms on chain afterwards, deregister it in the Masumi
+admin interface.
+</Warning>
 
 <Warning>
 While both entries are listed, every job runs on the new V2 rail, because a
