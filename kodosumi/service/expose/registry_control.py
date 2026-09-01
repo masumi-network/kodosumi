@@ -19,6 +19,7 @@ from litestar.exceptions import ClientException, NotFoundException
 from kodosumi.service.jwt import operator_guard
 from kodosumi.service.expose import db
 from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
+from kodosumi.service.expose.migration import advance_migration
 from kodosumi.service.expose.registration import (
     build_agent_fields, rail_fields, sumi_api_base_url)
 
@@ -72,6 +73,17 @@ class RegistryControl(litestar.Controller):
         if not agent_id and not reg_id:
             return {"registered": False, "state": "NotRegistered"}
 
+        # A migration mints a second agent while the first one keeps
+        # serving. Finish the swap here so the panel reports the rail the
+        # flow actually runs on.
+        migration = await advance_migration(
+            masumi, row, name, flow_url, meta_data)
+        if migration and migration.get("updatedYaml"):
+            row = await db.get_expose(name) or row
+            meta_data = get_flow_meta(row, flow_url) or meta_data
+            agent_id = meta_data.get("agentIdentifier")
+            reg_id = meta_data.get("registrationId")
+
         # If agentIdentifier is in YAML, the agent IS registered on-chain.
         # Query registry for latest details but don't flip to "not registered"
         # if the API is temporarily unavailable.
@@ -95,12 +107,14 @@ class RegistryControl(litestar.Controller):
                     "state": "RegistrationConfirmed",
                     "agentIdentifier": agent_id,
                     "registrationId": reg_id,
+                    "migration": migration,
                     **rail_fields(meta_data),
                 }
             return {
                 "registered": False,
                 "state": "Polling",
                 "registrationId": reg_id,
+                "migration": migration,
                 **rail_fields(meta_data),
             }
 
@@ -129,6 +143,7 @@ class RegistryControl(litestar.Controller):
             "name": result.get("name"),
             "transaction": tx or None,
             "errorMessage": error_message,
+            "migration": migration,
             # The rail comes from the flow meta, not from the registry
             # response: it decides which button the operator gets next.
             **rail_fields(meta_data),
@@ -378,10 +393,20 @@ class RegistryControl(litestar.Controller):
         if not reg_id and not agent_id:
             return {"state": "NotRegistered"}
 
+        migration = await advance_migration(
+            masumi, row, name, flow_url, meta_data)
+        if migration and migration.get("updatedYaml"):
+            row = await db.get_expose(name) or row
+            meta_data = get_flow_meta(row, flow_url) or meta_data
+            agent_id = meta_data.get("agentIdentifier")
+            reg_id = meta_data.get("registrationId")
+
         if agent_id:
             return {
                 "state": "RegistrationConfirmed",
                 "agentIdentifier": agent_id,
+                "migration": migration,
+                "updatedYaml": migration.get("updatedYaml") if migration else None,
                 **rail_fields(meta_data),
             }
 
@@ -421,6 +446,7 @@ class RegistryControl(litestar.Controller):
             "errorMessage": error_message,
             "transaction": tx or None,
             "updatedYaml": updated_yaml,
+            "migration": migration,
             **rail_fields(meta_data),
         }
 

@@ -53,6 +53,7 @@ from kodosumi.service.expose.boot_control import BootControl, BootUIControl
 from kodosumi.service.expose.exchange_control import (
     ExchangeControl, ExchangeUIControl
 )
+from kodosumi.service.expose.migrate_control import RegistryMigrateControl
 from kodosumi.service.expose.registry_control import (
     RegistryControl, WalletsControl
 )
@@ -247,7 +248,7 @@ def create_app(**kwargs) -> Litestar:
             Router(path="/api/masumi", route_handlers=[MasumiDashboardAPI], guards=[operator_guard]),
             Router(path="/files", route_handlers=[FileControl]),
             Router(path="/health", route_handlers=[HealthControl]),
-            Router(path="/", route_handlers=[SumiControl, SumiLockControl, ExposeControl, ExposeUIControl, BootControl, BootUIControl, MaintenanceControl, ExchangeControl, ExchangeUIControl, AuditLogControl, RegistryControl, WalletsControl]),
+            Router(path="/", route_handlers=[SumiControl, SumiLockControl, ExposeControl, ExposeUIControl, BootControl, BootUIControl, MaintenanceControl, ExchangeControl, ExchangeUIControl, AuditLogControl, RegistryControl, RegistryMigrateControl, WalletsControl]),
             create_static_files_router(
                 path="/static", 
                 directories=[admin_console("static"),],
