@@ -10,13 +10,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from kodosumi.config import MasumiConfig
-from kodosumi.runner.main import _parse_source_index
+from kodosumi.runner.main import (
+    MAX_SUPPORTED_PAYMENT_SOURCE_INDEX, _parse_source_index)
 from kodosumi.runner.payment import MasumiClient
 from kodosumi.service.expose.registry import (
     PAYMENT_SOURCE_TYPE_V1,
     PAYMENT_SOURCE_TYPE_V2,
     get_registration_status,
     list_wallets,
+    pricing_yaml_to_registry,
     register_agent,
     registry_pricing_to_supported_sources,
 )
@@ -331,3 +333,133 @@ class TestParseSourceIndex:
     def test_absent_and_junk_values(self):
         for value in (None, "", "abc", [], {}, False, True, -1, 1.5):
             assert _parse_source_index(value) is None
+
+    def test_an_index_above_the_node_ceiling_is_junk(self):
+        # The node caps supportedPaymentSources at 25 entries, so index 25
+        # names no source that can exist.
+        assert _parse_source_index(MAX_SUPPORTED_PAYMENT_SOURCE_INDEX) == 24
+        assert _parse_source_index(
+            MAX_SUPPORTED_PAYMENT_SOURCE_INDEX + 1) is None
+        assert _parse_source_index("999") is None
+
+
+class TestPricingYamlShapes:
+    """The pricing YAML is hand edited, so bad shapes must not be 500s."""
+
+    def test_a_single_mapping_is_accepted(self):
+        # The shape operators write most often by mistake.
+        assert pricing_yaml_to_registry(
+            {"pricingType": "Free"}, "Preprod") == {"pricingType": "Free"}
+
+    def test_a_scalar_raises_a_value_error(self):
+        for value in ("Free", 5, [["Free"]]):
+            with pytest.raises(ValueError):
+                pricing_yaml_to_registry(value, "Preprod")
+
+    def test_a_non_list_fixed_pricing_raises(self):
+        with pytest.raises(ValueError):
+            pricing_yaml_to_registry(
+                [{"pricingType": "Fixed", "fixedPricing": "10000"}], "Preprod")
+
+
+class TestSupportedSourcePricingBounds:
+    """The node refuses these, and its error never names the flow YAML."""
+
+    def test_fixed_pricing_without_entries_raises(self):
+        with pytest.raises(ValueError) as err:
+            registry_pricing_to_supported_sources(
+                {"pricingType": "Fixed", "Pricing": []},
+                "Preprod", "addr_test1contract")
+        assert "Fixed pricing needs" in str(err.value)
+
+    def test_a_zero_amount_raises(self):
+        with pytest.raises(ValueError) as err:
+            registry_pricing_to_supported_sources(
+                {"pricingType": "Fixed", "Pricing": [{"amount": 0, "unit": ""}]},
+                "Preprod", "addr_test1contract")
+        assert "positive whole number" in str(err.value)
+
+    def test_a_missing_amount_raises_instead_of_pricing_at_zero(self):
+        with pytest.raises(ValueError):
+            registry_pricing_to_supported_sources(
+                {"pricingType": "Fixed", "Pricing": [{"unit": ""}]},
+                "Preprod", "addr_test1contract")
+
+    def test_more_than_five_priced_assets_raises(self):
+        prices = [{"amount": "10", "unit": str(i)} for i in range(6)]
+        with pytest.raises(ValueError):
+            registry_pricing_to_supported_sources(
+                {"pricingType": "Fixed", "Pricing": prices},
+                "Preprod", "addr_test1contract")
+
+
+class TestRegisterAgentEmptySources:
+
+    @pytest.mark.asyncio
+    async def test_an_empty_source_list_stays_a_v2_registration(self):
+        # Truthiness here used to fall through to AgentPricing: None, and
+        # the node then complained about a field the caller never sent.
+        client, patcher = _patch_registry_client(
+            post_response=_json_response({"data": {"id": "reg"}}))
+        with patcher:
+            await register_agent(
+                masumi=_make_config(),
+                name="agent",
+                description="",
+                api_base_url="https://host/sumi/flow",
+                tags=[],
+                pricing=None,
+                wallet_vkey="vkey",
+                supported_payment_sources=[],
+            )
+        body = client.post.call_args.kwargs["json"]
+        assert body["supportedPaymentSources"] == []
+        assert "AgentPricing" not in body
+
+
+class TestWalletPagination:
+    """A node with more selling wallets than one page must list them all."""
+
+    def _wallet_page(self, start, count):
+        return {"data": {"Wallets": [
+            {"id": f"w{i}", "walletVkey": f"vkey{i}",
+             "walletAddress": f"addr{i}", "note": None}
+            for i in range(start, start + count)
+        ]}}
+
+    @pytest.mark.asyncio
+    async def test_follows_the_cursor_until_the_last_page(self):
+        sources = {"data": {"PaymentSources": [{
+            "id": "src1",
+            "network": "Preprod",
+            "paymentSourceType": PAYMENT_SOURCE_TYPE_V2,
+            "smartContractAddress": "addr_test1contract",
+        }]}}
+        client, patcher = _patch_registry_client(get_responses=[
+            _json_response(sources),
+            _json_response(self._wallet_page(0, 100)),
+            # The node's cursor is inclusive, so page two repeats w99.
+            _json_response(self._wallet_page(99, 3)),
+        ])
+        with patcher:
+            wallets = await list_wallets(_make_config())
+        assert len(wallets) == 102
+        assert [w["walletVkey"] for w in wallets[-2:]] == ["vkey100", "vkey101"]
+        assert "cursorId=w99" in client.get.call_args_list[2].args[0]
+
+    @pytest.mark.asyncio
+    async def test_a_short_page_ends_the_listing(self):
+        sources = {"data": {"PaymentSources": [{
+            "id": "src1",
+            "network": "Preprod",
+            "paymentSourceType": PAYMENT_SOURCE_TYPE_V2,
+            "smartContractAddress": "addr_test1contract",
+        }]}}
+        client, patcher = _patch_registry_client(get_responses=[
+            _json_response(sources),
+            _json_response(self._wallet_page(0, 2)),
+        ])
+        with patcher:
+            wallets = await list_wallets(_make_config())
+        assert len(wallets) == 2
+        assert client.get.call_count == 2
