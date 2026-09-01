@@ -184,6 +184,14 @@ async function checkRegistryStatus(idx, flowUrl) {
         var data = await resp.json();
         updateRegistryUI(idx, data);
 
+        // Opening the page can be what completes a migration, and the YAML
+        // in the textarea is the pre swap one, so start over once.
+        if (data.migration &&
+                data.migration.migrationState === 'MigrationConfirmed') {
+            window.location.reload();
+            return;
+        }
+
         // Auto-poll if pending
         var st = data.state;
         if (st && st !== 'RegistrationConfirmed' && st !== 'NotRegistered' && st !== 'RegistrationFailed') {

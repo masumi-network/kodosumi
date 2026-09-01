@@ -180,9 +180,9 @@ neither, and nothing in the V1 flow changes.
 
 <Warning>
 There is no in-place upgrade from V1 to V2. The two versions mint under
-different registry policies, so a V2 registration produces a new
-`agentIdentifier`. Register the agent again with a V2 wallet, move your
-buyers over, then deregister the V1 entry.
+different registry policies, so a V2 registration always produces a new
+`agentIdentifier`. Use the migrate button described below, and tell your
+buyers about the new identifier.
 </Warning>
 
 <Warning>
@@ -190,6 +190,61 @@ If the V2 selling wallet has a collection address configured on the payment
 node, the node signs that address into the payment terms. A buyer on another
 node cannot read it, so its purchase fails the signature check. Leave the
 collection address of a V2 selling wallet empty.
+</Warning>
+
+### Migrating a V1 agent to V2
+
+A confirmed V1 flow shows a **Migrate to V2** button next to its status
+badge. The dialog lists the selling wallets of Web3CardanoV2 payment sources
+only and carries the flow's `agentPricing` into `supportedPaymentSources`.
+
+The migration runs in two steps, because the V1 mint contract has no update
+action:
+
+1. Kodosumi requests a new mint on the V2 payment source. The flow keeps its
+   V1 `agentIdentifier` and keeps answering jobs, so no job is lost while the
+   mint waits for confirmation.
+2. When the mint confirms, the flow switches to the new identifier and rail.
+   The admin panel finishes this step, so keep the page open or open it again
+   after the mint.
+
+While a migration waits, the flow meta YAML carries the pending mint:
+
+```yaml
+agentIdentifier: "7e8bdaf2..." # still V1, still serving
+registrationId: "cm5..."
+pendingMigration:
+  registrationId: "cm6..."
+  paymentSourceType: Web3CardanoV2
+  supportedPaymentSourceIndex: 0
+  deregisterPrevious: false
+```
+
+After the swap the old agent is recorded instead:
+
+```yaml
+agentIdentifier: "a1c99e04..." # the new V2 agent
+registrationId: "cm6..."
+paymentSourceType: Web3CardanoV2
+supportedPaymentSourceIndex: 0
+previousRegistration:
+  agentIdentifier: "7e8bdaf2..."
+  registrationId: "cm5..."
+  paymentSourceType: Web3CardanoV1
+```
+
+The V1 agent stays on chain and stays listed. Deregister it with the
+**Deregister V1** button in the same row, or tick *Deregister the V1 agent
+once the new one is confirmed* in the migrate dialog to burn it
+automatically. The automatic burn runs only after the V2 agent exists, and a
+failed burn never fails the migration: the old entry stays recorded so you
+can retry it by hand.
+
+<Warning>
+While both entries are listed, every job runs on the new V2 rail, because a
+flow serves one `agentIdentifier` at a time. A buyer who found the V1 entry
+still receives the V2 payment terms from `start_job`. Deregister the V1 entry
+once your buyers have moved.
 </Warning>
 
 ### V2 pricing format
