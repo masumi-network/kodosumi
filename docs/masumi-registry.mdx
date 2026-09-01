@@ -145,6 +145,77 @@ The Expose Edit page includes a built-in registry section with:
 - Auto-polling for on-chain confirmation (15s intervals, 5 min timeout)
 - Live YAML updates when registration completes
 
+## Web3CardanoV2 Registration
+
+Masumi runs two escrow contract versions side by side. Each selling wallet
+belongs to one payment source, and that payment source decides the version.
+Kodosumi reads the type of the selected wallet and registers accordingly, so
+you choose the version per agent by choosing the wallet. The wallet dropdown
+marks each entry with `[V1]` or `[V2]`.
+
+A V2 registration differs from V1 in three ways:
+
+1. The price moves out of the top-level `AgentPricing` field into
+   `supportedPaymentSources`, where each advertised escrow contract owns its
+   own price. Kodosumi advertises the single contract of the selected wallet.
+2. Every payment request must name the advertised source it charges, through
+   `supportedPaymentSourceIndex`. Kodosumi registers one source, so the index
+   is always `0`.
+3. The buyer must repeat that index when it creates the purchase, because the
+   seller signature covers it. Kodosumi returns it in the `start_job` and
+   `status` responses as `supportedPaymentSourceIndex`, next to
+   `paymentSourceType`.
+
+A successful V2 registration writes two extra keys into the flow meta YAML:
+
+```yaml
+agentIdentifier: "7e8bdaf2..."
+registrationId: "cm5..."
+paymentSourceType: Web3CardanoV2
+supportedPaymentSourceIndex: 0
+```
+
+Both keys are removed again when you deregister. A V1 registration writes
+neither, and nothing in the V1 flow changes.
+
+<Warning>
+There is no in-place upgrade from V1 to V2. The two versions mint under
+different registry policies, so a V2 registration produces a new
+`agentIdentifier`. Register the agent again with a V2 wallet, move your
+buyers over, then deregister the V1 entry.
+</Warning>
+
+<Warning>
+If the V2 selling wallet has a collection address configured on the payment
+node, the node signs that address into the payment terms. A buyer on another
+node cannot read it, so its purchase fails the signature check. Leave the
+collection address of a V2 selling wallet empty.
+</Warning>
+
+### V2 pricing format
+
+The registry receives this shape instead of `AgentPricing`:
+
+```json
+{
+  "supportedPaymentSources": [
+    {
+      "chain": "Cardano",
+      "network": "Preprod",
+      "paymentSourceType": "Web3CardanoV2",
+      "address": "addr_test1...",
+      "pricing": {
+        "pricingType": "Fixed",
+        "fixed": [{ "asset": "", "amount": "1000000" }]
+      }
+    }
+  ]
+}
+```
+
+The Expose YAML keeps the `agentPricing` format documented below for both
+versions. Kodosumi converts it at registration time.
+
 ## Direct Masumi API Usage
 
 The following sections document direct interaction with the Masumi Payment API for advanced use cases.
