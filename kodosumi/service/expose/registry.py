@@ -5,6 +5,7 @@ Handles agent registration, status polling, and wallet listing
 via the Masumi Payment API.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +42,18 @@ PAYMENT_SOURCE_TYPE_V2 = "Web3CardanoV2"
 # Kodosumi advertises exactly one source per agent, so the index is always 0.
 DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX = 0
 
+# Bounds the payment node enforces on a V2 registration. Checking them here
+# turns an opaque 400 from the node into a message that names the flow YAML
+# field the operator has to correct.
+MIN_FIXED_PRICING_ENTRIES = 1
+MAX_FIXED_PRICING_ENTRIES = 5
+MAX_ATOMIC_AMOUNT_DIGITS = 19
+
+# Page size of the /wallet endpoint. The node caps `take` at 100 and its
+# cursor is inclusive, so a page repeats the row the cursor names.
+WALLET_PAGE_SIZE = 100
+MAX_WALLET_PAGES = 50
+
 
 def human_to_base_amount(amount: float) -> str:
     """Convert human-readable amount (e.g. 0.01) to base units string (e.g. '10000')."""
@@ -62,7 +75,7 @@ def unit_to_currency(unit: str) -> str:
     return "ADA" if unit == "" else "unknown"
 
 
-def pricing_yaml_to_registry(pricing_yaml: List[Dict], network: str) -> Dict:
+def pricing_yaml_to_registry(pricing_yaml: Any, network: str) -> Dict:
     """
     Convert Kodosumi YAML pricing format to Masumi Registry API format.
 
@@ -75,9 +88,23 @@ def pricing_yaml_to_registry(pricing_yaml: List[Dict], network: str) -> Dict:
 
     Registry format:
         {"pricingType": "Fixed", "Pricing": [{"amount": "10000", "unit": "16a55b2a..."}]}
+
+    Raises ValueError when the YAML is not one of the shapes above. The
+    metadata is hand edited, so a mapping or a scalar reaches this function
+    and must become a message the operator can act on, not a KeyError.
     """
     if not pricing_yaml:
         return {"pricingType": "Free"}
+
+    # A single mapping is the shape operators write most often by mistake.
+    if isinstance(pricing_yaml, dict):
+        pricing_yaml = [pricing_yaml]
+    if not isinstance(pricing_yaml, list) or not isinstance(
+            pricing_yaml[0], dict):
+        raise ValueError(
+            "agentPricing must be a list of pricing entries, for example: "
+            "agentPricing:\n  - pricingType: Free"
+        )
 
     first = pricing_yaml[0]
     pricing_type = first.get("pricingType", "Free")
@@ -85,9 +112,17 @@ def pricing_yaml_to_registry(pricing_yaml: List[Dict], network: str) -> Dict:
     if pricing_type == "Free":
         return {"pricingType": "Free"}
 
-    fixed_pricing = first.get("fixedPricing", [])
+    fixed_pricing = first.get("fixedPricing") or []
+    if not isinstance(fixed_pricing, list):
+        raise ValueError(
+            "agentPricing[0].fixedPricing must be a list of "
+            "{amount, unit} entries")
     registry_pricing = []
     for p in fixed_pricing:
+        if not isinstance(p, dict):
+            raise ValueError(
+                "Every agentPricing[0].fixedPricing entry must be a mapping "
+                "with an amount and a unit")
         unit = p.get("unit", "")
         # Convert "lovelace" to empty string for registry
         if unit == "lovelace":
@@ -124,6 +159,28 @@ def pricing_to_yaml_format(pricing_type: str, amount: float, currency: str, netw
     }]
 
 
+def _atomic_amount(amount: Any) -> str:
+    """
+    Render one price as the atomic amount string the payment node accepts.
+
+    The node takes digits only, at most 19 of them, and rejects zero. A
+    missing amount used to default to "0" and was refused on chain with an
+    error that never named the flow YAML.
+    """
+    text = str(amount if amount is not None else "").strip()
+    if not text.isdigit() or int(text) <= 0:
+        raise ValueError(
+            f"Pricing amount must be a positive whole number of base units, "
+            f"got '{amount}'."
+        )
+    if len(text.lstrip("0")) > MAX_ATOMIC_AMOUNT_DIGITS:
+        raise ValueError(
+            f"Pricing amount has more than {MAX_ATOMIC_AMOUNT_DIGITS} digits: "
+            f"'{amount}'."
+        )
+    return text
+
+
 def registry_pricing_to_supported_sources(
     registry_pricing: Dict,
     network: str,
@@ -158,11 +215,19 @@ def registry_pricing_to_supported_sources(
             "fixed": [
                 {
                     "asset": price.get("unit", ""),
-                    "amount": str(price.get("amount", "0")),
+                    "amount": _atomic_amount(price.get("amount")),
                 }
-                for price in registry_pricing.get("Pricing", [])
+                for price in registry_pricing.get("Pricing") or []
             ],
         }
+        entry_count = len(pricing["fixed"])
+        if not (MIN_FIXED_PRICING_ENTRIES <= entry_count
+                <= MAX_FIXED_PRICING_ENTRIES):
+            raise ValueError(
+                f"Fixed pricing needs between {MIN_FIXED_PRICING_ENTRIES} and "
+                f"{MAX_FIXED_PRICING_ENTRIES} priced assets, got "
+                f"{entry_count}. Add fixedPricing entries to agentPricing."
+            )
     else:
         pricing = {"pricingType": pricing_type}
 
@@ -187,18 +252,40 @@ async def _list_source_selling_wallets(
     """
     if not source_id:
         return []
-    url = (
-        f"{masumi.base_url}/wallet"
-        f"?paymentSourceId={source_id}&walletType=Selling&take=100"
-    )
-    resp = await client.get(url, headers=headers)
-    if resp.status_code != 200:
-        logger.warning(
-            "Failed to list wallets of payment source %s: %s",
-            source_id, resp.text,
+    wallets: List[Dict] = []
+    seen_ids = set()
+    cursor_id = ""
+    for _ in range(MAX_WALLET_PAGES):
+        url = (
+            f"{masumi.base_url}/wallet"
+            f"?paymentSourceId={source_id}&walletType=Selling"
+            f"&take={WALLET_PAGE_SIZE}"
         )
-        return []
-    return resp.json().get("data", {}).get("Wallets", [])
+        if cursor_id:
+            url += f"&cursorId={cursor_id}"
+        resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            logger.warning(
+                "Failed to list wallets of payment source %s: %s",
+                source_id, resp.text,
+            )
+            return wallets
+        page = resp.json().get("data", {}).get("Wallets", [])
+        # The node's cursor is inclusive, so a page repeats the row the
+        # cursor names. Without the id check that row would be listed twice.
+        fresh = [w for w in page if w.get("id") not in seen_ids]
+        seen_ids.update(w.get("id") for w in fresh)
+        wallets.extend(fresh)
+        if len(page) < WALLET_PAGE_SIZE or not fresh:
+            return wallets
+        cursor_id = page[-1].get("id") or ""
+        if not cursor_id:
+            return wallets
+    logger.warning(
+        "Stopped listing wallets of payment source %s after %s pages",
+        source_id, MAX_WALLET_PAGES,
+    )
+    return wallets
 
 
 async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
@@ -220,16 +307,25 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
                 logger.warning("Failed to list wallets: %s", resp.text)
                 return []
             data = resp.json().get("data", {})
+            sources = [
+                source for source in data.get("PaymentSources", [])
+                if not source.get("network")
+                or source.get("network") == masumi.registry_network
+            ]
+            # Sources without embedded wallets cost one request each. Run
+            # them together: the register and migrate dialogs both wait on
+            # this call before they can show anything.
+            fetched = await asyncio.gather(*[
+                _list_source_selling_wallets(
+                    client, masumi, headers, source.get("id", ""))
+                for source in sources if not source.get("SellingWallets")
+            ])
+            pending = iter(fetched)
+
             wallets = []
-            for source in data.get("PaymentSources", []):
+            for source in sources:
                 source_network = source.get("network")
-                if source_network and source_network != masumi.registry_network:
-                    continue
-                source_wallets = source.get("SellingWallets") or []
-                if not source_wallets:
-                    source_wallets = await _list_source_selling_wallets(
-                        client, masumi, headers, source.get("id", "")
-                    )
+                source_wallets = source.get("SellingWallets") or next(pending)
                 for wallet in source_wallets:
                     wallets.append({
                         "walletVkey": wallet.get("walletVkey", ""),
@@ -290,7 +386,10 @@ async def register_agent(
         "Legal": legal or {},
     }
 
-    if supported_payment_sources:
+    # `is not None`, not truthiness: an empty list is a V2 registration with
+    # no priced source, and posting AgentPricing instead makes the node
+    # complain about a field the caller never meant to send.
+    if supported_payment_sources is not None:
         body["supportedPaymentSources"] = supported_payment_sources
     else:
         body["AgentPricing"] = pricing
