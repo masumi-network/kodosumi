@@ -696,7 +696,11 @@ async def _heal_agent_identifier(
 
     try:
         reg = await get_registration_status(
-            masumi_cfg, registration_id=registration_id
+            masumi_cfg,
+            registration_id=registration_id,
+            # Without the rail the registry list falls back to V1 and a V2
+            # registration is never found.
+            payment_source_type=meta_data_dict.get("paymentSourceType"),
         )
     except Exception:
         return None
@@ -810,13 +814,19 @@ async def _submit_job(
     started_at = time.time()
 
     # Extra metadata stored with the job
-    # Include network so Runner can initialize payment without DB access
+    # Include network so Runner can initialize payment without DB access.
+    # paymentSourceType and supportedPaymentSourceIndex are written into the
+    # flow metadata by a Web3CardanoV2 registration. The Runner needs both to
+    # create the payment on the right rail.
     extra = {
         "identifier_from_purchaser": data.identifier_from_purchaser,
         "input_hash": input_hash,
         "sumi_endpoint": service_id,
         "agentIdentifier": agent_identifier,
         "network": network,
+        "paymentSourceType": meta_data_dict.get("paymentSourceType"),
+        "supportedPaymentSourceIndex": meta_data_dict.get(
+            "supportedPaymentSourceIndex"),
         "raw_input_data": data.input_data,  # Debug: raw input from Sumi start_job
     }
 
@@ -879,6 +889,8 @@ async def _submit_job(
         unlock_time = None
         ext_dispute_unlock_time = None
         seller_vkey = None
+        payment_source_type = None
+        source_index = None
         try:
             # Use asyncio.to_thread to avoid blocking the event loop
             runner = await asyncio.to_thread(ray.get_actor, job_id, namespace=NAMESPACE)
@@ -892,6 +904,12 @@ async def _submit_job(
                 ext_dispute_unlock_time = int(pay_data["externalDisputeUnlockTime"]) if pay_data.get("externalDisputeUnlockTime") else None
                 sc_wallet = pay_data.get("SmartContractWallet") or {}
                 seller_vkey = sc_wallet.get("walletVkey")
+                # Read the rail from the payment config the Runner used, not
+                # from the flow metadata: the payment was created with that
+                # value and the seller signature covers it.
+                pay_conf = prepare_data.get("pay_conf") or {}
+                payment_source_type = pay_conf.get("paymentSourceType")
+                source_index = pay_conf.get("supportedPaymentSourceIndex")
         except Exception:
             # Actor not found or prepare failed — proceed without payment
             pass
@@ -908,6 +926,8 @@ async def _submit_job(
             unlockTime=unlock_time,
             externalDisputeUnlockTime=ext_dispute_unlock_time,
             sellerVKey=seller_vkey,
+            paymentSourceType=payment_source_type,
+            supportedPaymentSourceIndex=source_index,
             startedAt=started_at,
             updatedAt=time.time(),
         )
@@ -1562,6 +1582,8 @@ async def _get_job_status_from_db(
     unlock_time = None
     ext_dispute_unlock_time = None
     seller_vkey = None
+    payment_source_type = None
+    source_index = None
     cursor.execute("""
         SELECT message FROM monitor WHERE kind = 'payment'
         ORDER BY timestamp ASC
@@ -1579,6 +1601,10 @@ async def _get_job_status_from_db(
                 ext_dispute_unlock_time = int(pd["externalDisputeUnlockTime"]) if pd.get("externalDisputeUnlockTime") else None
                 sc_wallet = pd.get("SmartContractWallet") or {}
                 seller_vkey = sc_wallet.get("walletVkey")
+                # V2 rail markers. Absent on V1 payments and on payment
+                # events written before this field existed.
+                payment_source_type = pay_dict.get("paymentSourceType")
+                source_index = pay_dict.get("supportedPaymentSourceIndex")
         except Exception:
             pass
 
@@ -1643,6 +1669,8 @@ async def _get_job_status_from_db(
         unlockTime=unlock_time,
         externalDisputeUnlockTime=ext_dispute_unlock_time,
         sellerVKey=seller_vkey,
+        paymentSourceType=payment_source_type,
+        supportedPaymentSourceIndex=source_index,
         startedAt=first_ts,
         updatedAt=last_ts,
         runtime=runtime,

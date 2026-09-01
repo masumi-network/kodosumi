@@ -264,6 +264,17 @@ class PaymentInfo(BaseModel):
     sellerVKey: Optional[str] = Field(
         default=None, description="Seller verification key from SmartContractWallet"
     )
+    paymentSourceType: Optional[str] = Field(
+        default=None,
+        description="Payment rail of the agent registration: Web3CardanoV1 "
+                    "or Web3CardanoV2. Absent for V1 registrations",
+    )
+    supportedPaymentSourceIndex: Optional[int] = Field(
+        default=None,
+        description="Index of the advertised payment source this payment was "
+                    "created with. The buyer repeats it when creating the "
+                    "purchase. Web3CardanoV2 only",
+    )
 
 
 class JobStatusResponse(BaseModel):
@@ -309,6 +320,19 @@ class JobStatusResponse(BaseModel):
     )
     sellerVKey: Optional[str] = Field(
         default=None, description="Seller verification key from SmartContractWallet"
+    )
+    # The seller signs both values into the blockchainIdentifier, so a buyer
+    # that does not repeat them cannot create the purchase.
+    paymentSourceType: Optional[str] = Field(
+        default=None,
+        description="Payment rail of the agent registration: Web3CardanoV1 "
+                    "or Web3CardanoV2. Absent for V1 registrations",
+    )
+    supportedPaymentSourceIndex: Optional[int] = Field(
+        default=None,
+        description="Index of the advertised payment source this payment was "
+                    "created with. The buyer repeats it when creating the "
+                    "purchase. Web3CardanoV2 only",
     )
 
     # Kodosumi extensions

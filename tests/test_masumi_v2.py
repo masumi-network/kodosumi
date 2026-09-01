@@ -1,5 +1,5 @@
 """
-Tests for optional Web3CardanoV2 agent registration.
+Tests for optional Web3CardanoV2 registration and payment support.
 
 The selling wallet decides the rail: a wallet of a Web3CardanoV2 payment
 source registers a V2 agent, prices it inside supportedPaymentSources, and
@@ -10,6 +10,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from kodosumi.config import MasumiConfig
+from kodosumi.runner.main import _parse_source_index
+from kodosumi.runner.payment import MasumiClient
 from kodosumi.service.expose.registry import (
     PAYMENT_SOURCE_TYPE_V1,
     PAYMENT_SOURCE_TYPE_V2,
@@ -18,6 +20,7 @@ from kodosumi.service.expose.registry import (
     register_agent,
     registry_pricing_to_supported_sources,
 )
+from kodosumi.service.sumi.models import JobStatusResponse
 
 
 def _make_config(**overrides) -> MasumiConfig:
@@ -249,3 +252,82 @@ class TestGetRegistrationStatusFilter:
             await get_registration_status(
                 _make_config(), registration_id="reg1")
         assert "filterPaymentSourceType" not in client.get.call_args.args[0]
+
+
+class TestInitPaymentSourceIndex:
+    """The payment node requires the index on V2 and rejects it on V1."""
+
+    def _patch_payment_client(self):
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.__aexit__.return_value = None
+        client.post.return_value = _json_response(
+            {"data": {"blockchainIdentifier": "abc"}})
+        return client, patch("httpx.AsyncClient", MagicMock(
+            return_value=client))
+
+    @pytest.mark.asyncio
+    async def test_index_sent_when_set(self):
+        client, patcher = self._patch_payment_client()
+        with patcher:
+            await MasumiClient(_make_config()).init_payment(
+                agent_identifier="agent",
+                network="Preprod",
+                input_hash="hash",
+                identifier_from_purchaser="purchaser",
+                supported_payment_source_index=0,
+            )
+        payload = client.post.call_args.kwargs["json"]
+        assert payload["supportedPaymentSourceIndex"] == 0
+
+    @pytest.mark.asyncio
+    async def test_index_omitted_when_none(self):
+        client, patcher = self._patch_payment_client()
+        with patcher:
+            await MasumiClient(_make_config()).init_payment(
+                agent_identifier="agent",
+                network="Preprod",
+                input_hash="hash",
+                identifier_from_purchaser="purchaser",
+            )
+        payload = client.post.call_args.kwargs["json"]
+        assert "supportedPaymentSourceIndex" not in payload
+
+
+class TestJobStatusResponseEcho:
+    """The buyer reads the rail off the MIP-003 responses."""
+
+    def test_v2_fields_round_trip(self):
+        response = JobStatusResponse(
+            job_id="job1",
+            status="awaiting_payment",
+            blockchainIdentifier="abc",
+            paymentSourceType=PAYMENT_SOURCE_TYPE_V2,
+            supportedPaymentSourceIndex=0,
+        )
+        dumped = response.model_dump()
+        assert dumped["paymentSourceType"] == "Web3CardanoV2"
+        # Index 0 is a real selection and must survive serialisation.
+        assert dumped["supportedPaymentSourceIndex"] == 0
+
+    def test_v1_leaves_both_fields_empty(self):
+        response = JobStatusResponse(job_id="job1", status="running")
+        dumped = response.model_dump()
+        assert dumped["paymentSourceType"] is None
+        assert dumped["supportedPaymentSourceIndex"] is None
+
+
+class TestParseSourceIndex:
+    """Absent intent must never coerce into index 0."""
+
+    def test_int_index(self):
+        assert _parse_source_index(0) == 0
+        assert _parse_source_index(3) == 3
+
+    def test_numeric_string(self):
+        assert _parse_source_index("2") == 2
+        assert _parse_source_index(" 2 ") == 2
+
+    def test_absent_and_junk_values(self):
+        for value in (None, "", "abc", [], {}, False, True, -1, 1.5):
+            assert _parse_source_index(value) is None
