@@ -17,6 +17,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from kodosumi.config import MasumiConfig
+from kodosumi.service.expose import db
 from kodosumi.service.expose.flow_meta import update_flow_meta
 from kodosumi.service.expose.registry import (
     DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX,
@@ -100,6 +101,10 @@ async def advance_migration(
     pending = pending_migration(meta_data)
     if not pending:
         return None
+    if not flow_url:
+        # Without the url the swap cannot be written back, and a burn that
+        # is not recorded would repeat on every call.
+        return None
 
     try:
         result = await get_registration_status(
@@ -121,27 +126,34 @@ async def advance_migration(
     if state != "RegistrationConfirmed" or not new_agent_id:
         return {"migrationState": state}
 
-    # The new agent exists on chain. Burn the old one first when the
-    # operator asked for it, so the flow is never listed twice by accident.
-    deregister_error = None
-    keep_previous = True
+    # Record the swap before burning anything. A burn that is not written
+    # back would repeat, and the old agent stays reachable for a manual
+    # burn if this process stops right here.
     old_agent_id = meta_data.get("agentIdentifier")
+    updated_yaml = await update_flow_meta(
+        row, expose_name, flow_url,
+        confirmed_migration_updates(
+            meta_data, pending, new_agent_id, keep_previous=True),
+    )
+
+    deregister_error = None
     if pending.get("deregisterPrevious") and old_agent_id:
         try:
             await deregister_agent(masumi, old_agent_id)
-            keep_previous = False
         except Exception as e:
             # Non fatal: the V2 agent is live either way, and the panel
             # offers the old entry for a manual burn.
             deregister_error = str(e)
             logger.warning(
                 "Migration could not deregister %s: %s", old_agent_id, e)
+        else:
+            # Re-read: the row in hand still carries the pre swap meta.
+            fresh = await db.get_expose(expose_name)
+            updated_yaml = await update_flow_meta(
+                fresh or row, expose_name, flow_url,
+                {"previousRegistration": None},
+            ) or updated_yaml
 
-    updated_yaml = await update_flow_meta(
-        row, expose_name, flow_url,
-        confirmed_migration_updates(
-            meta_data, pending, new_agent_id, keep_previous),
-    )
     return {
         "migrationState": "MigrationConfirmed",
         "agentIdentifier": new_agent_id,

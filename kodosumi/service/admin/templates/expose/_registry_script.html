@@ -192,6 +192,13 @@ async function checkRegistryStatus(idx, flowUrl) {
             return;
         }
 
+        // A migrating flow reports its confirmed V1 agent, so the state
+        // alone would stop the panel from following the new mint.
+        if (data.migration) {
+            startPolling(idx, flowUrl);
+            return;
+        }
+
         // Auto-poll if pending
         var st = data.state;
         if (st && st !== 'RegistrationConfirmed' && st !== 'NotRegistered' && st !== 'RegistrationFailed') {

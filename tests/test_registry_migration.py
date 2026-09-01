@@ -115,12 +115,14 @@ class TestAdvanceMigration:
                      else {"return_value": deregister or {}})),
             patch("kodosumi.service.expose.migration.update_flow_meta",
                   new_callable=AsyncMock, return_value="display: My Agent\n"),
+            patch("kodosumi.service.expose.migration.db.get_expose",
+                  new_callable=AsyncMock, return_value={"meta": "[]"}),
         )
 
     @pytest.mark.asyncio
     async def test_no_pending_migration_does_nothing(self):
-        status, dereg, write = self._patch(None)
-        with status as mock_status, dereg, write as mock_write:
+        status, dereg, write, read = self._patch(None)
+        with status as mock_status, dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", _registered_meta())
         assert result is None
@@ -130,9 +132,9 @@ class TestAdvanceMigration:
     @pytest.mark.asyncio
     async def test_unconfirmed_mint_leaves_the_flow_on_v1(self):
         meta = {**_registered_meta(), "pendingMigration": _pending()}
-        status, dereg, write = self._patch(
+        status, dereg, write, read = self._patch(
             {"state": "RegistrationRequested", "agentIdentifier": None})
-        with status, dereg, write as mock_write:
+        with status, dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta)
         assert result == {"migrationState": "RegistrationRequested"}
@@ -141,8 +143,8 @@ class TestAdvanceMigration:
     @pytest.mark.asyncio
     async def test_missing_registry_answer_reports_polling(self):
         meta = {**_registered_meta(), "pendingMigration": _pending()}
-        status, dereg, write = self._patch(None)
-        with status, dereg, write as mock_write:
+        status, dereg, write, read = self._patch(None)
+        with status, dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta)
         assert result == {"migrationState": "Polling"}
@@ -151,9 +153,9 @@ class TestAdvanceMigration:
     @pytest.mark.asyncio
     async def test_confirmed_mint_swaps_the_flow_over(self):
         meta = {**_registered_meta(), "pendingMigration": _pending()}
-        status, dereg, write = self._patch(
+        status, dereg, write, read = self._patch(
             {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"})
-        with status, dereg as mock_dereg, write as mock_write:
+        with status, dereg as mock_dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta)
         assert result["migrationState"] == "MigrationConfirmed"
@@ -165,30 +167,53 @@ class TestAdvanceMigration:
         assert updates["previousRegistration"]["agentIdentifier"] == "v1-agent"
 
     @pytest.mark.asyncio
-    async def test_old_agent_is_burned_only_after_the_new_one_exists(self):
+    async def test_old_agent_is_burned_only_after_the_swap_is_written(self):
         meta = {**_registered_meta(),
                 "pendingMigration": _pending(deregister_previous=True)}
-        status, dereg, write = self._patch(
+        status, dereg, write, read = self._patch(
             {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"})
-        with status, dereg as mock_dereg, write as mock_write:
+        with status, dereg as mock_dereg, write as mock_write, read:
             await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta)
         assert mock_dereg.call_args.args[1] == "v1-agent"
-        assert mock_write.call_args.args[3]["previousRegistration"] is None
+        # The swap lands first, so a burn is never lost to a failed write.
+        first_updates = mock_write.call_args_list[0].args[3]
+        assert first_updates["agentIdentifier"] == "v2-agent"
+        assert first_updates["pendingMigration"] is None
+        # The burned agent is dropped afterwards, off a re-read row.
+        assert mock_write.call_args_list[-1].args[3] == {
+            "previousRegistration": None}
+        assert len(mock_write.call_args_list) == 2
+
+    @pytest.mark.asyncio
+    async def test_a_status_call_without_a_flow_url_changes_nothing(self):
+        meta = {**_registered_meta(),
+                "pendingMigration": _pending(deregister_previous=True)}
+        status, dereg, write, read = self._patch(
+            {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"})
+        with status as mock_status, dereg as mock_dereg, write as mock_write, read:
+            result = await advance_migration(
+                _make_config(), {}, "expose", "", meta)
+        assert result is None
+        mock_status.assert_not_called()
+        mock_dereg.assert_not_called()
+        mock_write.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_failed_burn_keeps_the_old_agent_reachable(self):
         meta = {**_registered_meta(),
                 "pendingMigration": _pending(deregister_previous=True)}
-        status, dereg, write = self._patch(
+        status, dereg, write, read = self._patch(
             {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"},
             deregister=RuntimeError("Deregistration failed: no collateral"))
-        with status, dereg, write as mock_write:
+        with status, dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta)
         # The V2 agent is live either way, so the migration still completes.
         assert result["migrationState"] == "MigrationConfirmed"
         assert "no collateral" in result["deregisterError"]
+        # One write only: the recorded V1 agent survives the failed burn.
+        assert len(mock_write.call_args_list) == 1
         assert mock_write.call_args.args[3]["previousRegistration"][
             "agentIdentifier"] == "v1-agent"
 
