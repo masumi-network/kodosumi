@@ -199,8 +199,12 @@ function openMigrateDialog(idx) {
         pricingEl.textContent = 'No agentPricing in the flow YAML. Add it before migrating.';
     } else if (pricing.pricingType === 'Fixed') {
         var fp = Array.isArray(pricing.fixedPricing) ? pricing.fixedPricing[0] : null;
+        // An empty unit and the literal 'lovelace' both mean ADA. The
+        // backend treats them alike, so the dialog has to as well: this
+        // line names the currency the operator is about to mint against.
+        var isAda = !fp || !fp.unit || fp.unit === 'lovelace';
         pricingEl.textContent = fp
-            ? 'Fixed, ' + fp.amount + ' ' + (fp.unit ? 'USDM' : 'lovelace') +
+            ? 'Fixed, ' + fp.amount + ' ' + (isAda ? 'lovelace' : 'USDM') +
               ', carried over into the V2 payment source'
             : 'Fixed';
     } else {

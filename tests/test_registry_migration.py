@@ -406,3 +406,39 @@ class TestAdvanceMigration:
         assert "previousRegistration" not in stored["data"]
         # The second caller finds nothing left to do.
         assert [r for r in results if r is None] == [None]
+
+
+class TestFailedMintLeavesNothingPending:
+    """The panel decides whether to keep polling on the stored state.
+
+    advance_migration still returns a report for a mint that failed, so the
+    report alone cannot say whether a migration is in flight. Everything
+    the panel polls on has to be gone by the time that report is handed out.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_failed_mint_clears_pending_and_asks_for_no_burn(self):
+        meta = {**_registered_meta(),
+                "pendingMigration": _pending(deregister_previous=True)}
+        stored, fake_write, read_flow = _stateful_meta(meta)
+        status = patch(
+            "kodosumi.service.expose.migration.get_registration_status",
+            new_callable=AsyncMock,
+            return_value={"state": "RegistrationFailed"})
+        dereg = patch("kodosumi.service.expose.migration.deregister_agent",
+                      new_callable=AsyncMock)
+        write = patch("kodosumi.service.expose.migration.update_flow_meta",
+                      new_callable=AsyncMock)
+        read = patch("kodosumi.service.expose.migration.db.get_expose",
+                     new_callable=AsyncMock, return_value={"meta": "[]"})
+        with status, dereg as mock_dereg, write as mock_write, read, read_flow:
+            mock_write.side_effect = fake_write
+            result = await advance_migration(
+                _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
+        assert result["migrationState"] == "RegistrationFailed"
+        assert "pendingMigration" not in stored["data"]
+        assert stored["data"].get("previousRegistration") is None
+        assert stored["data"]["migrationError"]
+        # Nothing was swapped, so the V1 agent must not be burned.
+        mock_dereg.assert_not_called()
+        assert stored["data"]["agentIdentifier"] == "v1-agent"

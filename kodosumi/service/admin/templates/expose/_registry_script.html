@@ -195,16 +195,19 @@ async function checkRegistryStatus(idx, flowUrl) {
         // or the burn the operator asked for is never performed.
         var pendingBurn = !!(data.previousRegistration &&
             data.previousRegistration.deregisterRequested);
-        if (data.migration &&
-                data.migration.migrationState === 'MigrationConfirmed' &&
-                !pendingBurn) {
-            return;
-        }
 
+        // The metadata says whether a migration is still in flight, not the
+        // report: a mint that failed still returns one, and polling on that
+        // ends on the plain registration branch, which reloads the page and
+        // reports a success that did not happen.
+        //
         // A migrating flow reports its confirmed V1 agent, so the state
         // alone would stop the panel from following the new mint.
-        if (data.migration || pendingBurn) {
+        if (data.pendingMigration || pendingBurn) {
             startPolling(idx, flowUrl, true);
+            return;
+        }
+        if (data.migration) {
             return;
         }
 
