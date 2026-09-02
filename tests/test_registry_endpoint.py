@@ -117,3 +117,27 @@ class TestRegisterPricingErrors:
                     state=_state())
         assert err.value.status_code == 422
         register.assert_not_called()
+
+
+class TestAmbiguousWallet:
+
+    @pytest.mark.asyncio
+    async def test_a_key_on_two_rails_is_refused_before_the_mint(self):
+        # The wallet decides the escrow contract, and a mint on the wrong
+        # one cannot be taken back, so the request is refused instead of
+        # being resolved to whichever source the node listed first.
+        v1 = _wallet()
+        v2 = {**_wallet(), "paymentSourceType": "Web3CardanoV2"}
+        mocks = _patches(meta={"display": "A",
+                               "agentPricing": [{"pricingType": "Free"}]},
+                         wallets=[v1, v2])
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["wallets"], mocks["register"] as register:
+            with pytest.raises(ClientException) as err:
+                await REGISTER(
+                    None, name="expose",
+                    data={"flow_url": "/flow", "wallet_vkey": "vkey1"},
+                    state=_state())
+        assert err.value.status_code == 422
+        assert "more than one payment source" in err.value.detail
+        register.assert_not_called()

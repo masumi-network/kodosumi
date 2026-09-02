@@ -371,6 +371,32 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
         return []
 
 
+def select_wallet(
+    wallets: List[Dict], wallet_vkey: str
+) -> Optional[Dict]:
+    """Pick the wallet a request names, or refuse an ambiguous key.
+
+    The wallet dropdown carries the verification key as its only value, so
+    a key that belongs to two payment sources arrives here indistinguishable.
+    The wallet decides the rail of the mint, and a mint on the wrong escrow
+    contract cannot be taken back, so an ambiguous key is refused rather
+    than resolved to whichever source the node listed first.
+    """
+    matches = [w for w in wallets if w.get("walletVkey") == wallet_vkey]
+    if not matches:
+        return None
+    rails = {w.get("paymentSourceType") or PAYMENT_SOURCE_TYPE_V1
+             for w in matches}
+    if len(rails) > 1:
+        raise ValueError(
+            f"Wallet '{wallet_vkey[:8]}...' belongs to more than one payment "
+            f"source ({', '.join(sorted(rails))}). Kodosumi cannot tell which "
+            "one you picked. Use a selling wallet that belongs to a single "
+            "payment source."
+        )
+    return matches[0]
+
+
 async def register_agent(
     masumi: MasumiConfig,
     name: str,

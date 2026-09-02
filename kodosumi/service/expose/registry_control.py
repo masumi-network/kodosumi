@@ -190,7 +190,7 @@ class RegistryControl(litestar.Controller):
         from kodosumi.service.expose.registry import (
             register_agent, pricing_yaml_to_registry, pricing_to_yaml_format,
             update_meta_yaml_field, list_wallets,
-            registry_pricing_to_supported_sources,
+            registry_pricing_to_supported_sources, select_wallet,
             DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX,
             PAYMENT_SOURCE_TYPE_V1, PAYMENT_SOURCE_TYPE_V2,
         )
@@ -219,19 +219,19 @@ class RegistryControl(litestar.Controller):
         if not wallet_vkey:
             raise ClientException(detail="wallet_vkey is required", status_code=422)
 
-        # Validate wallet exists
-        valid_vkeys = [w["walletVkey"] for w in wallets]
-        if wallet_vkey not in valid_vkeys:
+        # The selected wallet decides the registration version: a wallet of
+        # a Web3CardanoV2 payment source registers a V2 agent, everything
+        # else stays on the V1 shape.
+        try:
+            selected_wallet = select_wallet(wallets, wallet_vkey)
+        except ValueError as e:
+            raise ClientException(detail=str(e), status_code=422)
+        if selected_wallet is None:
+            valid_vkeys = [w["walletVkey"] for w in wallets]
             raise ClientException(
                 detail=f"Wallet '{wallet_vkey[:8]}...' not found. Available: {[v[:8] + '...' for v in valid_vkeys]}",
                 status_code=422,
             )
-
-        # The selected wallet decides the registration version: a wallet of
-        # a Web3CardanoV2 payment source registers a V2 agent, everything
-        # else stays on the V1 shape.
-        selected_wallet = next(
-            w for w in wallets if w["walletVkey"] == wallet_vkey)
         payment_source_type = (
             selected_wallet.get("paymentSourceType") or PAYMENT_SOURCE_TYPE_V1)
         is_v2 = payment_source_type == PAYMENT_SOURCE_TYPE_V2

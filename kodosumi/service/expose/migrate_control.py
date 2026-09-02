@@ -71,6 +71,7 @@ class RegistryMigrateControl(litestar.Controller):
         from kodosumi.service.expose.registry import (
             PAYMENT_SOURCE_TYPE_V2, list_wallets, pricing_yaml_to_registry,
             register_agent, registry_pricing_to_supported_sources,
+            select_wallet,
         )
 
         flow_url = data.get("flow_url", "")
@@ -97,8 +98,10 @@ class RegistryMigrateControl(litestar.Controller):
                 status_code=502,
             )
 
-        wallet = next(
-            (w for w in wallets if w["walletVkey"] == wallet_vkey), None)
+        try:
+            wallet = select_wallet(wallets, wallet_vkey)
+        except ValueError as e:
+            raise ClientException(detail=str(e), status_code=422)
         if wallet is None:
             raise ClientException(
                 detail=f"Wallet '{wallet_vkey[:8]}...' not found for network "

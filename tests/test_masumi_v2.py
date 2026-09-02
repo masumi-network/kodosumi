@@ -21,6 +21,7 @@ from kodosumi.service.expose.registry import (
     pricing_yaml_to_registry,
     register_agent,
     registry_pricing_to_supported_sources,
+    select_wallet,
 )
 from kodosumi.service.sumi.models import JobStatusResponse
 
@@ -533,3 +534,39 @@ class TestRegisterAgentContract:
             await register_agent(
                 masumi=_make_config(), name="a", description="d",
                 api_base_url="https://host/a", tags=[])
+
+
+class TestSelectWallet:
+    """The wallet decides the rail, so an ambiguous key cannot be guessed."""
+
+    def _wallet(self, rail, vkey="vkey1"):
+        return {"walletVkey": vkey, "paymentSourceType": rail,
+                "smartContractAddress": "addr_test1c"}
+
+    def test_returns_the_single_match(self):
+        wallets = [self._wallet(PAYMENT_SOURCE_TYPE_V2),
+                   self._wallet(PAYMENT_SOURCE_TYPE_V1, "other")]
+        assert select_wallet(wallets, "vkey1")["paymentSourceType"] == \
+            PAYMENT_SOURCE_TYPE_V2
+
+    def test_an_unknown_key_returns_none(self):
+        assert select_wallet([self._wallet(PAYMENT_SOURCE_TYPE_V1)], "x") is None
+
+    def test_the_same_key_on_two_rails_is_refused(self):
+        # The dropdown carries the key alone, so both options submit the
+        # same value and the first match would decide the escrow contract.
+        wallets = [self._wallet(PAYMENT_SOURCE_TYPE_V1),
+                   self._wallet(PAYMENT_SOURCE_TYPE_V2)]
+        with pytest.raises(ValueError) as err:
+            select_wallet(wallets, "vkey1")
+        assert "more than one payment source" in str(err.value)
+
+    def test_the_same_key_on_one_rail_twice_is_fine(self):
+        wallets = [self._wallet(PAYMENT_SOURCE_TYPE_V2),
+                   self._wallet(PAYMENT_SOURCE_TYPE_V2)]
+        assert select_wallet(wallets, "vkey1") is wallets[0]
+
+    def test_a_missing_type_counts_as_v1(self):
+        wallets = [{"walletVkey": "vkey1"},
+                   self._wallet(PAYMENT_SOURCE_TYPE_V1)]
+        assert select_wallet(wallets, "vkey1") is wallets[0]
