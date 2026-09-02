@@ -202,7 +202,10 @@ class ExposeControl(litestar.Controller):
                            "registry state.",
                     status_code=409,
                 )
-            if current and current.get("network") != data.network:
+            # db.upsert_expose keeps the stored network when the request
+            # omits it, so only a different value is a network change.
+            if (current and data.network is not None
+                    and current.get("network") != data.network):
                 if expected_updated is None:
                     raise ClientException(
                         detail="Reload the record before changing its network.",
@@ -214,6 +217,11 @@ class ExposeControl(litestar.Controller):
                                "actions before changing the expose network.",
                         status_code=409,
                     )
+            if is_rename and await db.get_expose(data.name):
+                raise ClientException(
+                    detail=f"An expose with name '{data.name}' already exists.",
+                    status_code=409,
+                )
             row = await db.upsert_expose(
                 name=data.name,
                 display=data.display,
