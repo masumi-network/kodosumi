@@ -274,14 +274,27 @@ class RegistryControl(litestar.Controller):
 
         reg_network = masumi.registry_network  # "Preprod" or "Mainnet"
 
+        # agentPricing is hand edited, so a malformed shape is an operator
+        # mistake that has to name the field, not a 500.
         if pricing_type and pricing_type != "Free" and amount is not None and currency:
             # Use values from dialog
-            yaml_pricing = pricing_to_yaml_format(pricing_type, float(amount), currency, reg_network)
+            try:
+                yaml_pricing = pricing_to_yaml_format(
+                    pricing_type, float(amount), currency, reg_network)
+            except (TypeError, ValueError):
+                raise ClientException(
+                    detail=f"Pricing amount must be a number, got '{amount}'.",
+                    status_code=422,
+                )
             registry_pricing = pricing_yaml_to_registry(yaml_pricing, reg_network)
         elif meta_data.get("agentPricing"):
             # Use values from YAML
             yaml_pricing = meta_data["agentPricing"]
-            registry_pricing = pricing_yaml_to_registry(yaml_pricing, reg_network)
+            try:
+                registry_pricing = pricing_yaml_to_registry(
+                    yaml_pricing, reg_network)
+            except ValueError as e:
+                raise ClientException(detail=str(e), status_code=422)
         else:
             raise ClientException(
                 detail="No pricing configured. Set pricing_type/amount/currency or add agentPricing to the YAML.",
@@ -483,6 +496,8 @@ class RegistryControl(litestar.Controller):
             raise ClientException(detail=str(e), status_code=422)
 
         flow_url = data.get("flow_url", "")
+        if not flow_url:
+            raise ClientException(detail="flow_url is required", status_code=422)
         meta_data = get_flow_meta(row, flow_url)
         if meta_data is None:
             raise ClientException(detail=f"Flow '{flow_url}' not found", status_code=404)

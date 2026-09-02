@@ -388,3 +388,18 @@ class TestDeregisterPrevious:
                     state=_state())
         assert err.value.status_code == 409
         deregister.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refuses_a_missing_flow_url(self):
+        # Without the guard an omitted flow_url used to select the first
+        # flow of the expose and burn that agent instead.
+        meta = _meta(
+            previousRegistration={"agentIdentifier": "v1-agent"})
+        mocks = _patches(meta=meta)
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["deregister"] as deregister:
+            with pytest.raises(ClientException) as err:
+                await DEREGISTER_PREVIOUS(
+                    None, name="expose", data={}, state=_state())
+        assert err.value.status_code == 422
+        deregister.assert_not_called()

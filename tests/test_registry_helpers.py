@@ -152,3 +152,67 @@ class TestUpdateFlowMeta:
                    new_callable=AsyncMock) as mock_write:
             assert await update_flow_meta(row, "expose", "/missing", {"x": 1}) is None
         mock_write.assert_not_called()
+
+
+class TestFlowMetaAcceptsHandEditedYaml:
+    """The meta column is edited by hand, so it is not trusted input."""
+
+    def test_a_scalar_column_returns_none(self):
+        assert get_flow_meta({"meta": "just a string"}, "/a") is None
+
+    def test_entries_that_are_not_mappings_are_skipped(self):
+        row = {"meta": yaml.dump(["oops", {"url": "/a", "data": "display: A"}])}
+        assert get_flow_meta(row, "/a") == {"display": "A"}
+
+    def test_broken_yaml_returns_none(self):
+        assert get_flow_meta({"meta": "[unclosed"}, "/a") is None
+
+    def test_an_empty_flow_url_matches_nothing(self):
+        # A request that omits flow_url must not act on the first flow: the
+        # registry endpoints burn and mint on chain.
+        row = _row({"/a": {"display": "A"}})
+        assert get_flow_meta(row, "") is None
+        assert get_flow_meta(row, None) is None
+
+    @pytest.mark.asyncio
+    async def test_the_writer_keeps_entries_it_cannot_parse(self):
+        row = {"meta": yaml.dump(["oops", {"url": "/a", "data": "display: A"}])}
+        with patch("kodosumi.service.expose.flow_meta.db.get_expose",
+                   new_callable=AsyncMock, return_value=None), \
+             patch("kodosumi.service.expose.flow_meta.db.update_expose_meta",
+                   new_callable=AsyncMock) as mock_write:
+            await update_flow_meta(row, "expose", "/a", {"registrationId": "r"})
+        saved = yaml.safe_load(mock_write.call_args.args[1])
+        assert saved[0] == "oops"
+
+
+class TestUpdateFlowMetaConcurrency:
+
+    @pytest.mark.asyncio
+    async def test_a_stale_row_does_not_drop_a_sibling_flow(self):
+        # Both flows of an expose share one meta column. The caller read the
+        # row before /b was registered, so the write has to re-read it.
+        stale = _row({"/a": {"display": "A"}, "/b": {"display": "B"}})
+        fresh = _row({"/a": {"display": "A"},
+                      "/b": {"display": "B", "registrationId": "reg-b"}})
+        with patch("kodosumi.service.expose.flow_meta.db.get_expose",
+                   new_callable=AsyncMock, return_value=fresh), \
+             patch("kodosumi.service.expose.flow_meta.db.update_expose_meta",
+                   new_callable=AsyncMock) as mock_write:
+            await update_flow_meta(
+                stale, "expose", "/a", {"registrationId": "reg-a"})
+        saved = yaml.safe_load(mock_write.call_args.args[1])
+        by_url = {e["url"]: yaml.safe_load(e["data"]) for e in saved}
+        assert by_url["/a"]["registrationId"] == "reg-a"
+        assert by_url["/b"]["registrationId"] == "reg-b"
+
+    @pytest.mark.asyncio
+    async def test_a_failed_re_read_falls_back_to_the_callers_row(self):
+        row = _row({"/a": {"display": "A"}})
+        with patch("kodosumi.service.expose.flow_meta.db.get_expose",
+                   new_callable=AsyncMock, side_effect=RuntimeError("no db")), \
+             patch("kodosumi.service.expose.flow_meta.db.update_expose_meta",
+                   new_callable=AsyncMock):
+            updated = await update_flow_meta(
+                row, "expose", "/a", {"registrationId": "reg1"})
+        assert yaml.safe_load(updated)["registrationId"] == "reg1"

@@ -500,3 +500,36 @@ class TestWalletPagination:
             wallets = await list_wallets(_make_config())
         assert len(wallets) == 2
         assert client.get.call_count == 2
+
+
+class TestListWalletsResilience:
+    """One unreachable payment source must not hide every wallet."""
+
+    @pytest.mark.asyncio
+    async def test_a_failing_source_does_not_blank_the_list(self):
+        sources = {"data": {"PaymentSources": [
+            {"id": "src-broken", "network": "Preprod",
+             "paymentSourceType": PAYMENT_SOURCE_TYPE_V2,
+             "smartContractAddress": "addr_test1a"},
+            {"id": "src-ok", "network": "Preprod",
+             "paymentSourceType": PAYMENT_SOURCE_TYPE_V1,
+             "smartContractAddress": "addr_test1b",
+             "SellingWallets": [{"walletVkey": "vkey-ok"}]},
+        ]}}
+        client, patcher = _patch_registry_client(
+            get_responses=[_json_response(sources),
+                           ConnectionError("source is down")])
+        with patcher:
+            wallets = await list_wallets(_make_config())
+        assert [w["walletVkey"] for w in wallets] == ["vkey-ok"]
+
+
+class TestRegisterAgentContract:
+    """Exactly one of the two pricing shapes has to reach the node."""
+
+    @pytest.mark.asyncio
+    async def test_refuses_a_call_with_neither_pricing_shape(self):
+        with pytest.raises(ValueError):
+            await register_agent(
+                masumi=_make_config(), name="a", description="d",
+                api_base_url="https://host/a", tags=[])

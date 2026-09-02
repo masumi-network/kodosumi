@@ -333,11 +333,21 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
             # this call before they can show anything.
             missing = [index for index, source in enumerate(sources)
                        if not source.get("SellingWallets")]
-            fetched = dict(zip(missing, await asyncio.gather(*[
+            # return_exceptions: one unreachable source must not blank the
+            # whole wallet list, or the operator cannot register at all.
+            results = await asyncio.gather(*[
                 _list_source_selling_wallets(
                     client, masumi, headers, sources[index].get("id", ""))
                 for index in missing
-            ])))
+            ], return_exceptions=True)
+            fetched = {}
+            for index, result in zip(missing, results):
+                if isinstance(result, BaseException):
+                    logger.warning(
+                        "Failed to list wallets of payment source %s: %s",
+                        sources[index].get("id", ""), result)
+                    continue
+                fetched[index] = result
 
             wallets = []
             for index, source in enumerate(sources):
@@ -384,6 +394,10 @@ async def register_agent(
 
     Returns the registration response dict.
     """
+    if supported_payment_sources is None and pricing is None:
+        raise ValueError(
+            "register_agent needs either pricing for a Web3CardanoV1 "
+            "registration or supported_payment_sources for a V2 one")
     url = f"{masumi.base_url}/registry"
     headers = {
         "accept": "application/json",

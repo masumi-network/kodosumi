@@ -268,6 +268,8 @@ class RegistryMigrateControl(litestar.Controller):
             raise ClientException(detail=str(e), status_code=422)
 
         flow_url = data.get("flow_url", "")
+        if not flow_url:
+            raise ClientException(detail="flow_url is required", status_code=422)
         meta_data = get_flow_meta(row, flow_url)
         if meta_data is None:
             raise ClientException(
