@@ -9,9 +9,11 @@ import pytest
 import yaml
 from unittest.mock import AsyncMock, patch
 
+from litestar.exceptions import ClientException
+
 from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
 from kodosumi.service.expose.registration import (
-    build_agent_fields, rail_fields, sumi_api_base_url)
+    build_agent_fields, parse_live_yaml, rail_fields, sumi_api_base_url)
 
 
 def _row(flows: dict) -> dict:
@@ -217,3 +219,22 @@ class TestUpdateFlowMetaConcurrency:
             updated = await update_flow_meta(
                 row, "expose", "/a", {"registrationId": "reg1"})
         assert yaml.safe_load(updated)["registrationId"] == "reg1"
+
+
+class TestParseLiveYaml:
+    """Both the register and the migrate endpoint parse the live editor."""
+
+    def test_returns_the_mapping(self):
+        assert parse_live_yaml("display: A\n") == {"display": "A"}
+
+    def test_a_scalar_is_a_422(self):
+        with pytest.raises(ClientException) as err:
+            parse_live_yaml("just text")
+        assert err.value.status_code == 422
+        assert "mapping" in err.value.detail
+
+    def test_broken_yaml_is_a_422(self):
+        with pytest.raises(ClientException) as err:
+            parse_live_yaml("display: [unclosed")
+        assert err.value.status_code == 422
+        assert "parse error" in err.value.detail

@@ -10,10 +10,8 @@ All endpoints require operator role authentication.
 """
 
 import logging
-from typing import Optional
 
 import litestar
-import yaml
 from litestar import post
 from litestar.datastructures import State
 from litestar.exceptions import ClientException, NotFoundException
@@ -30,6 +28,7 @@ from kodosumi.service.expose.migration import (CANCEL_NOTICE,
                                                request_previous_deregistration,
                                                start_migration_updates)
 from kodosumi.service.expose.registration import (build_agent_fields,
+                                                  parse_live_yaml,
                                                   sumi_api_base_url)
 from kodosumi.service.jwt import operator_guard
 
@@ -105,7 +104,7 @@ class RegistryMigrateControl(litestar.Controller):
                 detail="meta_etag is required with meta_yaml",
                 status_code=422,
             )
-        meta_data = _parse_live_yaml(frontend_yaml) if frontend_yaml \
+        meta_data = parse_live_yaml(frontend_yaml) if frontend_yaml \
             else get_flow_meta(row, flow_url)
         if meta_data is None:
             raise ClientException(
@@ -418,18 +417,3 @@ class RegistryMigrateControl(litestar.Controller):
             "updatedEtag": result.get("updatedEtag"),
             "previousEtag": result.get("previousEtag"),
         }
-
-
-def _parse_live_yaml(frontend_yaml: str) -> Optional[dict]:
-    """Parse the YAML the operator sees, so unsaved edits are migrated too."""
-    try:
-        parsed = yaml.safe_load(frontend_yaml)
-    except yaml.YAMLError as e:
-        raise ClientException(
-            detail=f"YAML parse error in flow metadata: {e}", status_code=422)
-    if not isinstance(parsed, dict):
-        raise ClientException(
-            detail="Invalid YAML format. Expected a mapping (key: value pairs).",
-            status_code=422,
-        )
-    return parsed

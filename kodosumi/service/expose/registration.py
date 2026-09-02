@@ -7,6 +7,9 @@ payment rail send the same display fields, so they are read in one place.
 
 from typing import Any, Dict, Optional
 
+import yaml
+from litestar.exceptions import ClientException
+
 from kodosumi.service.expose.registry import PAYMENT_SOURCE_TYPE_V1
 
 
@@ -75,3 +78,18 @@ def rail_fields(meta_data: dict) -> Dict[str, Any]:
         "migrationError": meta_data.get("migrationError"),
         "pendingMigration": meta_data.get("pendingMigration"),
     }
+
+
+def parse_live_yaml(frontend_yaml: str) -> dict:
+    """Parse the YAML the operator sees, so unsaved edits count too."""
+    try:
+        parsed = yaml.safe_load(frontend_yaml)
+    except yaml.YAMLError as e:
+        raise ClientException(
+            detail=f"YAML parse error in flow metadata: {e}", status_code=422)
+    if not isinstance(parsed, dict):
+        raise ClientException(
+            detail="Invalid YAML format. Expected a mapping (key: value pairs).",
+            status_code=422,
+        )
+    return parsed

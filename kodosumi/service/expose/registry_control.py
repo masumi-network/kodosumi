@@ -3,7 +3,6 @@ from contextlib import AsyncExitStack
 from typing import Optional
 
 import litestar
-import yaml
 from litestar import get, post
 from litestar.datastructures import State
 from litestar.exceptions import ClientException, NotFoundException
@@ -20,6 +19,7 @@ from kodosumi.service.expose.flow_meta import (
     registry_action_lock, update_flow_meta)
 from kodosumi.service.expose.migration import advance_migration, migration_lock
 from kodosumi.service.expose.registration import (build_agent_fields,
+                                                  parse_live_yaml,
                                                   rail_fields,
                                                   sumi_api_base_url)
 from kodosumi.service.expose.registry_response import registry_row_response
@@ -227,19 +227,7 @@ class RegistryControl(litestar.Controller):
                 status_code=422,
             )
         if frontend_yaml:
-            try:
-                parsed = yaml.safe_load(frontend_yaml)
-                if not isinstance(parsed, dict):
-                    raise ClientException(
-                        detail="Invalid YAML format — expected a mapping (key: value pairs).",
-                        status_code=422,
-                    )
-                meta_data = parsed
-            except yaml.YAMLError as e:
-                raise ClientException(
-                    detail=f"YAML parse error in flow metadata: {e}",
-                    status_code=422,
-                )
+            meta_data = parse_live_yaml(frontend_yaml)
         else:
             meta_data = get_flow_meta(row, flow_url)
         if meta_data is None:
