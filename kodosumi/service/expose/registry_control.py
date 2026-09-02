@@ -371,6 +371,12 @@ class RegistryControl(litestar.Controller):
                 "paymentSourceType": payment_source_type if is_v2 else None,
                 "supportedPaymentSourceIndex":
                     DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX if is_v2 else None,
+                # The price the agent was minted with. It is saved even
+                # when the expose ETag moved during the mint, because the
+                # on-chain agent charges this price from now on.
+                "agentPricing": (
+                    yaml_pricing if pricing_type
+                    else meta_data.get("agentPricing")),
             }
             updated_yaml = await update_flow_meta(
                 row, name, flow_url, meta_updates,
@@ -380,11 +386,6 @@ class RegistryControl(litestar.Controller):
                     "agentIdentifier": saved_meta.get("agentIdentifier"),
                     "registrationId": saved_registration_id,
                     "pendingMigration": saved_meta.get("pendingMigration"),
-                },
-                conditional_updates={
-                    "agentPricing": (
-                        yaml_pricing if pricing_type
-                        else meta_data.get("agentPricing")),
                 },
             )
             if updated_yaml is None:

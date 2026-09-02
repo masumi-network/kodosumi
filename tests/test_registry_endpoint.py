@@ -140,3 +140,28 @@ class TestAmbiguousWallet:
         assert err.value.status_code == 422
         assert "more than one payment source" in err.value.detail
         register.assert_not_called()
+
+
+class TestRegisterSavesTheMintedPrice:
+
+    @pytest.mark.asyncio
+    async def test_the_dialog_price_is_a_plain_update(self):
+        # The expose ETag can move while the mint call runs (a poll of a
+        # sibling flow, a boot). The agent charges the dialog price from
+        # now on, so that price must not depend on the ETag check.
+        mocks = _patches(meta={"display": "A"})
+        write = patch(
+            "kodosumi.service.expose.registry_control.update_flow_meta",
+            new_callable=AsyncMock, return_value="display: A\n")
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["wallets"], mocks["register"], write as mock_write:
+            result = await REGISTER(
+                None, name="expose",
+                data={"flow_url": "/flow", "wallet_vkey": "vkey1",
+                      "pricing_type": "Fixed", "amount": "0.5",
+                      "currency": "ADA"},
+                state=_state())
+        assert result["registrationId"] == "reg1"
+        updates = mock_write.call_args.args[3]
+        assert updates["agentPricing"][0]["pricingType"] == "Fixed"
+        assert "conditional_updates" not in mock_write.call_args.kwargs
