@@ -42,7 +42,8 @@ async def test_heal_queries_registry_and_returns_identifier(mock_state):
     with patch("kodosumi.service.expose.registry.get_registration_status", new_callable=AsyncMock) as mock_reg, \
          patch("kodosumi.service.expose.db.get_expose", new_callable=AsyncMock, return_value=None), \
          patch("kodosumi.service.expose.db.update_expose_meta", new_callable=AsyncMock):
-        mock_reg.return_value = {"agentIdentifier": "found_id_123"}
+        mock_reg.return_value = {"agentIdentifier": "found_id_123",
+                                 "state": "RegistrationConfirmed"}
         result = await _heal_agent_identifier("test_expose", meta, meta_data, mock_state)
 
     assert result == "found_id_123"
@@ -98,7 +99,9 @@ async def test_heal_persists_through_the_shared_writer(mock_state):
     row = {"meta": yaml.dump(stored, sort_keys=False)}
 
     with patch("kodosumi.service.expose.registry.get_registration_status",
-               new_callable=AsyncMock, return_value={"agentIdentifier": "found_id_123"}), \
+               new_callable=AsyncMock,
+               return_value={"agentIdentifier": "found_id_123",
+                             "state": "RegistrationConfirmed"}), \
          patch("kodosumi.service.expose.db.get_expose",
                new_callable=AsyncMock, return_value=row), \
          patch("kodosumi.service.expose.flow_meta.db.get_expose",

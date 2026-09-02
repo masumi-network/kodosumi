@@ -11,6 +11,7 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import yaml
 
 from kodosumi.config import MasumiConfig
 from kodosumi.service.expose.migration import (advance_migration, burn_target,
@@ -164,7 +165,8 @@ def _stateful_meta(meta: dict):
     """
     stored = {"data": dict(meta)}
 
-    async def fake_write(row, expose_name, flow_url, updates, base_data=None):
+    async def fake_write(row, expose_name, flow_url, updates,
+                         base_data=None, **kwargs):
         for key, value in updates.items():
             if value is None:
                 stored["data"].pop(key, None)
@@ -178,9 +180,15 @@ def _stateful_meta(meta: dict):
     return stored, fake_write, read_flow
 
 
+def _flow_row(meta: dict) -> dict:
+    """Store the flow the way advance_migration re-reads it."""
+    return {"meta": yaml.dump(
+        [{"url": "/flow", "data": yaml.dump(meta or {})}])}
+
+
 class TestAdvanceMigration:
 
-    def _patch(self, status_result, deregister=None, row=None):
+    def _patch(self, status_result, deregister=None, meta=None):
         return (
             patch("kodosumi.service.expose.migration.get_registration_status",
                   new_callable=AsyncMock, return_value=status_result),
@@ -191,8 +199,7 @@ class TestAdvanceMigration:
             patch("kodosumi.service.expose.migration.update_flow_meta",
                   new_callable=AsyncMock, return_value="display: My Agent\n"),
             patch("kodosumi.service.expose.migration.db.get_expose",
-                  new_callable=AsyncMock,
-                  return_value=row if row is not None else {"meta": "[]"}),
+                  new_callable=AsyncMock, return_value=_flow_row(meta)),
         )
 
     @pytest.mark.asyncio
@@ -209,7 +216,8 @@ class TestAdvanceMigration:
     async def test_unconfirmed_mint_leaves_the_flow_on_v1(self):
         meta = {**_registered_meta(), "pendingMigration": _pending()}
         status, dereg, write, read = self._patch(
-            {"state": "RegistrationRequested", "agentIdentifier": None})
+            {"state": "RegistrationRequested", "agentIdentifier": None},
+            meta=meta)
         with status, dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta)
@@ -219,7 +227,7 @@ class TestAdvanceMigration:
     @pytest.mark.asyncio
     async def test_missing_registry_answer_reports_polling(self):
         meta = {**_registered_meta(), "pendingMigration": _pending()}
-        status, dereg, write, read = self._patch(None)
+        status, dereg, write, read = self._patch(None, meta=meta)
         with status, dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta)
@@ -230,7 +238,8 @@ class TestAdvanceMigration:
     async def test_confirmed_mint_swaps_the_flow_over(self):
         meta = {**_registered_meta(), "pendingMigration": _pending()}
         status, dereg, write, read = self._patch(
-            {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"})
+            {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"},
+            meta=meta)
         with status, dereg as mock_dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
@@ -245,7 +254,8 @@ class TestAdvanceMigration:
     async def test_a_failed_mint_clears_the_pending_record(self):
         meta = {**_registered_meta(), "pendingMigration": _pending()}
         status, dereg, write, read = self._patch(
-            {"state": "RegistrationFailed", "agentIdentifier": None})
+            {"state": "RegistrationFailed", "agentIdentifier": None},
+            meta=meta)
         with status, dereg as mock_dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
@@ -261,7 +271,8 @@ class TestAdvanceMigration:
         meta = {**_registered_meta(),
                 "pendingMigration": _pending(deregister_previous=True)}
         status, dereg, write, read = self._patch(
-            {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"})
+            {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"},
+            meta=meta)
         with status, dereg as mock_dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=False)
@@ -279,9 +290,10 @@ class TestAdvanceMigration:
                 "paymentSourceType": "Web3CardanoV2",
                 "previousRegistration": _previous()}
         status, dereg, write, read = self._patch(
-            {"id": "v1-reg", "state": "RegistrationConfirmed"},
+            {"id": "v1-reg", "agentIdentifier": "v1-agent",
+             "state": "RegistrationConfirmed"},
             deregister={"id": "v1-reg",
-                        "state": "DeregistrationRequested"})
+                        "state": "DeregistrationRequested"}, meta=meta)
         with status as mock_status, dereg as mock_dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
@@ -299,9 +311,10 @@ class TestAdvanceMigration:
                 "paymentSourceType": "Web3CardanoV2",
                 "previousRegistration": _previous()}
         status, dereg, write, read = self._patch(
-            {"id": "v1-reg", "state": "RegistrationConfirmed"},
+            {"id": "v1-reg", "agentIdentifier": "v1-agent",
+             "state": "RegistrationConfirmed"},
             deregister={"id": "v1-reg",
-                        "state": "DeregistrationRequested"})
+                        "state": "DeregistrationRequested"}, meta=meta)
         with status, dereg, write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
@@ -314,7 +327,14 @@ class TestAdvanceMigration:
         stored, fake_write, read_flow = _stateful_meta(meta)
         status, dereg, write, read = self._patch(
             {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"})
-        with status, dereg as mock_dereg, write as mock_write, read, read_flow:
+        with status as mock_status, dereg as mock_dereg, \
+                write as mock_write, read, read_flow:
+            mock_status.side_effect = [
+                {"state": "RegistrationConfirmed",
+                 "agentIdentifier": "v2-agent"},
+                {"id": "v1-reg", "agentIdentifier": "v1-agent",
+                 "state": "RegistrationConfirmed"},
+            ]
             mock_write.side_effect = fake_write
             await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
@@ -352,7 +372,14 @@ class TestAdvanceMigration:
         status, dereg, write, read = self._patch(
             {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"},
             deregister=RuntimeError("Deregistration failed: no collateral"))
-        with status, dereg, write as mock_write, read, read_flow:
+        with status as mock_status, dereg, write as mock_write, \
+                read, read_flow:
+            mock_status.side_effect = [
+                {"state": "RegistrationConfirmed",
+                 "agentIdentifier": "v2-agent"},
+                {"id": "v1-reg", "agentIdentifier": "v1-agent",
+                 "state": "RegistrationConfirmed"},
+            ]
             mock_write.side_effect = fake_write
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
@@ -379,7 +406,7 @@ class TestAdvanceMigration:
         write = patch("kodosumi.service.expose.migration.update_flow_meta",
                       new_callable=AsyncMock)
         read = patch("kodosumi.service.expose.migration.db.get_expose",
-                     new_callable=AsyncMock, return_value={"meta": "[]"})
+                     new_callable=AsyncMock, return_value=_flow_row(meta))
         with status, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta)
@@ -402,8 +429,10 @@ class TestAdvanceMigration:
             mock_status.side_effect = [
                 {"state": "RegistrationConfirmed",
                  "agentIdentifier": "v2-agent"},
-                {"id": "v1-reg", "state": "RegistrationConfirmed"},
-                {"id": "v1-reg", "state": "DeregistrationRequested"},
+                {"id": "v1-reg", "agentIdentifier": "v1-agent",
+                 "state": "RegistrationConfirmed"},
+                {"id": "v1-reg", "agentIdentifier": "v1-agent",
+                 "state": "DeregistrationRequested"},
             ]
             mock_write.side_effect = fake_write
             results = await asyncio.gather(

@@ -78,6 +78,18 @@ def _patches(row=None, meta=None, wallets=None, register=None,
              deregister=None):
     """Patch everything the handlers reach outside their own module."""
     meta = _meta() if meta is None else meta
+
+    async def migration_write(row, expose_name, flow_url, updates,
+                              base_data=None, **kwargs):
+        # A burn re-reads the flow after it records its intent, so the
+        # write has to land in the dict that re-read returns.
+        for key, value in updates.items():
+            if value is None:
+                meta.pop(key, None)
+            else:
+                meta[key] = value
+        return "display: My Agent\n"
+
     return {
         "init": patch(
             "kodosumi.service.expose.migrate_control.db.init_database",
@@ -97,11 +109,12 @@ def _patches(row=None, meta=None, wallets=None, register=None,
             return_value=meta),
         "migration_write": patch(
             "kodosumi.service.expose.migration.update_flow_meta",
-            new_callable=AsyncMock, return_value="display: My Agent\n"),
+            new_callable=AsyncMock, side_effect=migration_write),
         "status": patch(
             "kodosumi.service.expose.migration.get_registration_status",
             new_callable=AsyncMock,
             return_value={"id": "v1-reg",
+                          "agentIdentifier": "v1-agent",
                           "state": "RegistrationConfirmed"}),
         "wallets": patch(
             "kodosumi.service.expose.registry.list_wallets",
