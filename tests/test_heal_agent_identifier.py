@@ -73,3 +73,47 @@ async def test_heal_returns_none_on_registry_exception(mock_state):
         result = await _heal_agent_identifier("test_expose", meta, meta_data, mock_state)
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_heal_persists_through_the_shared_writer(mock_state):
+    # Every flow of an expose shares one meta column. The heal runs on the
+    # serving path while the admin panel polls, so it has to write through
+    # the locked writer instead of rewriting the column itself.
+    import yaml
+
+    from kodosumi.service.sumi.control import _heal_agent_identifier
+
+    meta = MagicMock()
+    meta.url = "/flow-a"
+    meta_data = {"registrationId": "abc123", "network": "Preprod"}
+    stored = [
+        {"url": "/flow-a",
+         "data": yaml.dump({"display": "A", "registrationId": "abc123"},
+                           sort_keys=False)},
+        {"url": "/flow-b",
+         "data": yaml.dump({"display": "B", "registrationId": "def456"},
+                           sort_keys=False)},
+    ]
+    row = {"meta": yaml.dump(stored, sort_keys=False)}
+
+    with patch("kodosumi.service.expose.registry.get_registration_status",
+               new_callable=AsyncMock, return_value={"agentIdentifier": "found_id_123"}), \
+         patch("kodosumi.service.expose.db.get_expose",
+               new_callable=AsyncMock, return_value=row), \
+         patch("kodosumi.service.expose.flow_meta.db.get_expose",
+               new_callable=AsyncMock, return_value=row), \
+         patch("kodosumi.service.expose.flow_meta.db.update_expose_meta",
+               new_callable=AsyncMock) as mock_write:
+        result = await _heal_agent_identifier(
+            "test_expose", meta, meta_data, mock_state)
+
+    assert result == "found_id_123"
+    saved = yaml.safe_load(mock_write.call_args.args[1])
+    by_url = {e["url"]: yaml.safe_load(e["data"]) for e in saved}
+    assert by_url["/flow-a"]["agentIdentifier"] == "found_id_123"
+    # The sibling flow of the same expose keeps its own registration.
+    assert by_url["/flow-b"] == {"display": "B", "registrationId": "def456"}
+    # The operator's key order survives, so the editor does not reshuffle.
+    assert list(by_url["/flow-a"]) == [
+        "display", "registrationId", "agentIdentifier"]

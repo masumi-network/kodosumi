@@ -12,8 +12,6 @@ import sqlite3
 import time
 from typing import Literal, Optional, Union
 
-import yaml
-
 from litestar import Request
 from litestar.exceptions import HTTPException
 import ray
@@ -43,7 +41,8 @@ async def _heal_agent_identifier(
 ) -> Optional[str]:
     """Query Masumi registry for agentIdentifier and persist it in expose meta."""
     from kodosumi.service.expose.registry import get_registration_status
-    from kodosumi.service.expose.db import get_expose, update_expose_meta
+    from kodosumi.service.expose.db import get_expose
+    from kodosumi.service.expose.flow_meta import update_flow_meta
 
     registration_id = meta_data_dict.get("registrationId", "")
     network = meta_data_dict.get("network") or ""
@@ -76,27 +75,15 @@ async def _heal_agent_identifier(
     if not agent_id:
         return None
 
-    # Persist back to expose meta
+    # Persist back through the shared writer. It serialises the write per
+    # expose, and every flow of an expose shares one meta column: a poll
+    # from the admin panel writing at the same moment would otherwise drop
+    # whichever of the two changes landed first.
     try:
         row = await get_expose(expose_name)
-        if row and row.get("meta"):
-            import yaml
-            outer = yaml.safe_load(row["meta"])
-            if isinstance(outer, list):
-                for entry in outer:
-                    if not isinstance(entry, dict):
-                        continue
-                    data_str = entry.get("data", "")
-                    if not data_str:
-                        continue
-                    inner = yaml.safe_load(data_str)
-                    if isinstance(inner, dict) and inner.get("registrationId") == registration_id:
-                        inner["agentIdentifier"] = agent_id
-                        entry["data"] = yaml.dump(inner, default_flow_style=False, allow_unicode=True)
-                        new_meta = yaml.dump(outer, default_flow_style=False, allow_unicode=True)
-                        await update_expose_meta(expose_name, new_meta)
-                        logger.info("Self-healed agentIdentifier for %s", expose_name)
-                        break
+        if row and await update_flow_meta(
+                row, expose_name, meta.url, {"agentIdentifier": agent_id}):
+            logger.info("Self-healed agentIdentifier for %s", expose_name)
     except Exception as e:
         logger.warning("Failed to persist healed agentIdentifier for %s: %s", expose_name, e)
 

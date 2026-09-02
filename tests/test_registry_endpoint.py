@@ -6,7 +6,6 @@ burn that should not have happened cannot be taken back.
 """
 
 import pytest
-import yaml
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from litestar.exceptions import ClientException

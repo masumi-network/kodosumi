@@ -189,7 +189,7 @@ class RegistryControl(litestar.Controller):
         # Validate API connectivity first
         from kodosumi.service.expose.registry import (
             register_agent, pricing_yaml_to_registry, pricing_to_yaml_format,
-            update_meta_yaml_field, list_wallets,
+            list_wallets,
             registry_pricing_to_supported_sources, select_wallet,
             DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX,
             PAYMENT_SOURCE_TYPE_V1, PAYMENT_SOURCE_TYPE_V2,
