@@ -22,8 +22,8 @@ from kodosumi.service.jwt import operator_guard
 from kodosumi.service.expose import db
 from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
 from kodosumi.service.expose.migration import (
-    CANCEL_NOTICE, cancel_migration_updates, pending_migration,
-    start_migration_updates)
+    CANCEL_NOTICE, cancel_migration_updates, migration_lock,
+    pending_migration, start_migration_updates)
 from kodosumi.service.expose.registration import (
     build_agent_fields, sumi_api_base_url)
 
@@ -88,23 +88,6 @@ class RegistryMigrateControl(litestar.Controller):
             raise ClientException(
                 detail=f"Flow '{flow_url}' not found", status_code=404)
 
-        agent_id = meta_data.get("agentIdentifier")
-        if not agent_id:
-            raise ClientException(
-                detail="This flow is not registered yet. Register it first.",
-                status_code=409,
-            )
-        if meta_data.get("paymentSourceType") == PAYMENT_SOURCE_TYPE_V2:
-            raise ClientException(
-                detail="This flow already runs on a Web3CardanoV2 payment source.",
-                status_code=409,
-            )
-        if meta_data.get("pendingMigration"):
-            raise ClientException(
-                detail="A migration is already waiting for confirmation.",
-                status_code=409,
-            )
-
         try:
             wallets = await list_wallets(masumi)
         except Exception as e:
@@ -137,55 +120,84 @@ class RegistryMigrateControl(litestar.Controller):
                 status_code=422,
             )
 
-        # The dialog tells the operator that the migration carries the V1
-        # listing over. Everything the mint advertises therefore has to come
-        # from the saved metadata, not from an unsaved edit in the editor.
-        saved_meta = get_flow_meta(row, flow_url) or {}
-        fields = build_agent_fields(meta_data, name)
-        if (fields != build_agent_fields(saved_meta, name)
-                or legacy_pricing != saved_meta.get("agentPricing")):
-            raise ClientException(
-                detail="The editor holds unsaved changes to the agent name, "
-                       "description, tags or pricing. Save the flow first, so "
-                       "the new agent matches the V1 listing it replaces.",
-                status_code=409,
-            )
+        # The mint is irreversible, so the decision to make it and the
+        # record of it are taken under the lock every other migration step
+        # holds. Two clicks would otherwise both pass the checks below and
+        # mint two V2 agents, of which only the second one is recorded.
+        async with migration_lock(name, flow_url):
+            row = await db.get_expose(name) or row
+            # The saved metadata decides, never the request body: the
+            # editor content is supplied by the caller, so a stale copy of
+            # it would answer "nothing pending" for a running migration.
+            saved_meta = get_flow_meta(row, flow_url) or {}
+            if not saved_meta.get("agentIdentifier"):
+                raise ClientException(
+                    detail="This flow is not registered yet. Register it "
+                           "first.",
+                    status_code=409,
+                )
+            if saved_meta.get("paymentSourceType") == PAYMENT_SOURCE_TYPE_V2:
+                raise ClientException(
+                    detail="This flow already runs on a Web3CardanoV2 "
+                           "payment source.",
+                    status_code=409,
+                )
+            if saved_meta.get("pendingMigration"):
+                raise ClientException(
+                    detail="A migration is already waiting for confirmation.",
+                    status_code=409,
+                )
 
-        reg_network = masumi.registry_network
-        try:
-            supported_payment_sources = registry_pricing_to_supported_sources(
-                pricing_yaml_to_registry(legacy_pricing, reg_network),
-                reg_network,
-                wallet.get("smartContractAddress", ""),
-            )
-        except ValueError as e:
-            raise ClientException(detail=str(e), status_code=422)
+            # The dialog tells the operator that the migration carries the
+            # V1 listing over. Everything the mint advertises therefore has
+            # to come from the saved metadata, not from an unsaved edit.
+            fields = build_agent_fields(meta_data, name)
+            if (fields != build_agent_fields(saved_meta, name)
+                    or legacy_pricing != saved_meta.get("agentPricing")):
+                raise ClientException(
+                    detail="The editor holds unsaved changes to the agent "
+                           "name, description, tags or pricing. Save the "
+                           "flow first, so the new agent matches the V1 "
+                           "listing it replaces.",
+                    status_code=409,
+                )
 
-        try:
-            result = await register_agent(
-                masumi=masumi,
-                name=fields["name"],
-                description=fields["description"],
-                api_base_url=sumi_api_base_url(
-                    state["settings"].sumi_address, flow_url),
-                tags=fields["tags"],
-                pricing=None,
-                author=fields["author"],
-                capability=fields["capability"],
-                legal=fields["legal"],
-                wallet_vkey=wallet_vkey,
-                supported_payment_sources=supported_payment_sources,
-            )
-        except RuntimeError as e:
-            raise ClientException(detail=str(e), status_code=502)
+            reg_network = masumi.registry_network
+            try:
+                supported_payment_sources = (
+                    registry_pricing_to_supported_sources(
+                        pricing_yaml_to_registry(legacy_pricing, reg_network),
+                        reg_network,
+                        wallet.get("smartContractAddress", ""),
+                    ))
+            except ValueError as e:
+                raise ClientException(detail=str(e), status_code=422)
 
-        registration_id = result.get("id", "")
-        deregister_previous = bool(data.get("deregister_previous"))
-        updated_yaml = await update_flow_meta(
-            row, name, flow_url,
-            start_migration_updates(registration_id, deregister_previous),
-            base_data=frontend_yaml or None,
-        )
+            try:
+                result = await register_agent(
+                    masumi=masumi,
+                    name=fields["name"],
+                    description=fields["description"],
+                    api_base_url=sumi_api_base_url(
+                        state["settings"].sumi_address, flow_url),
+                    tags=fields["tags"],
+                    pricing=None,
+                    author=fields["author"],
+                    capability=fields["capability"],
+                    legal=fields["legal"],
+                    wallet_vkey=wallet_vkey,
+                    supported_payment_sources=supported_payment_sources,
+                )
+            except RuntimeError as e:
+                raise ClientException(detail=str(e), status_code=502)
+
+            registration_id = result.get("id", "")
+            deregister_previous = bool(data.get("deregister_previous"))
+            updated_yaml = await update_flow_meta(
+                row, name, flow_url,
+                start_migration_updates(registration_id, deregister_previous),
+                base_data=frontend_yaml or None,
+            )
 
         return {
             "success": True,
@@ -222,16 +234,22 @@ class RegistryMigrateControl(litestar.Controller):
         if not flow_url:
             raise ClientException(detail="flow_url is required", status_code=422)
 
-        meta_data = get_flow_meta(row, flow_url)
-        if meta_data is None:
-            raise ClientException(
-                detail=f"Flow '{flow_url}' not found", status_code=404)
-        if not pending_migration(meta_data):
-            raise ClientException(
-                detail="This flow has no pending migration.", status_code=409)
+        # A poll running right now can be confirming the very mint this
+        # request gives up on. Take the lock it holds, so the cancel either
+        # lands before the swap or finds nothing pending afterwards.
+        async with migration_lock(name, flow_url):
+            row = await db.get_expose(name) or row
+            meta_data = get_flow_meta(row, flow_url)
+            if meta_data is None:
+                raise ClientException(
+                    detail=f"Flow '{flow_url}' not found", status_code=404)
+            if not pending_migration(meta_data):
+                raise ClientException(
+                    detail="This flow has no pending migration.",
+                    status_code=409)
 
-        updated_yaml = await update_flow_meta(
-            row, name, flow_url, cancel_migration_updates())
+            updated_yaml = await update_flow_meta(
+                row, name, flow_url, cancel_migration_updates())
         return {
             "success": True,
             "notice": CANCEL_NOTICE,
@@ -275,23 +293,29 @@ class RegistryMigrateControl(litestar.Controller):
             raise ClientException(
                 detail=f"Flow '{flow_url}' not found", status_code=404)
 
-        previous = meta_data.get("previousRegistration") or {}
-        previous_agent_id = previous.get("agentIdentifier")
-        if not previous_agent_id:
-            raise ClientException(
-                detail="This flow has no previous registration on chain.",
-                status_code=409,
-            )
+        # The automatic burn runs on the poll endpoint and holds this same
+        # lock. Without it both can read the record, burn the one agent
+        # twice, and the write below erases the error the other just wrote.
+        async with migration_lock(name, flow_url):
+            row = await db.get_expose(name) or row
+            meta_data = get_flow_meta(row, flow_url) or meta_data
+            previous = meta_data.get("previousRegistration") or {}
+            previous_agent_id = previous.get("agentIdentifier")
+            if not previous_agent_id:
+                raise ClientException(
+                    detail="This flow has no previous registration on chain.",
+                    status_code=409,
+                )
 
-        from kodosumi.service.expose.registry import deregister_agent
-        try:
-            result = await deregister_agent(masumi, previous_agent_id)
-        except RuntimeError as e:
-            raise ClientException(detail=str(e), status_code=502)
+            from kodosumi.service.expose.registry import deregister_agent
+            try:
+                result = await deregister_agent(masumi, previous_agent_id)
+            except RuntimeError as e:
+                raise ClientException(detail=str(e), status_code=502)
 
-        updated_yaml = await update_flow_meta(
-            row, name, flow_url,
-            {"previousRegistration": None, "migrationError": None})
+            updated_yaml = await update_flow_meta(
+                row, name, flow_url,
+                {"previousRegistration": None, "migrationError": None})
 
         return {
             "success": True,

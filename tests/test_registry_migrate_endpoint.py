@@ -273,6 +273,53 @@ class TestMigrateRefusals:
         register.assert_called_once()
 
 
+    @pytest.mark.asyncio
+    async def test_a_stale_editor_copy_cannot_hide_a_pending_migration(self):
+        # meta_yaml is supplied by the caller. A copy taken before the
+        # migration started carries no pendingMigration, and judging that
+        # copy would let a second click mint a second V2 agent.
+        saved = _meta(pendingMigration={"registrationId": "v2-reg"})
+        stale = _meta()
+        result, write, register = None, None, None
+        mocks = _patches(meta=saved)
+        with mocks["init"], mocks["row"], mocks["meta"], mocks["write"], \
+                mocks["wallets"], mocks["register"] as register, \
+                mocks["deregister"]:
+            with pytest.raises(ClientException) as err:
+                await MIGRATE(None, name="expose",
+                              data=_body(meta_yaml=yaml.dump(stale)),
+                              state=_state())
+        assert err.value.status_code == 409
+        assert "already waiting" in err.value.detail
+        register.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_waits_for_the_shared_migration_lock(self):
+        # A second click must not mint a second agent while the first
+        # request is still between its checks and its write.
+        import asyncio
+
+        from kodosumi.service.expose.migration import migration_lock
+
+        mocks = _patches()
+        lock = migration_lock("expose", "/flow")
+        async with lock:
+            with mocks["init"], mocks["row"], mocks["meta"], mocks["write"], \
+                    mocks["wallets"], mocks["register"] as register, \
+                    mocks["deregister"]:
+                task = asyncio.create_task(MIGRATE(
+                    None, name="expose", data=_body(), state=_state()))
+                for _ in range(5):
+                    await asyncio.sleep(0)
+                assert not task.done()
+                register.assert_not_called()
+        with mocks["init"], mocks["row"], mocks["meta"], mocks["write"], \
+                mocks["wallets"], mocks["register"] as register, \
+                mocks["deregister"]:
+            result = await task
+        assert result["success"] is True
+
+
 class TestMigrateSuccess:
 
     @pytest.mark.asyncio
@@ -403,3 +450,32 @@ class TestDeregisterPrevious:
                     None, name="expose", data={}, state=_state())
         assert err.value.status_code == 422
         deregister.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_waits_for_the_shared_migration_lock(self):
+        # The automatic burn on the poll endpoint holds this same lock. If
+        # the manual one did not, both could burn the one agent, and this
+        # endpoint's write would erase the error the other just recorded.
+        import asyncio
+
+        from kodosumi.service.expose.migration import migration_lock
+
+        meta = _meta(previousRegistration={"agentIdentifier": "v1-agent"})
+        mocks = _patches(meta=meta)
+        lock = migration_lock("expose", "/flow")
+        async with lock:
+            with mocks["init"], mocks["row"], mocks["meta"], \
+                    mocks["write"], mocks["deregister"] as deregister:
+                task = asyncio.create_task(DEREGISTER_PREVIOUS(
+                    None, name="expose", data={"flow_url": "/flow"},
+                    state=_state()))
+                for _ in range(5):
+                    await asyncio.sleep(0)
+                assert not task.done()
+                deregister.assert_not_called()
+            assert lock.locked()
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["write"], mocks["deregister"] as deregister:
+            result = await task
+        assert result["success"] is True
+        assert deregister.call_args.args[1] == "v1-agent"

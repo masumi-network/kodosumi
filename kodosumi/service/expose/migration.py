@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional
 from kodosumi.config import MasumiConfig
 from kodosumi.service.expose import db
 from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
+from kodosumi.service.expose.locks import keyed_lock
 from kodosumi.service.expose.registry import (
     DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX,
     PAYMENT_SOURCE_TYPE_V1,
@@ -40,15 +41,16 @@ logger = logging.getLogger(__name__)
 FAILED_REGISTRATION_STATE = "RegistrationFailed"
 CONFIRMED_REGISTRATION_STATE = "RegistrationConfirmed"
 
-# One lock per flow. The admin panel calls in from every open tab, and
-# without this two callers read the same pre swap metadata, both write the
-# swap, and both burn the same agent.
-_MIGRATION_LOCKS: Dict[str, asyncio.Lock] = {}
+def migration_lock(expose_name: str, flow_url: str) -> asyncio.Lock:
+    """The lock every burn and swap decision of one flow has to hold.
 
-
-def _migration_lock(expose_name: str, flow_url: str) -> asyncio.Lock:
-    return _MIGRATION_LOCKS.setdefault(
-        f"{expose_name}\n{flow_url}", asyncio.Lock())
+    The admin panel calls in from every open tab, and without this two
+    callers read the same pre swap metadata, both write the swap, and both
+    burn the same agent. The automatic burn runs on the poll endpoint and
+    the manual one on its own endpoint, so they share this lock rather
+    than each taking their own.
+    """
+    return keyed_lock(f"migration\n{expose_name}\n{flow_url}")
 
 
 def pending_migration(meta_data: dict) -> Optional[Dict[str, Any]]:
@@ -183,7 +185,7 @@ async def advance_migration(
     if not pending_migration(meta_data) and not burn_target(meta_data):
         return None
 
-    async with _migration_lock(expose_name, flow_url):
+    async with migration_lock(expose_name, flow_url):
         # Re-read inside the lock: another request may have finished the
         # swap while this one waited for it.
         row = await db.get_expose(expose_name) or row

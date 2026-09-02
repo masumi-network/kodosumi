@@ -6,17 +6,12 @@ The registry endpoints read the registration keys out of that string and
 write them back, so both live here instead of on one controller.
 """
 
-import asyncio
-from typing import Dict, Optional
+from typing import Optional
 
 import yaml
 
 from kodosumi.service.expose import db
-
-# One lock per expose. Every flow of an expose shares a single meta column,
-# so two writers that each read it, change their own flow and write the
-# whole column back would drop one of the two changes.
-_EXPOSE_LOCKS: Dict[str, asyncio.Lock] = {}
+from kodosumi.service.expose.locks import keyed_lock
 
 
 def _parse_meta_list(row: dict) -> Optional[list]:
@@ -86,7 +81,10 @@ async def update_flow_meta(
     that lock: the caller's row was read earlier, and another request may
     have changed a different flow of the same expose since.
     """
-    async with _EXPOSE_LOCKS.setdefault(expose_name, asyncio.Lock()):
+    # One lock per expose. Every flow of an expose shares a single meta
+    # column, so two writers that each read it, change their own flow and
+    # write the whole column back would drop one of the two changes.
+    async with keyed_lock(f"expose\n{expose_name}"):
         return await _apply_flow_meta(
             await _fresh_row(expose_name, row),
             expose_name, flow_url, updates, base_data)
