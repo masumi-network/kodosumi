@@ -69,7 +69,7 @@ async def _heal_agent_identifier(
     except Exception:
         return None
 
-    if not reg:
+    if not reg or reg.get("state") != "RegistrationConfirmed":
         return None
     agent_id = reg.get("agentIdentifier", "")
     if not agent_id:
@@ -81,9 +81,18 @@ async def _heal_agent_identifier(
     # whichever of the two changes landed first.
     try:
         row = await get_expose(expose_name)
-        if row and await update_flow_meta(
-                row, expose_name, meta.url, {"agentIdentifier": agent_id}):
-            logger.info("Self-healed agentIdentifier for %s", expose_name)
+        if not row:
+            return agent_id
+        updated_yaml = await update_flow_meta(
+            row,
+            expose_name,
+            meta.url,
+            {"agentIdentifier": agent_id},
+            expected={"registrationId": registration_id},
+        )
+        if updated_yaml is None:
+            return None
+        logger.info("Self-healed agentIdentifier for %s", expose_name)
     except Exception as e:
         logger.warning("Failed to persist healed agentIdentifier for %s: %s", expose_name, e)
 
@@ -117,13 +126,12 @@ async def _advance_pending_migration(
         row = await get_expose(expose_name)
         if not row:
             return meta_data_dict
-        masumi_cfg = state["settings"].get_masumi(
-            network or row.get("network") or "")
+        registry_network = network or row.get("network") or ""
+        masumi_cfg = state["settings"].get_masumi(registry_network)
         # allow_burn stays off: a job must never burn an agent.
-        migration = await advance_migration(
-            masumi_cfg, row, expose_name, meta.url, meta_data_dict)
-        if not (migration and migration.get("updatedYaml")):
-            return meta_data_dict
+        await advance_migration(
+            masumi_cfg, row, expose_name, meta.url, meta_data_dict,
+            expected_network=registry_network)
         row = await get_expose(expose_name) or row
         return get_flow_meta(row, meta.url) or meta_data_dict
     except Exception as e:
@@ -437,6 +445,7 @@ async def _get_job_status_from_db(
     row = cursor.fetchone()
     identifier = None
     agent_identifier = None
+    input_hash = None
     if row:
         try:
             meta_data = dtypes.DynamicModel.model_validate_json(row[0])
@@ -445,6 +454,7 @@ async def _get_job_status_from_db(
             if isinstance(extra, dict):
                 identifier = extra.get("identifier_from_purchaser")
                 agent_identifier = extra.get("agentIdentifier")
+                input_hash = extra.get("input_hash")
         except Exception:
             pass
 
@@ -467,6 +477,7 @@ async def _get_job_status_from_db(
             pay_dict = pay_event.root.get("dict", {})
             if pay_dict.get("step") == "initialized":
                 blockchain_id = pay_dict.get("blockchainIdentifier")
+                input_hash = pay_dict.get("inputHash") or input_hash
                 pd = pay_dict.get("pay_data", {})
                 pay_by_time = int(pd["payByTime"]) if pd.get("payByTime") else None
                 submit_result_time = int(pd["submitResultTime"]) if pd.get("submitResultTime") else None
@@ -474,8 +485,8 @@ async def _get_job_status_from_db(
                 ext_dispute_unlock_time = int(pd["externalDisputeUnlockTime"]) if pd.get("externalDisputeUnlockTime") else None
                 sc_wallet = pd.get("SmartContractWallet") or {}
                 seller_vkey = sc_wallet.get("walletVkey")
-                # V2 rail markers. Absent on V1 payments and on payment
-                # events written before this field existed.
+                # Current runners store the resolved rail. Older payment
+                # events can omit these fields.
                 payment_source_type = pay_dict.get("paymentSourceType")
                 source_index = pay_dict.get("supportedPaymentSourceIndex")
         except Exception:
@@ -535,6 +546,7 @@ async def _get_job_status_from_db(
         error=error_msg if mip_status == "failed" else None,
         input_schema=None,  # Populated by caller when awaiting_input
         identifierFromPurchaser=identifier,
+        input_hash=input_hash,
         agentIdentifier=agent_identifier,
         blockchainIdentifier=blockchain_id,
         payByTime=pay_by_time,

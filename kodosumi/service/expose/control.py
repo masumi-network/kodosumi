@@ -40,6 +40,8 @@ from kodosumi.service.expose.models import (
     ExposeResponse,
     meta_to_yaml,
 )
+from kodosumi.service.expose.flow_meta import (has_registry_lifecycle,
+                                               registry_action_lock)
 
 # Default serve config
 RAY_SERVE_CONFIG = "./data/serve_config.yaml"
@@ -155,45 +157,21 @@ class ExposeControl(litestar.Controller):
             data.original_name
             and data.original_name != data.name
         )
-
-        if is_rename:
-            # Rename case: original_name -> name
-            # Check if the NEW name already exists (would be a different record)
-            existing_new = await db.get_expose(data.name)
-            if existing_new:
+        expected_updated = None
+        if data.etag:
+            try:
+                expected_updated = float(data.etag)
+            except ValueError:
                 raise ClientException(
-                    detail=f"An expose with name '{data.name}' already exists.",
+                    detail="This record has an invalid ETag. "
+                           "Please reload the page and try again.",
                     status_code=409,
                 )
-
-            # Validate ETag against the ORIGINAL record
-            if data.etag:
-                existing_original = await db.get_expose(data.original_name)
-                if existing_original:
-                    current_etag = str(existing_original["updated"])
-                    if data.etag != current_etag:
-                        raise ClientException(
-                            detail="This record has been modified by another user. "
-                                   "Please reload the page and try again.",
-                            status_code=409,
-                        )
-
-            # Delete the old record (will be recreated with new name)
-            await db.delete_expose(data.original_name)
-        else:
-            # Update case (same name or new record)
-            # ETag validation for optimistic concurrency control
-            if data.etag:
-                existing = await db.get_expose(data.name)
-                if existing:
-                    current_etag = str(existing["updated"])
-                    if data.etag != current_etag:
-                        raise ClientException(
-                            detail="This record has been modified by another user. "
-                                   "Please reload the page and try again.",
-                            status_code=409,
-                        )
-
+        if is_rename and expected_updated is None:
+            raise ClientException(
+                detail="Reload the record before renaming it.",
+                status_code=409,
+            )
         # Determine state based on actual Ray status
         if not data.bootstrap or not data.bootstrap.strip():
             # No bootstrap config = DRAFT
@@ -213,16 +191,47 @@ class ExposeControl(litestar.Controller):
         meta_yaml = meta_to_yaml(data.meta)
 
         # Upsert
-        row = await db.upsert_expose(
-            name=data.name,
-            display=data.display,
-            network=data.network,
-            enabled=data.enabled,
-            state=state_value,
-            heartbeat=now,
-            bootstrap=data.bootstrap,
-            meta=meta_yaml,
-        )
+        current_name = data.original_name if is_rename else data.name
+        async with registry_action_lock(current_name):
+            current = await db.get_expose(current_name)
+            has_registry = bool(
+                current and has_registry_lifecycle(current))
+            if current and expected_updated is None and has_registry:
+                raise ClientException(
+                    detail="Reload the record before editing an expose with "
+                           "registry state.",
+                    status_code=409,
+                )
+            if current and current.get("network") != data.network:
+                if expected_updated is None:
+                    raise ClientException(
+                        detail="Reload the record before changing its network.",
+                        status_code=409,
+                    )
+                if has_registry:
+                    raise ClientException(
+                        detail="Deregister all agents and clear registry "
+                               "actions before changing the expose network.",
+                        status_code=409,
+                    )
+            row = await db.upsert_expose(
+                name=data.name,
+                display=data.display,
+                network=data.network,
+                enabled=data.enabled,
+                state=state_value,
+                heartbeat=now,
+                bootstrap=data.bootstrap,
+                meta=meta_yaml,
+                expected_updated=expected_updated,
+                original_name=data.original_name if is_rename else None,
+            )
+        if row is None:
+            raise ClientException(
+                detail="This record has been modified by another user. "
+                       "Please reload the page and try again.",
+                status_code=409,
+            )
 
         return ExposeResponse.from_db_row(row)
 
@@ -443,7 +452,17 @@ class ExposeControl(litestar.Controller):
         if updated_metas:
             meta_yaml = meta_to_yaml(updated_metas)
             if meta_yaml:
-                await db.update_expose_meta(expose_name, meta_yaml)
+                saved = await db.update_expose_meta(
+                    expose_name,
+                    meta_yaml,
+                    expected_updated=float(row["updated"]),
+                    expected_meta=row.get("meta"),
+                )
+                if not saved:
+                    logger.warning(
+                        "Skipped stale health metadata for %s",
+                        expose_name,
+                    )
 
         await db.update_expose_state(expose_name, expose_state, now)
 

@@ -89,6 +89,12 @@ def app_exception_handler(request: Request,
         ret["status_code"] = exc.status_code
         extra = f" - {exc.extra}"
         meth = logger.warning
+    elif isinstance(exc, ClientException) and exc.extra:
+        ret["detail"] = exc.detail
+        ret["status_code"] = exc.status_code
+        ret["extra"] = exc.extra
+        extra = ""
+        meth = logger.warning
     else:
         ret["detail"] = str(exc)
         ret["status_code"] = getattr(exc,

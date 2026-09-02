@@ -207,6 +207,7 @@ class Runner:
                 network=pay_conf["network"],
                 input_hash=pay_conf["input_hash"],
                 identifier_from_purchaser=pay_conf["identifier_from_purchaser"],
+                payment_source_type=pay_conf.get("paymentSourceType"),
                 supported_payment_source_index=source_index,
             )
             blockchain_identifier = pay_resp.get("data", {}).get(
@@ -216,6 +217,13 @@ class Runner:
                     f"Payment init did not return blockchainIdentifier: {pay_resp}"
                 )
             pay_data = pay_resp.get("data", {})
+            payment_source = pay_data.get("PaymentSource") or {}
+            payment_source_type = (
+                payment_source.get("paymentSourceType")
+                or pay_conf.get("paymentSourceType")
+                or "Web3CardanoV1"
+            )
+            pay_conf["paymentSourceType"] = payment_source_type
 
             # The payment response does not repeat the source index, and the
             # buyer needs it to build the purchase, so keep the value this
@@ -226,7 +234,7 @@ class Runner:
                 "network": pay_conf["network"],
                 "inputHash": pay_conf["input_hash"],
                 "blockchainIdentifier": blockchain_identifier,
-                "paymentSourceType": pay_conf.get("paymentSourceType"),
+                "paymentSourceType": payment_source_type,
                 "supportedPaymentSourceIndex": source_index,
                 "pay_data": pay_data,
             }))

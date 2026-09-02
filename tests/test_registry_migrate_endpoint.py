@@ -6,10 +6,10 @@ each refusal is checked on its own: a mint that should not have happened
 cannot be taken back.
 """
 
-import pytest
-import yaml
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+import yaml
 from litestar.exceptions import ClientException, NotFoundException
 
 from kodosumi.config import MasumiConfig
@@ -36,7 +36,8 @@ def _state(network="Preprod") -> dict:
 
 
 def _row(network="Preprod") -> dict:
-    return {"name": "expose", "network": network, "meta": "[]"}
+    return {
+        "name": "expose", "network": network, "meta": "[]", "updated": 0.0}
 
 
 def _meta(**overrides) -> dict:
@@ -64,7 +65,11 @@ def _v2_wallet(**overrides) -> dict:
 
 
 def _body(**overrides) -> dict:
-    body = {"flow_url": "/flow", "wallet_vkey": "vkey-v2"}
+    body = {
+        "flow_url": "/flow",
+        "wallet_vkey": "vkey-v2",
+        "meta_etag": "0.0",
+    }
     body.update(overrides)
     return body
 
@@ -87,6 +92,17 @@ def _patches(row=None, meta=None, wallets=None, register=None,
         "write": patch(
             "kodosumi.service.expose.migrate_control.update_flow_meta",
             new_callable=AsyncMock, return_value="display: My Agent\n"),
+        "migration_meta": patch(
+            "kodosumi.service.expose.migration.get_flow_meta",
+            return_value=meta),
+        "migration_write": patch(
+            "kodosumi.service.expose.migration.update_flow_meta",
+            new_callable=AsyncMock, return_value="display: My Agent\n"),
+        "status": patch(
+            "kodosumi.service.expose.migration.get_registration_status",
+            new_callable=AsyncMock,
+            return_value={"id": "v1-reg",
+                          "state": "RegistrationConfirmed"}),
         "wallets": patch(
             "kodosumi.service.expose.registry.list_wallets",
             new_callable=AsyncMock,
@@ -97,7 +113,7 @@ def _patches(row=None, meta=None, wallets=None, register=None,
             return_value=register or {"id": "v2-reg",
                                       "state": "RegistrationRequested"}),
         "deregister": patch(
-            "kodosumi.service.expose.registry.deregister_agent",
+            "kodosumi.service.expose.migration.deregister_agent",
             new_callable=AsyncMock,
             **({"side_effect": deregister}
                if isinstance(deregister, Exception)
@@ -415,19 +431,23 @@ class TestDeregisterPrevious:
                                   "registrationId": "v1-reg"})
         mocks = _patches(meta=meta)
         with mocks["init"], mocks["row"], mocks["meta"], \
-                mocks["write"] as write, mocks["deregister"] as deregister:
+                mocks["migration_meta"], \
+                mocks["migration_write"] as write, mocks["status"], \
+                mocks["deregister"] as deregister:
             result = await DEREGISTER_PREVIOUS(
                 None, name="expose", data={"flow_url": "/flow"},
                 state=_state())
         assert result["success"] is True
         assert deregister.call_args.args[1] == "v1-agent"
-        assert write.call_args.args[3] == {
-            "previousRegistration": None, "migrationError": None}
+        previous = write.call_args.args[3]["previousRegistration"]
+        assert previous["agentIdentifier"] == "v1-agent"
+        assert previous["deregistrationState"] == "DeregistrationRequested"
 
     @pytest.mark.asyncio
     async def test_refuses_without_a_previous_registration(self):
         mocks = _patches()
         with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["migration_meta"], \
                 mocks["deregister"] as deregister:
             with pytest.raises(ClientException) as err:
                 await DEREGISTER_PREVIOUS(
@@ -444,6 +464,7 @@ class TestDeregisterPrevious:
             previousRegistration={"agentIdentifier": "v1-agent"})
         mocks = _patches(meta=meta)
         with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["migration_meta"], \
                 mocks["deregister"] as deregister:
             with pytest.raises(ClientException) as err:
                 await DEREGISTER_PREVIOUS(
@@ -465,7 +486,8 @@ class TestDeregisterPrevious:
         lock = migration_lock("expose", "/flow")
         async with lock:
             with mocks["init"], mocks["row"], mocks["meta"], \
-                    mocks["write"], mocks["deregister"] as deregister:
+                    mocks["migration_meta"], mocks["migration_write"], \
+                    mocks["status"], mocks["deregister"] as deregister:
                 task = asyncio.create_task(DEREGISTER_PREVIOUS(
                     None, name="expose", data={"flow_url": "/flow"},
                     state=_state()))
@@ -475,7 +497,8 @@ class TestDeregisterPrevious:
                 deregister.assert_not_called()
             assert lock.locked()
         with mocks["init"], mocks["row"], mocks["meta"], \
-                mocks["write"], mocks["deregister"] as deregister:
+                mocks["migration_meta"], mocks["migration_write"], \
+                mocks["status"], mocks["deregister"] as deregister:
             result = await task
         assert result["success"] is True
         assert deregister.call_args.args[1] == "v1-agent"

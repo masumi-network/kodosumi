@@ -297,6 +297,9 @@ class TestMergeFlowWithMeta:
 # _step_update_meta Tests
 # =============================================================================
 
+BOOT_ROW = {"updated": 1.0, "meta": "stored meta"}
+
+
 class TestStepUpdateMeta:
     """Tests for _step_update_meta generator function."""
 
@@ -370,11 +373,12 @@ class TestStepUpdateMeta:
 
         with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch, \
              patch("kodosumi.service.expose.boot.get_existing_meta") as mock_existing, \
+             patch("kodosumi.service.expose.boot.db.get_expose", return_value=BOOT_ROW), \
              patch("kodosumi.service.expose.boot.db.update_expose_meta") as mock_update:
 
             mock_fetch.return_value = mock_flows
             mock_existing.return_value = []
-            mock_update.return_value = None
+            mock_update.return_value = True
 
             async for msg in _step_update_meta("http://localhost:3370", None, flow_statuses, progress):
                 messages.append(msg)
@@ -433,12 +437,14 @@ class TestStepUpdateMeta:
         progress = BootProgress()
         saved_yaml = None
 
-        async def capture_save(name, yaml_str):
+        async def capture_save(name, yaml_str, **_kwargs):
             nonlocal saved_yaml
             saved_yaml = yaml_str
+            return True
 
         with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch, \
              patch("kodosumi.service.expose.boot.get_existing_meta") as mock_existing, \
+             patch("kodosumi.service.expose.boot.db.get_expose", return_value=BOOT_ROW), \
              patch("kodosumi.service.expose.boot.db.update_expose_meta", side_effect=capture_save):
 
             mock_fetch.return_value = mock_flows
@@ -492,12 +498,14 @@ class TestStepUpdateMeta:
         progress = BootProgress()
         saved_yaml = None
 
-        async def capture_save(name, yaml_str):
+        async def capture_save(name, yaml_str, **_kwargs):
             nonlocal saved_yaml
             saved_yaml = yaml_str
+            return True
 
         with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch, \
              patch("kodosumi.service.expose.boot.get_existing_meta") as mock_existing, \
+             patch("kodosumi.service.expose.boot.db.get_expose", return_value=BOOT_ROW), \
              patch("kodosumi.service.expose.boot.db.update_expose_meta", side_effect=capture_save):
 
             mock_fetch.return_value = mock_flows
@@ -546,7 +554,8 @@ class TestStepUpdateMeta:
 
         with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch, \
              patch("kodosumi.service.expose.boot.get_existing_meta") as mock_existing, \
-             patch("kodosumi.service.expose.boot.db.update_expose_meta"):
+             patch("kodosumi.service.expose.boot.db.get_expose", return_value=BOOT_ROW), \
+             patch("kodosumi.service.expose.boot.db.update_expose_meta", return_value=True):
 
             mock_fetch.return_value = mock_flows
             mock_existing.return_value = [existing_meta]
@@ -583,6 +592,7 @@ class TestStepUpdateMeta:
 
         with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch, \
              patch("kodosumi.service.expose.boot.get_existing_meta") as mock_existing, \
+             patch("kodosumi.service.expose.boot.db.get_expose", return_value=BOOT_ROW), \
              patch("kodosumi.service.expose.boot.db.update_expose_meta") as mock_update:
 
             mock_fetch.return_value = mock_flows
@@ -634,11 +644,13 @@ class TestUpdateMetaIntegration:
 
         saved_data = {}
 
-        async def capture_save(name, yaml_str):
+        async def capture_save(name, yaml_str, **_kwargs):
             saved_data[name] = yaml_str
+            return True
 
         with patch("kodosumi.service.expose.boot.fetch_registered_flows") as mock_fetch, \
              patch("kodosumi.service.expose.boot.get_existing_meta") as mock_existing, \
+             patch("kodosumi.service.expose.boot.db.get_expose", return_value=BOOT_ROW), \
              patch("kodosumi.service.expose.boot.db.update_expose_meta", side_effect=capture_save):
 
             mock_fetch.return_value = mock_flows

@@ -56,6 +56,9 @@ MAX_ATOMIC_AMOUNT = 9223372036854775807
 # cursor is inclusive, so a page repeats the row the cursor names.
 WALLET_PAGE_SIZE = 100
 MAX_WALLET_PAGES = 50
+MAX_CONCURRENT_WALLET_REQUESTS = 20
+PAYMENT_SOURCE_PAGE_SIZE = 100
+MAX_PAYMENT_SOURCE_PAGES = 50
 
 
 def human_to_base_amount(amount: float) -> str:
@@ -254,7 +257,11 @@ def registry_pricing_to_supported_sources(
 
 
 async def _list_source_selling_wallets(
-    client: Any, masumi: MasumiConfig, headers: Dict, source_id: str
+    client: Any,
+    masumi: MasumiConfig,
+    headers: Dict,
+    source_id: str,
+    require_complete: bool = False,
 ) -> List[Dict]:
     """
     Read selling wallets of one payment source from the /wallet endpoint.
@@ -278,6 +285,10 @@ async def _list_source_selling_wallets(
             url += f"&cursorId={cursor_id}"
         resp = await client.get(url, headers=headers)
         if resp.status_code != 200:
+            if require_complete:
+                raise RuntimeError(
+                    f"Could not list every wallet of payment source "
+                    f"{source_id}: HTTP {resp.status_code}")
             logger.warning(
                 "Failed to list wallets of payment source %s: %s",
                 source_id, resp.text,
@@ -292,11 +303,19 @@ async def _list_source_selling_wallets(
                  if not w.get("id") or w.get("id") not in seen_ids]
         seen_ids.update(w["id"] for w in fresh if w.get("id"))
         wallets.extend(fresh)
-        if len(page) < WALLET_PAGE_SIZE or not fresh:
+        if len(page) < WALLET_PAGE_SIZE:
             return wallets
         cursor_id = page[-1].get("id") or ""
-        if not cursor_id:
+        if not fresh or not cursor_id:
+            if require_complete:
+                raise RuntimeError(
+                    f"Could not completely paginate wallets of payment "
+                    f"source {source_id}")
             return wallets
+    if require_complete:
+        raise RuntimeError(
+            f"Could not completely paginate wallets of payment source "
+            f"{source_id} within {MAX_WALLET_PAGES} pages")
     logger.warning(
         "Stopped listing wallets of payment source %s after %s pages",
         source_id, MAX_WALLET_PAGES,
@@ -304,7 +323,72 @@ async def _list_source_selling_wallets(
     return wallets
 
 
-async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
+async def _list_payment_sources(
+    client: HTTPXClient,
+    masumi: MasumiConfig,
+    headers: dict,
+    require_complete: bool = False,
+) -> List[Dict]:
+    """List all payment sources across the node's inclusive cursor."""
+    sources: List[Dict] = []
+    seen_ids = set()
+    cursor_id = ""
+    for _ in range(MAX_PAYMENT_SOURCE_PAGES):
+        url = (
+            f"{masumi.base_url}/payment-source"
+            f"?network={masumi.registry_network}"
+            f"&take={PAYMENT_SOURCE_PAGE_SIZE}"
+        )
+        if cursor_id:
+            url += f"&cursorId={cursor_id}"
+        try:
+            resp = await client.get(url, headers=headers)
+        except Exception as error:
+            if require_complete:
+                raise RuntimeError(
+                    "Could not load the complete payment source list"
+                ) from error
+            logger.warning(
+                "Stopped listing payment sources after %s entries: %s",
+                len(sources), error,
+            )
+            return sources
+        if resp.status_code != 200:
+            if require_complete:
+                raise RuntimeError(
+                    "Could not load the complete payment source list: "
+                    f"HTTP {resp.status_code}")
+            logger.warning("Failed to list payment sources: %s", resp.text)
+            return sources
+        page = resp.json().get("data", {}).get("PaymentSources", [])
+        fresh = [source for source in page
+                 if not source.get("id")
+                 or source.get("id") not in seen_ids]
+        seen_ids.update(
+            source["id"] for source in fresh if source.get("id"))
+        sources.extend(fresh)
+        if len(page) < PAYMENT_SOURCE_PAGE_SIZE:
+            return sources
+        cursor_id = page[-1].get("id") or ""
+        if not fresh or not cursor_id:
+            if require_complete:
+                raise RuntimeError(
+                    "Could not completely paginate payment sources")
+            return sources
+    if require_complete:
+        raise RuntimeError(
+            "Could not load the complete payment source list within "
+            f"{MAX_PAYMENT_SOURCE_PAGES} pages")
+    logger.warning(
+        "Stopped listing payment sources after %s pages",
+        MAX_PAYMENT_SOURCE_PAGES,
+    )
+    return sources
+
+
+async def list_wallets(
+    masumi: MasumiConfig, require_complete: bool = False
+) -> List[Dict]:
     """
     List selling wallets from Masumi Payment API.
 
@@ -313,36 +397,43 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
     its payment source, because the wallet selects the registration
     version: a Web3CardanoV2 wallet registers a V2 agent.
     """
-    url = f"{masumi.base_url}/payment-source?network={masumi.registry_network}"
     headers = {"accept": "application/json", "token": masumi.token}
 
     try:
         async with HTTPXClient() as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code != 200:
-                logger.warning("Failed to list wallets: %s", resp.text)
-                return []
-            data = resp.json().get("data", {})
+            payment_sources = await _list_payment_sources(
+                client, masumi, headers, require_complete)
             sources = [
-                source for source in data.get("PaymentSources", [])
+                source for source in payment_sources
                 if not source.get("network")
                 or source.get("network") == masumi.registry_network
             ]
-            # Sources without embedded wallets cost one request each. Run
-            # them together: the register and migrate dialogs both wait on
-            # this call before they can show anything.
             missing = [index for index, source in enumerate(sources)
                        if not source.get("SellingWallets")]
-            # return_exceptions: one unreachable source must not blank the
-            # whole wallet list, or the operator cannot register at all.
-            results = await asyncio.gather(*[
-                _list_source_selling_wallets(
-                    client, masumi, headers, sources[index].get("id", ""))
-                for index in missing
-            ], return_exceptions=True)
+            semaphore = asyncio.Semaphore(
+                MAX_CONCURRENT_WALLET_REQUESTS)
+
+            async def fetch_wallets(index: int) -> List[Dict]:
+                async with semaphore:
+                    return await _list_source_selling_wallets(
+                        client,
+                        masumi,
+                        headers,
+                        sources[index].get("id", ""),
+                        require_complete,
+                    )
+
+            results = await asyncio.gather(
+                *(fetch_wallets(index) for index in missing),
+                return_exceptions=True,
+            )
             fetched = {}
             for index, result in zip(missing, results):
                 if isinstance(result, BaseException):
+                    if require_complete:
+                        raise RuntimeError(
+                            "Could not load the complete selling wallet "
+                            "inventory") from result
                     logger.warning(
                         "Failed to list wallets of payment source %s: %s",
                         sources[index].get("id", ""), result)
@@ -368,6 +459,8 @@ async def list_wallets(masumi: MasumiConfig) -> List[Dict]:
             return wallets
     except Exception as e:
         logger.error("Error listing wallets: %s", e)
+        if require_complete:
+            raise
         return []
 
 
@@ -467,6 +560,7 @@ async def get_registration_status(
     agent_identifier: Optional[str] = None,
     search_query: Optional[str] = None,
     payment_source_type: Optional[str] = None,
+    registry_row_only: bool = False,
 ) -> Optional[Dict]:
     """
     Check registration status from Masumi Registry.
@@ -475,11 +569,13 @@ async def get_registration_status(
     Pass payment_source_type for a V2 registration: the registry list
     endpoint falls back to Web3CardanoV1 when no type is given, so a V2
     registration never appears in the paginated search without it.
+    Set registry_row_only when the request lifecycle state matters. The
+    direct agent lookup can only report whether the NFT exists.
     Returns the matching registration dict or None.
     """
     headers = {"accept": "application/json", "token": masumi.token}
 
-    if agent_identifier:
+    if agent_identifier and not registration_id and not registry_row_only:
         url = f"{masumi.base_url}/registry/agent-identifier?network={masumi.registry_network}&agentIdentifier={agent_identifier}"
         try:
             async with HTTPXClient() as client:
@@ -530,9 +626,16 @@ async def get_registration_status(
                 if not assets:
                     break
                 for asset in assets:
-                    if registration_id and asset.get("id") == registration_id:
-                        return asset
-                    if agent_identifier and asset.get("agentIdentifier") == agent_identifier:
+                    id_matches = (
+                        not registration_id
+                        or asset.get("id") == registration_id
+                    )
+                    agent_matches = (
+                        not agent_identifier
+                        or asset.get("agentIdentifier") == agent_identifier
+                    )
+                    if ((registration_id or agent_identifier)
+                            and id_matches and agent_matches):
                         return asset
                 if search_query and assets:
                     return assets[0]

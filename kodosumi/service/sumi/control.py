@@ -362,19 +362,8 @@ class SumiControl(Controller):
         # Fetch input schemas when awaiting_input (MIP-003 status)
         if status_data.status == "awaiting_input" and pending_locks:
             awaiting_schema = await _fetch_lock_input_schemas(job_id, pending_locks)
-            # Create new response with MIP-003 input_schema included
-            return JobStatusResponse(
-                job_id=status_data.job_id,
-                status=status_data.status,
-                result=status_data.result,
-                error=status_data.error,
-                input_schema=awaiting_schema,
-                identifierFromPurchaser=status_data.identifierFromPurchaser,
-                agentIdentifier=status_data.agentIdentifier,
-                startedAt=status_data.startedAt,
-                updatedAt=status_data.updatedAt,
-                runtime=status_data.runtime,
-            )
+            return status_data.model_copy(
+                update={"input_schema": awaiting_schema})
 
         return status_data
 

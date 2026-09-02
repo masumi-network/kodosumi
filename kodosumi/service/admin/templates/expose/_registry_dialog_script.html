@@ -65,6 +65,9 @@ function openRegisterDialog(idx) {
     document.getElementById('dlg_optional_info').textContent = optParts.length ? optParts.join(' | ') : 'All set';
 
     document.getElementById('dlg_error').style.display = 'none';
+    var submitBtn = document.getElementById('dlg_submit');
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i>app_registration</i> Register Agent';
     updateCalc();
     document.getElementById('register-dialog').showModal();
 }
@@ -115,13 +118,16 @@ async function submitRegistration() {
     // Send current textarea YAML so backend uses live edits, not stale DB data
     var textarea = document.querySelector('[name="meta_data_' + idx + '"]');
     var metaYaml = textarea ? textarea.value : '';
+    var etag = document.getElementById('etag');
+    var generation = beginRegistryRequest(idx);
 
     try {
         var body = {
             flow_url: flowUrl,
             wallet_vkey: walletVkey,
             pricing_type: pricingType,
-            meta_yaml: metaYaml
+            meta_yaml: metaYaml,
+            meta_etag: etag ? etag.value : null
         };
         if (pricingType === 'Fixed') {
             body.amount = amount;
@@ -137,6 +143,11 @@ async function submitRegistration() {
         var data = await resp.json();
 
         if (!resp.ok) {
+            if (!isCurrentRegistryRequest(idx, generation)) return;
+            if (activeDialogIdx !== idx) {
+                showRegError(idx, data.detail || 'Registration failed');
+                return;
+            }
             document.getElementById('dlg_error').style.display = 'block';
             document.getElementById('dlg_error').textContent = data.detail || 'Registration failed';
             submitBtn.disabled = false;
@@ -145,13 +156,21 @@ async function submitRegistration() {
         }
 
         // Success
-        document.getElementById('register-dialog').close();
-        updateBadge(idx, data.state || 'RegistrationRequested', data.agentIdentifier);
-
-        // Update textarea with new YAML (registrationId, agentPricing)
-        if (data.updatedYaml) {
-            var ta = document.querySelector('[name="meta_data_' + idx + '"]');
-            if (ta) ta.value = data.updatedYaml;
+        var synced = syncMetaYaml(
+            idx, data.updatedYaml, metaYaml, data.updatedEtag,
+            data.previousEtag);
+        if (!isCurrentRegistryRequest(idx, generation)) {
+            startPolling(idx, flowUrl);
+            return;
+        }
+        if (activeDialogIdx === idx) {
+            activeDialogIdx = null;
+            document.getElementById('register-dialog').close();
+        }
+        if (synced) {
+            updateBadge(
+                idx, data.state || 'RegistrationRequested',
+                data.agentIdentifier);
         }
 
         var regBtn = document.getElementById('reg_btn_' + idx);
@@ -168,11 +187,22 @@ async function submitRegistration() {
 
         startPolling(idx, flowUrl);
     } catch (e) {
+        blockRegistrySync(
+            idx, 'Network error: ' + e.message +
+            '. Reload the page before another registry action.');
+        if (!isCurrentRegistryRequest(idx, generation)) return;
+        if (activeDialogIdx !== idx) {
+            await checkRegistryStatus(idx, flowUrl);
+            return;
+        }
         document.getElementById('dlg_error').style.display = 'block';
         document.getElementById('dlg_error').textContent = 'Network error: ' + e.message;
+        await checkRegistryStatus(idx, flowUrl);
     } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i>app_registration</i> Register Agent';
+        if (activeDialogIdx === idx) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i>app_registration</i> Register Agent';
+        }
     }
 }
 
@@ -248,6 +278,9 @@ async function submitMigration() {
     var textarea = document.querySelector('[name="meta_data_' + idx + '"]');
     var submitBtn = document.getElementById('mig_submit');
     var errEl = document.getElementById('mig_error');
+    var metaYaml = textarea ? textarea.value : '';
+    var etag = document.getElementById('etag');
+    var generation = beginRegistryRequest(idx);
 
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span class="reg-spinner"></span>\u00a0Migrating...';
@@ -261,28 +294,45 @@ async function submitMigration() {
                 flow_url: flowUrl,
                 wallet_vkey: walletSelect.value,
                 deregister_previous: document.getElementById('mig_deregister').checked,
-                meta_yaml: textarea ? textarea.value : ''
+                meta_yaml: metaYaml,
+                meta_etag: etag ? etag.value : null
             })
         });
         var data = await resp.json();
 
         if (!resp.ok) {
+            if (!isCurrentRegistryRequest(idx, generation)) return;
+            if (activeDialogIdx !== idx) {
+                showRegError(idx, data.detail || 'Migration failed');
+                return;
+            }
             errEl.style.display = 'block';
             errEl.textContent = data.detail || 'Migration failed';
             return;
         }
 
-        document.getElementById('migrate-dialog').close();
-        if (data.updatedYaml && textarea) textarea.value = data.updatedYaml;
+        var synced = syncMetaYaml(
+            idx, data.updatedYaml, metaYaml, data.updatedEtag,
+            data.previousEtag);
+        if (!isCurrentRegistryRequest(idx, generation)) {
+            startPolling(idx, flowUrl, true);
+            return;
+        }
+        if (synced) hideRegError(idx);
+        if (activeDialogIdx === idx) {
+            activeDialogIdx = null;
+            document.getElementById('migrate-dialog').close();
+        }
 
         var migrateBtn = document.getElementById('migrate_btn_' + idx);
         if (migrateBtn) migrateBtn.style.display = 'none';
         var deregBtn = document.getElementById('dereg_btn_' + idx);
         if (deregBtn) deregBtn.style.display = 'none';
         var cancelBtn = document.getElementById('cancel_mig_btn_' + idx);
-        if (cancelBtn) cancelBtn.style.display = '';
-        hideRegError(idx);
-
+        if (cancelBtn) {
+            cancelBtn.style.display = '';
+            cancelBtn.disabled = false;
+        }
         var info = document.getElementById('reg_info_' + idx);
         if (info) {
             info.style.display = 'block';
@@ -292,11 +342,22 @@ async function submitMigration() {
         }
         startPolling(idx, flowUrl, true);
     } catch (e) {
+        blockRegistrySync(
+            idx, 'Network error: ' + e.message +
+            '. Reload the page before another registry action.');
+        if (!isCurrentRegistryRequest(idx, generation)) return;
+        if (activeDialogIdx !== idx) {
+            await checkRegistryStatus(idx, flowUrl);
+            return;
+        }
         errEl.style.display = 'block';
         errEl.textContent = 'Network error: ' + e.message;
+        await checkRegistryStatus(idx, flowUrl);
     } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i>upgrade</i> Migrate Agent';
+        if (activeDialogIdx === idx) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i>upgrade</i> Migrate Agent';
+        }
     }
 }
 
@@ -305,11 +366,13 @@ async function deregisterPrevious(idx) {
 
     var section = document.getElementById('registry_' + idx);
     var flowUrl = section.dataset.flowUrl;
+    var etag = document.getElementById('etag');
     var btn = document.getElementById('prev_dereg_btn_' + idx);
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="reg-spinner"></span>\u00a0Deregistering...';
     }
+    var generation = beginRegistryRequest(idx);
 
     try {
         var resp = await fetch(
@@ -317,33 +380,58 @@ async function deregisterPrevious(idx) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ flow_url: flowUrl })
+                body: JSON.stringify({
+                    flow_url: flowUrl,
+                    meta_etag: etag ? etag.value : null
+                })
             });
         var data = await resp.json();
+        var errorUpdate = data.extra || {};
+        var responseUpdate = resp.ok ? data : errorUpdate;
+        var responseSynced = syncMetaYaml(
+            idx, responseUpdate.updatedYaml, undefined,
+            responseUpdate.updatedEtag, responseUpdate.previousEtag);
+        if (!isCurrentRegistryRequest(idx, generation)) {
+            if (resp.ok) startPolling(idx, flowUrl, true);
+            return;
+        }
         if (!resp.ok) {
-            showRegError(idx, data.detail || 'Deregistration failed');
+            if (responseSynced) {
+                showRegError(idx, data.detail || 'Deregistration failed');
+            }
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<i>remove_circle</i><span>Deregister V1</span>';
             }
+            if (errorUpdate.updatedYaml) {
+                startPolling(idx, flowUrl, true);
+            }
             return;
         }
+        var synced = responseSynced;
         var info = document.getElementById('reg_info_' + idx);
-        if (info) {
+        if (info && synced) {
             info.style.display = 'block';
             info.style.color = 'var(--on-surface-variant)';
             info.textContent =
                 'Deregistration of the replaced V1 agent submitted.';
         }
         // Refresh in place. A reload would drop unsaved metadata edits.
-        syncMetaYaml(idx, data.updatedYaml);
-        checkRegistryStatus(idx, flowUrl);
+        if (data.state !== 'DeregistrationConfirmed' &&
+                data.state !== 'DeregistrationFailed') {
+            startPolling(idx, flowUrl, true);
+        }
+        if (synced) await checkRegistryStatus(idx, flowUrl);
     } catch (e) {
-        showRegError(idx, 'Network error: ' + e.message);
+        blockRegistrySync(
+            idx, 'Network error: ' + e.message +
+            '. Reload the page before another registry action.');
+        if (!isCurrentRegistryRequest(idx, generation)) return;
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '<i>remove_circle</i><span>Deregister V1</span>';
         }
+        await checkRegistryStatus(idx, flowUrl);
     }
 }
 
@@ -355,43 +443,79 @@ async function deregisterAgent(idx) {
 
     var section = document.getElementById('registry_' + idx);
     var flowUrl = section.dataset.flowUrl;
+    var etag = document.getElementById('etag');
     var deregBtn = document.getElementById('dereg_btn_' + idx);
 
     if (deregBtn) {
         deregBtn.disabled = true;
         deregBtn.innerHTML = '<span class="reg-spinner"></span>\u00a0Deregistering...';
     }
+    var generation = beginRegistryRequest(idx);
 
     try {
         var resp = await fetch('/expose/' + exposeName + '/registry/deregister', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ flow_url: flowUrl })
+            body: JSON.stringify({
+                flow_url: flowUrl,
+                meta_etag: etag ? etag.value : null
+            })
         });
         var data = await resp.json();
-
-        if (!resp.ok) {
-            showRegError(idx, data.detail || 'Deregistration failed');
-            if (deregBtn) {
-                deregBtn.disabled = false;
-                deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
+        var errorUpdate = data.extra || {};
+        var responseUpdate = resp.ok ? data : errorUpdate;
+        var responseSynced = syncMetaYaml(
+            idx, responseUpdate.updatedYaml, undefined,
+            responseUpdate.updatedEtag, responseUpdate.previousEtag);
+        if (!isCurrentRegistryRequest(idx, generation)) {
+            if (resp.ok && data.state !== 'DeregistrationConfirmed' &&
+                    data.state !== 'DeregistrationFailed') {
+                startPolling(idx, flowUrl, false);
             }
             return;
         }
 
+        if (!resp.ok) {
+            if (responseSynced) {
+                showRegError(idx, data.detail || 'Deregistration failed');
+            }
+            if (deregBtn) {
+                deregBtn.disabled = false;
+                deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
+            }
+            if (errorUpdate.updatedYaml) {
+                startPolling(idx, flowUrl, false);
+            }
+            return;
+        }
+
+        var synced = responseSynced;
         var info = document.getElementById('reg_info_' + idx);
-        if (info) {
+        if (info && synced) {
             info.style.display = 'block';
             info.style.color = 'var(--on-surface-variant)';
-            info.textContent = 'Deregistration submitted. Reloading...';
+            info.textContent = 'Deregistration submitted.';
         }
-        setTimeout(function() { window.location.reload(); }, 1500);
+        if (synced) {
+            updateRegistryUI(idx, {
+                state: data.state,
+                agentIdentifier: data.agentIdentifier
+            });
+        }
+        if (data.state !== 'DeregistrationConfirmed' &&
+                data.state !== 'DeregistrationFailed') {
+            startPolling(idx, flowUrl, false);
+        }
     } catch (e) {
-        showRegError(idx, 'Network error: ' + e.message);
+        blockRegistrySync(
+            idx, 'Network error: ' + e.message +
+            '. Reload the page before another registry action.');
+        if (!isCurrentRegistryRequest(idx, generation)) return;
         if (deregBtn) {
             deregBtn.disabled = false;
             deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
         }
+        await checkRegistryStatus(idx, flowUrl);
     }
 }

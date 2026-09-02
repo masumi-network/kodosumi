@@ -17,7 +17,7 @@ from kodosumi.service.expose.registration import (
 def _row(flows: dict) -> dict:
     """Build an expose row whose meta lists one entry per flow url."""
     meta = [{"url": url, "data": yaml.dump(data)} for url, data in flows.items()]
-    return {"meta": yaml.dump(meta)}
+    return {"meta": yaml.dump(meta), "updated": 0.0}
 
 
 class TestBuildAgentFields:
@@ -140,7 +140,8 @@ class TestUpdateFlowMeta:
         with patch("kodosumi.service.expose.flow_meta.db.update_expose_meta",
                    new_callable=AsyncMock):
             updated = await update_flow_meta(
-                row, "expose", "/a", {"registrationId": "reg1"}, base_data=live)
+                row, "expose", "/a", {"registrationId": "reg1"},
+                base_data=live, base_etag=row["updated"])
         parsed = yaml.safe_load(updated)
         assert parsed["display"] == "edited in the browser"
         assert parsed["registrationId"] == "reg1"

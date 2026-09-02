@@ -1,5 +1,7 @@
     <!-- Migrate Agent Dialog -->
-    <dialog id="migrate-dialog" class="register-dialog">
+    <dialog id="migrate-dialog" class="register-dialog"
+            oncancel="activeDialogIdx = null"
+            onclose="if (!document.querySelector('dialog[open]')) activeDialogIdx = null">
         <h5>Migrate Agent to Web3CardanoV2</h5>
         <div class="dialog-field">
             <label>What happens</label>
@@ -39,7 +41,7 @@
         </div>
         <div class="dlg-error" id="mig_error" style="display:none;"></div>
         <nav>
-            <button type="button" class="secondary" onclick="document.getElementById('migrate-dialog').close()">Cancel</button>
+            <button type="button" class="secondary" onclick="activeDialogIdx = null; document.getElementById('migrate-dialog').close()">Cancel</button>
             <button type="button" class="primary" id="mig_submit" onclick="submitMigration()">
                 <i>upgrade</i>
                 Migrate Agent
@@ -48,7 +50,9 @@
     </dialog>
 
     <!-- Register Agent Dialog -->
-    <dialog id="register-dialog" class="register-dialog">
+    <dialog id="register-dialog" class="register-dialog"
+            oncancel="activeDialogIdx = null"
+            onclose="if (!document.querySelector('dialog[open]')) activeDialogIdx = null">
         <h5>Register Agent on Masumi</h5>
         <div class="dialog-field">
             <label>Name</label>
@@ -95,7 +99,7 @@
         </div>
         <div class="dlg-error" id="dlg_error" style="display:none;"></div>
         <nav>
-            <button type="button" class="secondary" onclick="document.getElementById('register-dialog').close()">Cancel</button>
+            <button type="button" class="secondary" onclick="activeDialogIdx = null; document.getElementById('register-dialog').close()">Cancel</button>
             <button type="button" class="primary" id="dlg_submit" onclick="submitRegistration()">
                 <i>app_registration</i>
                 Register Agent

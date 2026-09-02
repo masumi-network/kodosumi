@@ -8,20 +8,17 @@ later burn.
 """
 
 import asyncio
-
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from kodosumi.config import MasumiConfig
-from kodosumi.service.expose.migration import (
-    advance_migration,
-    burn_target,
-    cancel_migration_updates,
-    confirmed_migration_updates,
-    failed_migration_updates,
-    pending_migration,
-    start_migration_updates,
-)
+from kodosumi.service.expose.migration import (advance_migration, burn_target,
+                                               cancel_migration_updates,
+                                               confirmed_migration_updates,
+                                               failed_migration_updates,
+                                               pending_migration,
+                                               start_migration_updates)
 
 
 def _make_config() -> MasumiConfig:
@@ -281,31 +278,34 @@ class TestAdvanceMigration:
                 "agentIdentifier": "v2-agent",
                 "paymentSourceType": "Web3CardanoV2",
                 "previousRegistration": _previous()}
-        status, dereg, write, read = self._patch(None)
+        status, dereg, write, read = self._patch(
+            {"id": "v1-reg", "state": "RegistrationConfirmed"},
+            deregister={"id": "v1-reg",
+                        "state": "DeregistrationRequested"})
         with status as mock_status, dereg as mock_dereg, write as mock_write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
-        # No mint is pending any more, so the registry is not asked again.
-        mock_status.assert_not_called()
+        mock_status.assert_awaited_once()
         assert mock_dereg.call_args.args[1] == "v1-agent"
-        assert result["deregisteredPrevious"] == "v1-agent"
-        assert mock_write.call_args.args[3] == {
-            "previousRegistration": None, "migrationError": None}
+        assert result["migrationState"] == "DeregistrationRequested"
+        previous = mock_write.call_args.args[3]["previousRegistration"]
+        assert previous["agentIdentifier"] == "v1-agent"
+        assert previous["deregistrationState"] == "DeregistrationRequested"
 
     @pytest.mark.asyncio
-    async def test_a_burn_on_its_own_still_reports_a_finished_migration(self):
-        # The panel stops polling on the state. Without one, a burn that a
-        # read only call deferred would poll until the budget runs out.
+    async def test_a_burn_on_its_own_reports_the_pending_state(self):
         meta = {**_registered_meta(),
                 "agentIdentifier": "v2-agent",
                 "paymentSourceType": "Web3CardanoV2",
                 "previousRegistration": _previous()}
-        status, dereg, write, read = self._patch(None)
+        status, dereg, write, read = self._patch(
+            {"id": "v1-reg", "state": "RegistrationConfirmed"},
+            deregister={"id": "v1-reg",
+                        "state": "DeregistrationRequested"})
         with status, dereg, write, read:
             result = await advance_migration(
                 _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
-        assert result["migrationState"] == "MigrationConfirmed"
-        assert result["deregisteredPrevious"] == "v1-agent"
+        assert result["migrationState"] == "DeregistrationRequested"
 
     @pytest.mark.asyncio
     async def test_old_agent_is_burned_only_after_the_swap_is_written(self):
@@ -323,9 +323,11 @@ class TestAdvanceMigration:
         first_updates = mock_write.call_args_list[0].args[3]
         assert first_updates["agentIdentifier"] == "v2-agent"
         assert first_updates["pendingMigration"] is None
-        # The burned agent is dropped afterwards, off a re-read row.
-        assert mock_write.call_args_list[-1].args[3] == {
-            "previousRegistration": None, "migrationError": None}
+        # The request stays recorded until a later poll confirms the burn.
+        previous = mock_write.call_args_list[-1].args[3][
+            "previousRegistration"]
+        assert previous["agentIdentifier"] == "v1-agent"
+        assert previous["deregistrationState"] == "DeregistrationRequested"
         assert len(mock_write.call_args_list) == 2
 
     @pytest.mark.asyncio
@@ -392,8 +394,17 @@ class TestAdvanceMigration:
                 "pendingMigration": _pending(deregister_previous=True)}
         stored, fake_write, read_flow = _stateful_meta(meta)
         status, dereg, write, read = self._patch(
-            {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"})
-        with status, dereg as mock_dereg, write as mock_write, read, read_flow:
+            {"state": "RegistrationConfirmed", "agentIdentifier": "v2-agent"},
+            deregister={"id": "v1-reg",
+                        "state": "DeregistrationRequested"})
+        with status as mock_status, dereg as mock_dereg, \
+                write as mock_write, read, read_flow:
+            mock_status.side_effect = [
+                {"state": "RegistrationConfirmed",
+                 "agentIdentifier": "v2-agent"},
+                {"id": "v1-reg", "state": "RegistrationConfirmed"},
+                {"id": "v1-reg", "state": "DeregistrationRequested"},
+            ]
             mock_write.side_effect = fake_write
             results = await asyncio.gather(
                 advance_migration(_make_config(), {}, "expose", "/flow",
@@ -403,9 +414,10 @@ class TestAdvanceMigration:
             )
         assert mock_dereg.call_count == 1
         assert stored["data"]["agentIdentifier"] == "v2-agent"
-        assert "previousRegistration" not in stored["data"]
-        # The second caller finds nothing left to do.
-        assert [r for r in results if r is None] == [None]
+        previous = stored["data"]["previousRegistration"]
+        assert previous["deregistrationState"] == "DeregistrationRequested"
+        assert all(result["migrationState"] == "DeregistrationRequested"
+                   for result in results)
 
 
 class TestFailedMintLeavesNothingPending:

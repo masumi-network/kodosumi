@@ -18,14 +18,20 @@ from litestar import post
 from litestar.datastructures import State
 from litestar.exceptions import ClientException, NotFoundException
 
-from kodosumi.service.jwt import operator_guard
 from kodosumi.service.expose import db
-from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
-from kodosumi.service.expose.migration import (
-    CANCEL_NOTICE, cancel_migration_updates, migration_lock,
-    pending_migration, start_migration_updates)
-from kodosumi.service.expose.registration import (
-    build_agent_fields, sumi_api_base_url)
+from kodosumi.service.expose.deregistration import ACTIVE_DEREGISTRATION_STATES
+from kodosumi.service.expose.flow_meta import (flow_meta_update_fields,
+                                               get_flow_meta, parse_flow_etag,
+                                               update_flow_meta)
+from kodosumi.service.expose.migration import (CANCEL_NOTICE,
+                                               cancel_migration_updates,
+                                               migration_lock,
+                                               pending_migration,
+                                               request_previous_deregistration,
+                                               start_migration_updates)
+from kodosumi.service.expose.registration import (build_agent_fields,
+                                                  sumi_api_base_url)
+from kodosumi.service.jwt import operator_guard
 
 logger = logging.getLogger(__name__)
 
@@ -71,18 +77,34 @@ class RegistryMigrateControl(litestar.Controller):
         from kodosumi.service.expose.registry import (
             PAYMENT_SOURCE_TYPE_V2, list_wallets, pricing_yaml_to_registry,
             register_agent, registry_pricing_to_supported_sources,
-            select_wallet,
-        )
+            select_wallet)
 
         flow_url = data.get("flow_url", "")
         wallet_vkey = data.get("wallet_vkey", "")
         if not flow_url:
-            raise ClientException(detail="flow_url is required", status_code=422)
+            raise ClientException(
+                detail="flow_url is required", status_code=422)
         if not wallet_vkey:
             raise ClientException(
                 detail="wallet_vkey is required", status_code=422)
 
+        deregister_previous = data.get("deregister_previous", False)
+        if not isinstance(deregister_previous, bool):
+            raise ClientException(
+                detail="deregister_previous must be a boolean",
+                status_code=422,
+            )
+        try:
+            base_etag = parse_flow_etag(data.get("meta_etag"))
+        except ValueError as e:
+            raise ClientException(detail=str(e), status_code=422)
+
         frontend_yaml = data.get("meta_yaml", "")
+        if frontend_yaml and base_etag is None:
+            raise ClientException(
+                detail="meta_etag is required with meta_yaml",
+                status_code=422,
+            )
         meta_data = _parse_live_yaml(frontend_yaml) if frontend_yaml \
             else get_flow_meta(row, flow_url)
         if meta_data is None:
@@ -90,7 +112,7 @@ class RegistryMigrateControl(litestar.Controller):
                 detail=f"Flow '{flow_url}' not found", status_code=404)
 
         try:
-            wallets = await list_wallets(masumi)
+            wallets = await list_wallets(masumi, require_complete=True)
         except Exception as e:
             raise ClientException(
                 detail=f"Cannot reach Masumi API: {e}. "
@@ -128,11 +150,27 @@ class RegistryMigrateControl(litestar.Controller):
         # holds. Two clicks would otherwise both pass the checks below and
         # mint two V2 agents, of which only the second one is recorded.
         async with migration_lock(name, flow_url):
-            row = await db.get_expose(name) or row
+            row = await db.get_expose(name)
+            if not row:
+                raise NotFoundException(detail=f"Expose '{name}' not found")
+            if row.get("network") != network:
+                raise ClientException(
+                    detail="The expose network changed. Retry.",
+                    status_code=409,
+                )
+            if (base_etag is not None
+                    and float(row.get("updated") or 0) != base_etag):
+                raise ClientException(
+                    detail="The flow changed. Reload before migrating.",
+                    status_code=409,
+                )
             # The saved metadata decides, never the request body: the
             # editor content is supplied by the caller, so a stale copy of
             # it would answer "nothing pending" for a running migration.
-            saved_meta = get_flow_meta(row, flow_url) or {}
+            saved_meta = get_flow_meta(row, flow_url)
+            if saved_meta is None:
+                raise ClientException(
+                    detail=f"Flow '{flow_url}' not found", status_code=404)
             if not saved_meta.get("agentIdentifier"):
                 raise ClientException(
                     detail="This flow is not registered yet. Register it "
@@ -148,6 +186,12 @@ class RegistryMigrateControl(litestar.Controller):
             if saved_meta.get("pendingMigration"):
                 raise ClientException(
                     detail="A migration is already waiting for confirmation.",
+                    status_code=409,
+                )
+            if (saved_meta.get("deregistrationState")
+                    in ACTIVE_DEREGISTRATION_STATES):
+                raise ClientException(
+                    detail="Finish the active deregistration before migrating.",
                     status_code=409,
                 )
 
@@ -194,13 +238,36 @@ class RegistryMigrateControl(litestar.Controller):
             except RuntimeError as e:
                 raise ClientException(detail=str(e), status_code=502)
 
-            registration_id = result.get("id", "")
-            deregister_previous = bool(data.get("deregister_previous"))
+            registration_id = result.get("id")
+            if not registration_id:
+                raise ClientException(
+                    detail="Masumi accepted the migration but returned no "
+                           "registration id. Check Masumi before retrying.",
+                    status_code=502,
+                )
+            update_kwargs = (
+                {"base_etag": base_etag}
+                if base_etag is not None else {})
             updated_yaml = await update_flow_meta(
                 row, name, flow_url,
                 start_migration_updates(registration_id, deregister_previous),
                 base_data=frontend_yaml or None,
+                expected={
+                    "agentIdentifier": saved_meta.get("agentIdentifier"),
+                    "registrationId": saved_meta.get("registrationId"),
+                    "pendingMigration": None,
+                    "deregistrationState": saved_meta.get(
+                        "deregistrationState"),
+                },
+                **update_kwargs,
             )
+            if updated_yaml is None:
+                raise ClientException(
+                    detail=f"Migration registration {registration_id} was "
+                           "submitted, but its state could not be saved. "
+                           "Do not retry.",
+                    status_code=500,
+                )
 
         return {
             "success": True,
@@ -208,7 +275,7 @@ class RegistryMigrateControl(litestar.Controller):
             "state": result.get("state", "RegistrationRequested"),
             "migrationState": "Polling",
             "deregisterPrevious": deregister_previous,
-            "updatedYaml": updated_yaml,
+            **flow_meta_update_fields(updated_yaml),
         }
 
     @post(
@@ -235,13 +302,26 @@ class RegistryMigrateControl(litestar.Controller):
 
         flow_url = data.get("flow_url", "")
         if not flow_url:
-            raise ClientException(detail="flow_url is required", status_code=422)
+            raise ClientException(
+                detail="flow_url is required", status_code=422)
+        try:
+            action_etag = parse_flow_etag(data.get("meta_etag"))
+        except ValueError as e:
+            raise ClientException(detail=str(e), status_code=422)
 
         # A poll running right now can be confirming the very mint this
         # request gives up on. Take the lock it holds, so the cancel either
         # lands before the swap or finds nothing pending afterwards.
         async with migration_lock(name, flow_url):
-            row = await db.get_expose(name) or row
+            row = await db.get_expose(name)
+            if not row:
+                raise NotFoundException(detail=f"Expose '{name}' not found")
+            if (action_etag is not None
+                    and float(row.get("updated") or 0) != action_etag):
+                raise ClientException(
+                    detail="The flow changed. Reload before cancelling.",
+                    status_code=409,
+                )
             meta_data = get_flow_meta(row, flow_url)
             if meta_data is None:
                 raise ClientException(
@@ -252,17 +332,24 @@ class RegistryMigrateControl(litestar.Controller):
                     status_code=409)
 
             updated_yaml = await update_flow_meta(
-                row, name, flow_url, cancel_migration_updates())
+                row, name, flow_url, cancel_migration_updates(),
+                expected={
+                    "pendingMigration": meta_data.get("pendingMigration")})
+            if updated_yaml is None:
+                raise ClientException(
+                    detail="Could not clear the pending migration.",
+                    status_code=500,
+                )
         return {
             "success": True,
             "notice": CANCEL_NOTICE,
-            "updatedYaml": updated_yaml,
+            **flow_meta_update_fields(updated_yaml),
         }
 
     @post(
         "/deregister-previous",
         summary="Deregister the agent a migration replaced",
-        description="Burn the Web3CardanoV1 agent that a completed migration left on chain. Clears previousRegistration from the flow's meta YAML.",
+        description="Burn the Web3CardanoV1 agent that a completed migration left on chain. Tracks the request until the payment node confirms it.",
         operation_id="registry_migrate_deregister_previous",
     )
     async def deregister_previous(
@@ -281,7 +368,8 @@ class RegistryMigrateControl(litestar.Controller):
 
         network = row.get("network")
         if not network:
-            raise ClientException(detail="No network configured", status_code=422)
+            raise ClientException(
+                detail="No network configured", status_code=422)
 
         try:
             masumi = state["settings"].get_masumi(network)
@@ -290,40 +378,45 @@ class RegistryMigrateControl(litestar.Controller):
 
         flow_url = data.get("flow_url", "")
         if not flow_url:
-            raise ClientException(detail="flow_url is required", status_code=422)
+            raise ClientException(
+                detail="flow_url is required", status_code=422)
+        try:
+            action_etag = parse_flow_etag(data.get("meta_etag"))
+        except ValueError as e:
+            raise ClientException(detail=str(e), status_code=422)
         meta_data = get_flow_meta(row, flow_url)
         if meta_data is None:
             raise ClientException(
                 detail=f"Flow '{flow_url}' not found", status_code=404)
 
-        # The automatic burn runs on the poll endpoint and holds this same
-        # lock. Without it both can read the record, burn the one agent
-        # twice, and the write below erases the error the other just wrote.
-        async with migration_lock(name, flow_url):
-            row = await db.get_expose(name) or row
-            meta_data = get_flow_meta(row, flow_url) or meta_data
-            previous = meta_data.get("previousRegistration") or {}
-            previous_agent_id = previous.get("agentIdentifier")
-            if not previous_agent_id:
-                raise ClientException(
-                    detail="This flow has no previous registration on chain.",
-                    status_code=409,
-                )
-
-            from kodosumi.service.expose.registry import deregister_agent
-            try:
-                result = await deregister_agent(masumi, previous_agent_id)
-            except RuntimeError as e:
-                raise ClientException(detail=str(e), status_code=502)
-
-            updated_yaml = await update_flow_meta(
-                row, name, flow_url,
-                {"previousRegistration": None, "migrationError": None})
+        result = await request_previous_deregistration(
+            masumi, row, name, flow_url, meta_data,
+            expected_network=network, expected_etag=action_etag)
+        if result is None:
+            raise ClientException(
+                detail="This flow has no previous registration on chain.",
+                status_code=409,
+            )
+        result_error = (
+            result.get("deregisterError") or result.get("migrationError"))
+        if result_error:
+            raise ClientException(
+                detail=result_error,
+                status_code=result.get("statusCode", 502),
+                extra={
+                    key: result.get(key)
+                    for key in (
+                        "updatedYaml", "updatedEtag", "previousEtag")
+                },
+            )
 
         return {
             "success": True,
-            "state": result.get("state", "DeregistrationRequested"),
-            "updatedYaml": updated_yaml,
+            "state": result.get(
+                "deregistrationState", "DeregistrationRequested"),
+            "updatedYaml": result.get("updatedYaml"),
+            "updatedEtag": result.get("updatedEtag"),
+            "previousEtag": result.get("previousEtag"),
         }
 
 

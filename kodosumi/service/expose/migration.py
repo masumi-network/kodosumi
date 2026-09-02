@@ -24,15 +24,17 @@ from typing import Any, Dict, Optional
 
 from kodosumi.config import MasumiConfig
 from kodosumi.service.expose import db
-from kodosumi.service.expose.flow_meta import get_flow_meta, update_flow_meta
+from kodosumi.service.expose.deregistration import (
+    DEREGISTRATION_CONFIRMED_STATE, DEREGISTRATION_FAILED_STATE,
+    DEREGISTRATION_INITIATED_STATE, DEREGISTRATION_PENDING_STATES,
+    DEREGISTRATION_REQUESTED_STATE)
+from kodosumi.service.expose.flow_meta import (
+    compose_flow_meta_update_fields, flow_meta_update_fields, get_flow_meta,
+    update_flow_meta)
 from kodosumi.service.expose.locks import keyed_lock
 from kodosumi.service.expose.registry import (
-    DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX,
-    PAYMENT_SOURCE_TYPE_V1,
-    PAYMENT_SOURCE_TYPE_V2,
-    deregister_agent,
-    get_registration_status,
-)
+    DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX, PAYMENT_SOURCE_TYPE_V1,
+    PAYMENT_SOURCE_TYPE_V2, deregister_agent, get_registration_status)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,13 @@ logger = logging.getLogger(__name__)
 # state is still in flight and keeps the migration waiting.
 FAILED_REGISTRATION_STATE = "RegistrationFailed"
 CONFIRMED_REGISTRATION_STATE = "RegistrationConfirmed"
+DEREGISTRATION_SUBMITTABLE_STATES = {
+    CONFIRMED_REGISTRATION_STATE,
+    "UpdateConfirmed",
+    "UpdateFailed",
+    DEREGISTRATION_FAILED_STATE,
+}
+
 
 def migration_lock(expose_name: str, flow_url: str) -> asyncio.Lock:
     """The lock every burn and swap decision of one flow has to hold.
@@ -73,6 +82,19 @@ def burn_target(meta_data: dict) -> Optional[Dict[str, Any]]:
     if not previous.get("agentIdentifier"):
         return None
     return previous if previous.get("deregisterRequested") else None
+
+
+def _matches_previous_registration(previous: dict, result: dict) -> bool:
+    """Require a registry row to identify the same registration and agent."""
+    expected_id = previous.get("registrationId")
+    expected_agent = previous.get("agentIdentifier")
+    return (
+        (not expected_id or result.get("id") == expected_id)
+        and (
+            not expected_agent
+            or result.get("agentIdentifier") == expected_agent
+        )
+    )
 
 
 def start_migration_updates(
@@ -168,6 +190,7 @@ async def advance_migration(
     flow_url: str,
     meta_data: dict,
     allow_burn: bool = False,
+    expected_network: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Move a migration one step and write the result back.
 
@@ -185,11 +208,24 @@ async def advance_migration(
     if not pending_migration(meta_data) and not burn_target(meta_data):
         return None
 
+    guarded_network = (
+        expected_network if expected_network is not None
+        else row.get("network"))
     async with migration_lock(expose_name, flow_url):
         # Re-read inside the lock: another request may have finished the
         # swap while this one waited for it.
-        row = await db.get_expose(expose_name) or row
-        meta_data = get_flow_meta(row, flow_url) or meta_data
+        row = await db.get_expose(expose_name)
+        if not row:
+            return None
+        if (guarded_network is not None
+                and row.get("network") != guarded_network):
+            return {
+                "migrationState": "Polling",
+                "migrationError": "The expose network changed. Retry.",
+            }
+        meta_data = get_flow_meta(row, flow_url)
+        if meta_data is None:
+            return None
 
         report: Dict[str, Any] = {}
         pending = pending_migration(meta_data)
@@ -198,16 +234,25 @@ async def advance_migration(
                 masumi, row, expose_name, flow_url, meta_data, pending)
             if not report.get("updatedYaml"):
                 return report
-            row = await db.get_expose(expose_name) or row
-            meta_data = get_flow_meta(row, flow_url) or meta_data
+            row = await db.get_expose(expose_name)
+            if not row:
+                return report
+            if (guarded_network is not None
+                    and row.get("network") != guarded_network):
+                return {
+                    **report,
+                    "migrationState": "Polling",
+                    "migrationError": "The expose network changed. Retry.",
+                }
+            meta_data = get_flow_meta(row, flow_url)
+            if meta_data is None:
+                return report
 
         if allow_burn and burn_target(meta_data):
             burn = await _burn_previous(
                 masumi, row, expose_name, flow_url, meta_data)
-            # A burn on its own still ends a migration, and the panel stops
-            # polling on the state rather than on the keys below it.
-            report = {"migrationState": "MigrationConfirmed",
-                      **report, **burn}
+            update_fields = compose_flow_meta_update_fields(report, burn)
+            report = {**report, **burn, **update_fields}
 
         return report or None
 
@@ -242,14 +287,21 @@ async def _confirm_mint(
     if state == FAILED_REGISTRATION_STATE:
         updates = failed_migration_updates(state)
         updated_yaml = await update_flow_meta(
-            row, expose_name, flow_url, updates)
+            row, expose_name, flow_url, updates,
+            expected={"pendingMigration": pending})
+        if updated_yaml is None:
+            return {
+                "migrationState": "Polling",
+                "migrationError": (
+                    "The failed migration state could not be saved."),
+            }
         logger.warning(
             "Migration of %s%s failed on chain, cleared the pending record",
             expose_name, flow_url)
         return {
             "migrationState": state,
             "migrationError": updates["migrationError"],
-            "updatedYaml": updated_yaml,
+            **flow_meta_update_fields(updated_yaml),
         }
 
     if state != CONFIRMED_REGISTRATION_STATE or not new_agent_id:
@@ -262,13 +314,23 @@ async def _confirm_mint(
         row, expose_name, flow_url,
         confirmed_migration_updates(
             meta_data, pending, new_agent_id, keep_previous=True),
+        expected={
+            "pendingMigration": pending,
+            "agentIdentifier": meta_data.get("agentIdentifier"),
+            "registrationId": meta_data.get("registrationId"),
+        },
     )
+    if updated_yaml is None:
+        return {
+            "migrationState": "Polling",
+            "migrationError": "The confirmed migration could not be saved.",
+        }
     return {
         "migrationState": "MigrationConfirmed",
         "agentIdentifier": new_agent_id,
         "paymentSourceType": pending.get(
             "paymentSourceType", PAYMENT_SOURCE_TYPE_V2),
-        "updatedYaml": updated_yaml,
+        **flow_meta_update_fields(updated_yaml),
     }
 
 
@@ -279,34 +341,352 @@ async def _burn_previous(
     flow_url: str,
     meta_data: dict,
 ) -> Dict[str, Any]:
-    """Deregister the agent the migration replaced."""
+    """Submit or poll deregistration of the agent a migration replaced."""
     previous = burn_target(meta_data) or {}
     old_agent_id = previous.get("agentIdentifier", "")
+    deregistration_state = previous.get("deregistrationState")
+    resolved_update = flow_meta_update_fields(None)
+
+    # Read the registry row before every submission. This recovers after a
+    # timed-out POST without submitting a second burn while the first one is
+    # already pending. The agent-identifier endpoint cannot be used here: it
+    # reports only whether the NFT still exists, not the request row state.
     try:
-        await deregister_agent(masumi, old_agent_id)
+        result = await get_registration_status(
+            masumi,
+            registration_id=previous.get("registrationId"),
+            agent_identifier=old_agent_id,
+            payment_source_type=previous.get(
+                "paymentSourceType", PAYMENT_SOURCE_TYPE_V1),
+            registry_row_only=True,
+        )
     except Exception as e:
-        # Non fatal: the V2 agent is live either way. Drop the automatic
-        # intent so a node that keeps refusing is not called on every poll,
-        # and record why, because the panel forgets between page loads.
+        logger.warning(
+            "Migration could not read deregistration state for %s: %s",
+            old_agent_id, e)
+        return {
+            "migrationState": deregistration_state or "Polling",
+            "migrationError": str(e),
+        }
+
+    if not result:
+        return {"migrationState": deregistration_state or "Polling"}
+    if not _matches_previous_registration(previous, result):
+        return {
+            "migrationState": deregistration_state or "Polling",
+            "migrationError": (
+                "The stored previous registration does not match the "
+                "registry row."),
+        }
+
+    state = result.get("state") or "Unknown"
+    is_tracked_state = (
+        state in DEREGISTRATION_PENDING_STATES
+        or state == DEREGISTRATION_CONFIRMED_STATE
+        or (
+            state == DEREGISTRATION_FAILED_STATE
+            and deregistration_state in DEREGISTRATION_PENDING_STATES
+        )
+    )
+    if is_tracked_state:
+        return await _record_deregistration_result(
+            row, expose_name, flow_url, previous, result)
+
+    if state not in DEREGISTRATION_SUBMITTABLE_STATES:
+        return {
+            "migrationState": deregistration_state or "Polling",
+            "migrationError": (
+                f"The replaced agent is in unexpected state {state}."),
+        }
+
+    resolved_id = result.get("id")
+    if resolved_id and resolved_id != previous.get("registrationId"):
+        unresolved = previous
+        previous = {**previous, "registrationId": resolved_id}
+        updated_yaml = await update_flow_meta(
+            row, expose_name, flow_url,
+            {"previousRegistration": previous},
+            expected={"previousRegistration": unresolved},
+        )
+        if updated_yaml is None:
+            return {
+                "migrationState": "Polling",
+                "deregisterError": (
+                    "Could not record the previous registration before "
+                    "deregistration."),
+            }
+        resolved_update = flow_meta_update_fields(updated_yaml)
+
+    try:
+        result = await deregister_agent(masumi, old_agent_id)
+    except RuntimeError as e:
+        # The payment node may have accepted the request before the client
+        # received a conflict or lost the response. Re-read once before
+        # marking the burn failed.
+        try:
+            recovered = await get_registration_status(
+                masumi,
+                registration_id=previous.get("registrationId"),
+                agent_identifier=old_agent_id,
+                payment_source_type=previous.get(
+                    "paymentSourceType", PAYMENT_SOURCE_TYPE_V1),
+                registry_row_only=True,
+            )
+        except Exception:
+            recovered = None
+        if (recovered
+                and _matches_previous_registration(previous, recovered)
+                and recovered.get("state") in (
+                DEREGISTRATION_PENDING_STATES
+                | {DEREGISTRATION_CONFIRMED_STATE,
+                   DEREGISTRATION_FAILED_STATE})):
+            recorded = await _record_deregistration_result(
+                row, expose_name, flow_url, previous, recovered)
+            return {
+                **recorded,
+                **compose_flow_meta_update_fields(
+                    resolved_update, recorded),
+            }
+
         logger.warning(
             "Migration could not deregister %s: %s", old_agent_id, e)
         updated_yaml = await update_flow_meta(
             row, expose_name, flow_url,
             {
                 "previousRegistration": {
-                    **previous, "deregisterRequested": False},
+                    **previous,
+                    "deregisterRequested": False,
+                    "deregistrationState": DEREGISTRATION_FAILED_STATE,
+                },
                 "migrationError":
                     f"Could not deregister the replaced agent "
                     f"{old_agent_id}: {e}",
             },
+            expected={"previousRegistration": previous},
         )
-        return {"deregisterError": str(e), "updatedYaml": updated_yaml}
+        if updated_yaml is None:
+            return {
+                "migrationState": deregistration_state or "Polling",
+                "migrationError": (
+                    "The deregistration failure could not be saved."),
+                **resolved_update,
+            }
+        recorded = {
+            "migrationState": "MigrationConfirmed",
+            "deregistrationState": DEREGISTRATION_FAILED_STATE,
+            "deregisterError": str(e),
+            **flow_meta_update_fields(updated_yaml),
+        }
+        return {
+            **recorded,
+            **compose_flow_meta_update_fields(
+                resolved_update, recorded),
+        }
+    except Exception as e:
+        logger.warning(
+            "Migration lost the deregistration response for %s: %s",
+            old_agent_id, e)
+        return {
+            "migrationState": DEREGISTRATION_REQUESTED_STATE,
+            "migrationError": str(e),
+            **resolved_update,
+        }
+
+    recorded = await _record_deregistration_result(
+        row, expose_name, flow_url, previous, result)
+    return {
+        **recorded,
+        **compose_flow_meta_update_fields(resolved_update, recorded),
+    }
+
+
+async def _record_deregistration_result(
+    row: dict,
+    expose_name: str,
+    flow_url: str,
+    previous: dict,
+    result: dict,
+) -> Dict[str, Any]:
+    """Persist one authoritative deregistration response."""
+    old_agent_id = previous.get("agentIdentifier", "")
+    state = result.get("state") or DEREGISTRATION_REQUESTED_STATE
+    tracked = dict(previous)
+    if result.get("id"):
+        tracked["registrationId"] = result["id"]
+
+    if state == DEREGISTRATION_CONFIRMED_STATE:
+        updated_yaml = await update_flow_meta(
+            row, expose_name, flow_url,
+            {"previousRegistration": None, "migrationError": None},
+            expected={"previousRegistration": previous},
+        )
+        if updated_yaml is None:
+            return {
+                "migrationState": (
+                    previous.get("deregistrationState") or "Polling"),
+                "migrationError": (
+                    "The confirmed deregistration could not be saved."),
+            }
+        return {
+            "migrationState": "MigrationConfirmed",
+            "deregistrationState": state,
+            "deregisteredPrevious": old_agent_id,
+            **flow_meta_update_fields(updated_yaml),
+        }
+
+    if state == DEREGISTRATION_FAILED_STATE:
+        transaction = result.get("CurrentTransaction") or {}
+        error = (
+            transaction.get("errorMessage")
+            or transaction.get("error")
+            or result.get("error")
+            or "Deregistration failed"
+        )
+        if not isinstance(error, str):
+            error = str(error)
+        updated_yaml = await update_flow_meta(
+            row, expose_name, flow_url,
+            {
+                "previousRegistration": {
+                    **tracked,
+                    "deregisterRequested": False,
+                    "deregistrationState": state,
+                },
+                "migrationError": (
+                    f"Could not deregister the replaced agent "
+                    f"{old_agent_id}: {error}"),
+            },
+            expected={"previousRegistration": previous},
+        )
+        if updated_yaml is None:
+            return {
+                "migrationState": (
+                    previous.get("deregistrationState") or "Polling"),
+                "migrationError": (
+                    "The failed deregistration state could not be saved."),
+            }
+        return {
+            "migrationState": "MigrationConfirmed",
+            "deregistrationState": state,
+            "deregisterError": error,
+            **flow_meta_update_fields(updated_yaml),
+        }
+
+    if state not in DEREGISTRATION_PENDING_STATES:
+        state = DEREGISTRATION_REQUESTED_STATE
 
     updated_yaml = await update_flow_meta(
         row, expose_name, flow_url,
-        {"previousRegistration": None, "migrationError": None},
+        {
+            "previousRegistration": {
+                **tracked,
+                "deregisterRequested": True,
+                "deregistrationState": state,
+            },
+            "migrationError": None,
+        },
+        expected={"previousRegistration": previous},
     )
+    if updated_yaml is None:
+        return {
+            "migrationState": (
+                previous.get("deregistrationState") or "Polling"),
+            "migrationError": "The deregistration state could not be saved.",
+        }
     return {
-        "deregisteredPrevious": old_agent_id,
-        "updatedYaml": updated_yaml,
+        "migrationState": state,
+        "deregistrationState": state,
+        **flow_meta_update_fields(updated_yaml),
     }
+
+
+async def request_previous_deregistration(
+    masumi: MasumiConfig,
+    row: dict,
+    expose_name: str,
+    flow_url: str,
+    meta_data: dict,
+    expected_network: Optional[str] = None,
+    expected_etag: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """Record manual burn intent, then submit or poll it under one lock."""
+    if not flow_url:
+        return None
+
+    guarded_network = (
+        expected_network if expected_network is not None
+        else row.get("network"))
+    async with migration_lock(expose_name, flow_url):
+        row = await db.get_expose(expose_name)
+        if not row:
+            return None
+        if (guarded_network is not None
+                and row.get("network") != guarded_network):
+            return {
+                "migrationState": "Polling",
+                "deregisterError": "The expose network changed. Retry.",
+            }
+        if (expected_etag is not None
+                and float(row.get("updated") or 0) != expected_etag):
+            return {
+                "migrationState": "Polling",
+                "deregisterError": "The flow changed. Reload and retry.",
+                "statusCode": 409,
+            }
+        meta_data = get_flow_meta(row, flow_url)
+        if meta_data is None:
+            return None
+        previous = meta_data.get("previousRegistration")
+        if not isinstance(previous, dict) or not previous.get(
+                "agentIdentifier"):
+            return None
+
+        state = previous.get("deregistrationState")
+        intent_update = flow_meta_update_fields(None)
+        if not previous.get("deregisterRequested"):
+            requested = {**previous, "deregisterRequested": True}
+            if state == DEREGISTRATION_FAILED_STATE:
+                requested.pop("deregistrationState", None)
+            updated_yaml = await update_flow_meta(
+                row, expose_name, flow_url,
+                {
+                    "previousRegistration": requested,
+                    "migrationError": None,
+                },
+                expected={"previousRegistration": previous},
+            )
+            if updated_yaml is None:
+                return {
+                    "migrationState": "MigrationConfirmed",
+                    "deregisterError": (
+                        "Could not record the previous registration before "
+                        "deregistration."),
+                }
+            intent_update = flow_meta_update_fields(updated_yaml)
+            row = await db.get_expose(expose_name)
+            if not row:
+                return {
+                    "migrationState": "MigrationConfirmed",
+                    "deregisterError": "The expose was removed.",
+                    **intent_update,
+                }
+            if (guarded_network is not None
+                    and row.get("network") != guarded_network):
+                return {
+                    "migrationState": "Polling",
+                    "deregisterError": "The expose network changed. Retry.",
+                    **intent_update,
+                }
+            meta_data = get_flow_meta(row, flow_url)
+            if meta_data is None:
+                return {
+                    "migrationState": "MigrationConfirmed",
+                    "deregisterError": "The flow was removed.",
+                    **intent_update,
+                }
+
+        result = await _burn_previous(
+            masumi, row, expose_name, flow_url, meta_data)
+        update_fields = compose_flow_meta_update_fields(
+            intent_update, result)
+        return {**result, **update_fields}

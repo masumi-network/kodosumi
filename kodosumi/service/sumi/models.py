@@ -266,8 +266,8 @@ class PaymentInfo(BaseModel):
     )
     paymentSourceType: Optional[str] = Field(
         default=None,
-        description="Payment rail of the agent registration: Web3CardanoV1 "
-                    "or Web3CardanoV2. Absent for V1 registrations",
+        description="Payment rail resolved for this payment: "
+                    "Web3CardanoV1 or Web3CardanoV2",
     )
     supportedPaymentSourceIndex: Optional[int] = Field(
         default=None,
@@ -325,8 +325,8 @@ class JobStatusResponse(BaseModel):
     # that does not repeat them cannot create the purchase.
     paymentSourceType: Optional[str] = Field(
         default=None,
-        description="Payment rail of the agent registration: Web3CardanoV1 "
-                    "or Web3CardanoV2. Absent for V1 registrations",
+        description="Payment rail resolved for this payment: "
+                    "Web3CardanoV1 or Web3CardanoV2",
     )
     supportedPaymentSourceIndex: Optional[int] = Field(
         default=None,
