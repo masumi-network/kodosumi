@@ -413,8 +413,10 @@ async function deregisterPrevious(idx) {
         if (info && synced) {
             info.style.display = 'block';
             info.style.color = 'var(--on-surface-variant)';
-            info.textContent =
-                'Deregistration of the replaced V1 agent submitted.';
+            info.textContent = data.state === 'Polling'
+                ? 'Deregistration of the replaced V1 agent is recorded. The ' +
+                  'registry returned no row for it yet; the next poll submits it.'
+                : 'Deregistration of the replaced V1 agent submitted.';
         }
         // Refresh in place. A reload would drop unsaved metadata edits.
         if (data.state !== 'DeregistrationConfirmed' &&

@@ -457,6 +457,29 @@ class TestDeregisterPrevious:
         assert previous["deregistrationState"] == "DeregistrationRequested"
 
     @pytest.mark.asyncio
+    async def test_reports_polling_when_the_registry_has_no_row(self):
+        # Only the intent is recorded then, and the next poll submits the
+        # burn. The answer must not claim a submission that did not happen.
+        meta = _meta(
+            agentIdentifier="v2-agent",
+            paymentSourceType=V2,
+            previousRegistration={"agentIdentifier": "v1-agent",
+                                  "registrationId": "v1-reg"})
+        mocks = _patches(meta=meta)
+        status = patch(
+            "kodosumi.service.expose.migration.get_registration_status",
+            new_callable=AsyncMock, return_value=None)
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["migration_meta"], mocks["migration_write"], \
+                status, mocks["deregister"] as deregister:
+            result = await DEREGISTER_PREVIOUS(
+                None, name="expose", data={"flow_url": "/flow"},
+                state=_state())
+        assert result["success"] is True
+        assert result["state"] == "Polling"
+        deregister.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_refuses_without_a_previous_registration(self):
         mocks = _patches()
         with mocks["init"], mocks["row"], mocks["meta"], \

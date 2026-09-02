@@ -411,8 +411,12 @@ class RegistryMigrateControl(litestar.Controller):
 
         return {
             "success": True,
-            "state": result.get(
-                "deregistrationState", "DeregistrationRequested"),
+            # Without a deregistrationState only the intent was recorded:
+            # the registry returned no row, and the next poll submits it.
+            "state": (
+                result.get("deregistrationState")
+                or result.get("migrationState")
+                or "DeregistrationRequested"),
             "updatedYaml": result.get("updatedYaml"),
             "updatedEtag": result.get("updatedEtag"),
             "previousEtag": result.get("previousEtag"),
