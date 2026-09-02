@@ -575,16 +575,23 @@ async def _record_deregistration_result(
     if state not in DEREGISTRATION_PENDING_STATES:
         state = DEREGISTRATION_REQUESTED_STATE
 
+    requested = {
+        **tracked,
+        "deregisterRequested": True,
+        "deregistrationState": state,
+    }
+    if requested == previous:
+        # The poll found the same pending state it saved last time. A
+        # write here would only move the expose ETag and turn every
+        # open edit form stale until the burn confirms.
+        return {
+            "migrationState": state,
+            "deregistrationState": state,
+            **flow_meta_update_fields(None),
+        }
     updated_yaml = await update_flow_meta(
         row, expose_name, flow_url,
-        {
-            "previousRegistration": {
-                **tracked,
-                "deregisterRequested": True,
-                "deregistrationState": state,
-            },
-            "migrationError": None,
-        },
+        {"previousRegistration": requested, "migrationError": None},
         expected={"previousRegistration": previous},
     )
     if updated_yaml is None:

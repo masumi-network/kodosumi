@@ -321,6 +321,26 @@ class TestAdvanceMigration:
         assert result["migrationState"] == "DeregistrationRequested"
 
     @pytest.mark.asyncio
+    async def test_an_unchanged_pending_burn_writes_nothing(self):
+        meta = {**_registered_meta(),
+                "agentIdentifier": "v2-agent",
+                "paymentSourceType": "Web3CardanoV2",
+                "previousRegistration": {
+                    **_previous(),
+                    "deregistrationState": "DeregistrationRequested"}}
+        status, dereg, write, read = self._patch(
+            {"id": "v1-reg", "agentIdentifier": "v1-agent",
+             "state": "DeregistrationRequested"}, meta=meta)
+        with status, dereg as mock_dereg, write as mock_write, read:
+            result = await advance_migration(
+                _make_config(), {}, "expose", "/flow", meta, allow_burn=True)
+        assert result["migrationState"] == "DeregistrationRequested"
+        mock_dereg.assert_not_called()
+        # Every write moves the expose ETag. A poll that finds the state it
+        # saved last time must leave open edit forms alone.
+        mock_write.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_old_agent_is_burned_only_after_the_swap_is_written(self):
         meta = {**_registered_meta(),
                 "pendingMigration": _pending(deregister_previous=True)}
