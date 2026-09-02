@@ -2135,7 +2135,8 @@ def get_path_from_base_url(base_url: str) -> str:
         return "/"
 
 
-async def get_existing_meta(expose_name: str) -> List[ExposeMetaModel]:
+async def get_existing_meta(
+        expose_name: str, row: Optional[dict] = None) -> List[ExposeMetaModel]:
     """
     Get existing meta entries for an expose from database.
 
@@ -2145,7 +2146,7 @@ async def get_existing_meta(expose_name: str) -> List[ExposeMetaModel]:
     Returns:
         List of ExposeMeta objects, empty if none exist
     """
-    row = await db.get_expose(expose_name)
+    row = row or await db.get_expose(expose_name)
     if not row or not row.get("meta"):
         return []
 
@@ -2305,16 +2306,14 @@ async def _step_update_meta(
         )
 
         try:
-            # Get existing meta from database
-            existing_metas = await get_existing_meta(expose_name)
+            existing_row = await db.get_expose(expose_name)
+            existing_metas = await get_existing_meta(
+                expose_name, existing_row)
 
-            # Build lookup by URL path (meta stores path like /app/endpoint)
-            # Normalize paths (strip trailing slashes) for robust matching
             existing_by_path: Dict[str, ExposeMetaModel] = {}
             for meta in existing_metas:
                 existing_by_path[meta.url.rstrip("/")] = meta
 
-            # Merge flows with existing meta
             merged_metas: List[ExposeMetaModel] = []
             new_count = 0
             updated_count = 0
@@ -2323,14 +2322,10 @@ async def _step_update_meta(
                 base_url = flow.get("base_url", "")
                 url_path = get_path_from_base_url(base_url)
 
-                # Get state from Step D, default to "alive" if not checked
-                # Step D uses the flow.path which should match our url_path
                 state, checked_at = flow_state_lookup.get(url_path, ("alive", time.time()))
 
-                # Find existing meta by path (normalize trailing slash)
                 existing = existing_by_path.get(url_path.rstrip("/"))
 
-                # Merge
                 merged = merge_flow_with_meta(flow, existing, state, checked_at)
                 merged_metas.append(merged)
 
@@ -2357,9 +2352,14 @@ async def _step_update_meta(
                     except Exception:
                         pass
 
-            # Save to database
             meta_yaml = meta_to_yaml(merged_metas)
-            await db.update_expose_meta(expose_name, meta_yaml)
+            if not existing_row or not await db.update_expose_meta(
+                    expose_name, meta_yaml,
+                    updated=db.next_expose_etag(existing_row["updated"]),
+                    expected_updated=float(existing_row["updated"]),
+                    expected_meta=existing_row.get("meta")):
+                raise RuntimeError(
+                    "Expose metadata changed during boot update. Retry boot.")
 
             total_new += new_count
             total_updated += updated_count

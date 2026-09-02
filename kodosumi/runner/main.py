@@ -27,6 +27,37 @@ from kodosumi.runner.payment import (
 )
 from kodosumi import dtypes
 
+# Highest index a registry entry can hold. The payment node caps
+# supportedPaymentSources at 25 entries (MAX_SUPPORTED_PAYMENT_SOURCES in
+# @masumi/payment-core), so index 24 is the last one that can ever resolve.
+MAX_SUPPORTED_PAYMENT_SOURCE_INDEX = 24
+
+
+def _parse_source_index(value: Any) -> Optional[int]:
+    """
+    Read a supportedPaymentSourceIndex out of flow metadata.
+
+    The value reaches the runner through YAML, so it can arrive as an int or
+    as a string. Anything else means "not configured" and must not become
+    index 0: a wrong index selects a different price, and V1 agents reject
+    the field outright.
+
+    An index above the node's own ceiling names no payment source that can
+    exist, so it counts as junk instead of being sent on to be refused.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        index = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        index = int(value.strip())
+    else:
+        return None
+    if 0 <= index <= MAX_SUPPORTED_PAYMENT_SOURCE_INDEX:
+        return index
+    return None
+
+
 def parse_entry_point(entry_point: str) -> Callable:
     if ":" in entry_point:
         module_name, obj = entry_point.split(":", 1)
@@ -125,11 +156,17 @@ class Runner:
             return None
 
         # This is a paid flow - all config from extra, no DB access needed
+        # paymentSourceType and supportedPaymentSourceIndex are set for
+        # Web3CardanoV2 agents only. Both stay None for V1, which is what the
+        # payment node expects on that rail.
         return {
             "agentIdentifier": agent_identifier,
             "network": network,
             "identifier_from_purchaser": identifier_from_purchaser,
             "input_hash": input_hash,
+            "paymentSourceType": self.extra.get("paymentSourceType"),
+            "supportedPaymentSourceIndex": _parse_source_index(
+                self.extra.get("supportedPaymentSourceIndex")),
         }
 
     async def prepare(self) -> Optional[dict]:
@@ -164,11 +201,14 @@ class Runner:
             settings = Settings()
             masumi_cfg = settings.get_masumi(pay_conf["network"])
             masumi = MasumiClient(masumi_cfg)
+            source_index = pay_conf.get("supportedPaymentSourceIndex")
             pay_resp = await masumi.init_payment(
                 agent_identifier=pay_conf["agentIdentifier"],
                 network=pay_conf["network"],
                 input_hash=pay_conf["input_hash"],
                 identifier_from_purchaser=pay_conf["identifier_from_purchaser"],
+                payment_source_type=pay_conf.get("paymentSourceType"),
+                supported_payment_source_index=source_index,
             )
             blockchain_identifier = pay_resp.get("data", {}).get(
                 "blockchainIdentifier")
@@ -177,13 +217,25 @@ class Runner:
                     f"Payment init did not return blockchainIdentifier: {pay_resp}"
                 )
             pay_data = pay_resp.get("data", {})
+            payment_source = pay_data.get("PaymentSource") or {}
+            payment_source_type = (
+                payment_source.get("paymentSourceType")
+                or pay_conf.get("paymentSourceType")
+                or "Web3CardanoV1"
+            )
+            pay_conf["paymentSourceType"] = payment_source_type
 
+            # The payment response does not repeat the source index, and the
+            # buyer needs it to build the purchase, so keep the value this
+            # payment was created with on the event.
             await self._put_async(EVENT_PAYMENT, serialize({
                 "step": "initialized",
                 "agentIdentifier": pay_conf["agentIdentifier"],
                 "network": pay_conf["network"],
                 "inputHash": pay_conf["input_hash"],
                 "blockchainIdentifier": blockchain_identifier,
+                "paymentSourceType": payment_source_type,
+                "supportedPaymentSourceIndex": source_index,
                 "pay_data": pay_data,
             }))
 

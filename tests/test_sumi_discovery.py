@@ -730,7 +730,7 @@ class TestAvailabilityEndpoint:
         )
 
         # Mock HTTP client to return 200
-        with patch("kodosumi.service.sumi.control.HTTPXClient") as mock_client_cls:
+        with patch("kodosumi.service.sumi.flows.HTTPXClient") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
 
@@ -768,7 +768,7 @@ class TestAvailabilityEndpoint:
             db_path=temp_db,
         )
 
-        with patch("kodosumi.service.sumi.control.HTTPXClient") as mock_client_cls:
+        with patch("kodosumi.service.sumi.flows.HTTPXClient") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 503
 
@@ -806,7 +806,7 @@ class TestAvailabilityEndpoint:
             db_path=temp_db,
         )
 
-        with patch("kodosumi.service.sumi.control.HTTPXClient") as mock_client_cls:
+        with patch("kodosumi.service.sumi.flows.HTTPXClient") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.get.side_effect = ConnectionError("Connection refused")
             mock_client.__aenter__.return_value = mock_client

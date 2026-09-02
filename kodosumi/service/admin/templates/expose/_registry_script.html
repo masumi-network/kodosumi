@@ -1,0 +1,749 @@
+// ─── Registry Integration ───────────────────────────────────────
+
+const exposeName = '{{ item.name if item else "" }}';
+let activeDialogIdx = null;
+const pollIntervals = {};
+const pollInFlight = {};
+const registryRequestGenerations = {};
+// The migrate dialog offers V2 wallets only, so keep the fetched list.
+let loadedWallets = [];
+
+function beginRegistryRequest(idx) {
+    var generation = (registryRequestGenerations[idx] || 0) + 1;
+    registryRequestGenerations[idx] = generation;
+    return generation;
+}
+
+function isCurrentRegistryRequest(idx, generation) {
+    return registryRequestGenerations[idx] === generation;
+}
+
+function getNetworkEl() {
+    return document.getElementById('network');
+}
+
+function getNetwork() {
+    const el = getNetworkEl();
+    return el ? el.value : '';
+}
+
+function getWalletSelect(idx) {
+    return document.querySelector(`#registry_${idx} select.wallet-select`);
+}
+
+async function initRegistrySections() {
+    if (!exposeName) return;
+
+    // Attach network change listener
+    const networkEl = getNetworkEl();
+    if (networkEl) {
+        networkEl.addEventListener('change', function() {
+            updateRegistryVisibility();
+            if (this.value) loadWallets();
+        });
+    }
+
+    updateRegistryVisibility();
+
+    const network = getNetwork();
+    if (!network) return;
+
+    // Load wallets first, then check status
+    await loadWallets();
+    const sections = document.querySelectorAll('.registry-section');
+    for (const section of sections) {
+        const idx = section.id.replace('registry_', '');
+        const flowUrl = section.dataset.flowUrl;
+        await checkRegistryStatus(idx, flowUrl);
+    }
+
+    // Warn if any flow is registered and user tries to change network
+    checkNetworkLock();
+}
+
+function checkNetworkLock() {
+    var hasRegistered = false;
+    document.querySelectorAll('.registry-section .badge').forEach(function(badge) {
+        if (badge.textContent.indexOf('Confirmed') !== -1 ||
+            badge.textContent.indexOf('Requested') !== -1 ||
+            badge.textContent.indexOf('Initiated') !== -1) {
+            hasRegistered = true;
+        }
+    });
+    var networkEl = getNetworkEl();
+    if (!networkEl) return;
+
+    var warning = document.getElementById('network-lock-warning');
+    if (hasRegistered) {
+        if (!warning) {
+            warning = document.createElement('span');
+            warning.id = 'network-lock-warning';
+            warning.className = 'helper-text';
+            warning.style.color = 'var(--error)';
+            warning.style.fontSize = '0.8rem';
+            warning.textContent = 'Registered flows exist — changing the network may cause errors.';
+            networkEl.closest('.field').appendChild(warning);
+        }
+    } else if (warning) {
+        warning.remove();
+    }
+}
+
+function updateRegistryVisibility() {
+    const network = getNetwork();
+    document.querySelectorAll('.registry-section').forEach(function(section) {
+        const idx = section.id.replace('registry_', '');
+        const info = document.getElementById('reg_info_' + idx);
+        if (!network) {
+            section.style.opacity = '0.5';
+            section.style.pointerEvents = 'none';
+            var badge = document.getElementById('reg_badge_' + idx);
+            if (badge) {
+                badge.className = 'registry-badge reg-not-registered';
+                badge.textContent = 'No Network';
+            }
+            if (info) {
+                info.style.display = 'block';
+                info.textContent = 'Set network in Basic Information to enable registry.';
+                info.style.color = 'var(--on-surface-variant)';
+            }
+        } else {
+            section.style.opacity = '1';
+            section.style.pointerEvents = '';
+            if (info) {
+                info.style.display = 'none';
+                info.textContent = '';
+            }
+        }
+    });
+}
+
+async function loadWallets() {
+    if (!exposeName) return;
+    try {
+        const resp = await fetch('/expose/' + exposeName + '/wallets', {
+            credentials: 'same-origin'
+        });
+        if (!resp.ok) {
+            console.error('Wallets endpoint returned', resp.status);
+            showWalletInfo('Wallets could not be loaded (HTTP ' + resp.status + ')');
+            return;
+        }
+        const data = await resp.json();
+
+        if (data.error) {
+            showWalletInfo(data.error);
+            return;
+        }
+
+        const wallets = data.wallets || [];
+        loadedWallets = wallets;
+        if (wallets.length === 0) {
+            showWalletInfo('No selling wallets found for this network.');
+            return;
+        }
+
+        // Populate all wallet select elements (use class selector, not id prefix)
+        document.querySelectorAll('select.wallet-select').forEach(function(sel) {
+            var current = sel.value;
+            sel.innerHTML = '<option value="">Select wallet...</option>';
+            wallets.forEach(function(w) {
+                var vk = w.walletVkey;
+                var shortId = vk.substring(0, 6) + '\u2026' + vk.substring(vk.length - 6);
+                var label = w.note ? w.note + ' (' + shortId + ')' : shortId;
+                // The wallet selects the registration version, so name it.
+                if (w.paymentSourceType === 'Web3CardanoV2') {
+                    label += ' [V2]';
+                } else if (w.paymentSourceType === 'Web3CardanoV1') {
+                    label += ' [V1]';
+                }
+                var opt = document.createElement('option');
+                opt.value = vk;
+                opt.textContent = label;
+                if (vk === current) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        });
+    } catch (e) {
+        console.error('Failed to load wallets:', e);
+        showWalletInfo('Failed to load wallets: ' + e.message);
+    }
+}
+
+function showWalletInfo(msg) {
+    document.querySelectorAll('.registry-section').forEach(function(section) {
+        var idx = section.id.replace('registry_', '');
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.textContent = msg;
+            info.style.color = 'var(--error)';
+        }
+    });
+}
+
+async function checkRegistryStatus(idx, flowUrl) {
+    if (!exposeName || !getNetwork()) return;
+    var generation = beginRegistryRequest(idx);
+
+    try {
+        var resp = await fetch('/expose/' + exposeName + '/registry?flow_url=' + encodeURIComponent(flowUrl), {
+            credentials: 'same-origin'
+        });
+        if (!resp.ok) {
+            console.error('Registry status HTTP', resp.status);
+            return;
+        }
+        var data = await resp.json();
+        if (!isCurrentRegistryRequest(idx, generation)) return;
+
+        // Opening the page can be what completes a migration, so the YAML
+        // in the textarea is the pre swap one. Write the new one in place:
+        // a reload here would throw away whatever the operator has typed.
+        var synced = true;
+        if (data.updatedYaml) {
+            synced = syncMetaYaml(
+                idx, data.updatedYaml, undefined, data.updatedEtag,
+                data.previousEtag);
+        } else if (data.migration && data.migration.updatedYaml) {
+            synced = syncMetaYaml(
+                idx,
+                data.migration.updatedYaml,
+                undefined,
+                data.migration.updatedEtag,
+                data.migration.previousEtag
+            );
+        }
+        if (synced) updateRegistryUI(idx, data);
+        // The burn of the replaced agent runs on the poll endpoint only,
+        // because this one is a GET. Keep polling until it has happened,
+        // or the burn the operator asked for is never performed.
+        var pendingBurn = !!(data.previousRegistration &&
+            data.previousRegistration.deregisterRequested);
+
+        // Metadata owns migration state because the active V1 stays confirmed.
+        if (data.pendingMigration || pendingBurn) {
+            startPolling(idx, flowUrl, true);
+            return;
+        }
+        if (data.migration) {
+            return;
+        }
+
+        // Auto-poll if pending
+        var st = data.state;
+        if (st && st !== 'RegistrationConfirmed' &&
+                st !== 'NotRegistered' &&
+                st !== 'RegistrationFailed' &&
+                st !== 'DeregistrationConfirmed' &&
+                st !== 'DeregistrationFailed') {
+            startPolling(idx, flowUrl);
+        }
+    } catch (e) {
+        console.error('Registry status error:', e);
+    }
+}
+
+function updateRegistryUI(idx, data) {
+    var state = data.state || 'NotRegistered';
+    var agentId = data.agentIdentifier;
+
+    updateBadge(idx, state, agentId);
+    updateRailBadge(idx, data);
+
+    var regBtn = document.getElementById('reg_btn_' + idx);
+    var deregBtn = document.getElementById('dereg_btn_' + idx);
+    var walletRow = document.getElementById('reg_actions_' + idx);
+
+    if (state === 'RegistrationConfirmed') {
+        if (regBtn) regBtn.style.display = 'none';
+        if (deregBtn) {
+            deregBtn.style.display = '';
+            deregBtn.disabled = false;
+            deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
+        }
+        if (walletRow) walletRow.style.display = 'none';
+    } else if (state === 'RegistrationRequested' ||
+            state === 'RegistrationInitiated' ||
+            state === 'DeregistrationIntent' ||
+            state === 'DeregistrationRequested' ||
+            state === 'DeregistrationInitiated' ||
+            state === 'Polling') {
+        if (regBtn) regBtn.style.display = 'none';
+        if (deregBtn) deregBtn.style.display = 'none';
+        if (walletRow) walletRow.style.display = 'none';
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = state.indexOf('Deregistration') === 0
+                ? 'Waiting for on-chain deregistration...'
+                : 'Waiting for on-chain confirmation...';
+        }
+    } else if (state === 'RegistrationFailed') {
+        if (regBtn) regBtn.style.display = '';
+        if (deregBtn) deregBtn.style.display = 'none';
+        if (walletRow) walletRow.style.display = '';
+        var errorMsg = data.errorMessage || '';
+        var txInfo = data.transaction || {};
+        var failInfo = document.getElementById('reg_info_' + idx);
+        if (failInfo) {
+            failInfo.style.display = 'block';
+            failInfo.style.color = 'var(--error)';
+            var msg = 'Registration failed.';
+            if (errorMsg) msg += ' Reason: ' + errorMsg;
+            if (txInfo.txHash) msg += ' (Tx: ' + txInfo.txHash.substring(0, 16) + '...)';
+            failInfo.textContent = msg;
+        }
+    } else if (state === 'DeregistrationFailed') {
+        if (regBtn) regBtn.style.display = 'none';
+        if (deregBtn) {
+            deregBtn.style.display = '';
+            deregBtn.disabled = false;
+            deregBtn.innerHTML = '<i>remove_circle</i><span>Deregister</span>';
+        }
+        if (walletRow) walletRow.style.display = 'none';
+        var deregFailInfo = document.getElementById('reg_info_' + idx);
+        if (deregFailInfo) {
+            deregFailInfo.style.display = 'block';
+            deregFailInfo.style.color = 'var(--error)';
+            deregFailInfo.textContent = data.errorMessage
+                ? 'Deregistration failed: ' + data.errorMessage
+                : 'Deregistration failed. Retry when the wallet is ready.';
+        }
+    } else if (state === 'DeregistrationConfirmed') {
+        if (regBtn) regBtn.style.display = '';
+        if (deregBtn) deregBtn.style.display = 'none';
+        if (walletRow) walletRow.style.display = '';
+        var doneInfo = document.getElementById('reg_info_' + idx);
+        if (doneInfo) {
+            doneInfo.style.display = 'none';
+            doneInfo.textContent = '';
+        }
+    } else {
+        if (regBtn) regBtn.style.display = '';
+        if (deregBtn) deregBtn.style.display = 'none';
+        if (walletRow) walletRow.style.display = '';
+        var idleInfo = document.getElementById('reg_info_' + idx);
+        if (state === 'NotRegistered' && idleInfo &&
+                /^(Waiting for on-chain|Deregistration submitted|Registration submitted|Migration submitted|Migrating to V2)/
+                    .test(idleInfo.textContent)) {
+            idleInfo.style.display = 'none';
+            idleInfo.textContent = '';
+        }
+    }
+
+    if (data.transaction && state !== 'RegistrationFailed' &&
+            state !== 'DeregistrationFailed') {
+        var tx = data.transaction;
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = 'Tx: ' + (tx.txHash ? tx.txHash.substring(0, 16) + '...' : '\u2014') + '  Status: ' + (tx.status || '\u2014');
+        }
+    }
+
+    updateMigrationUI(idx, data);
+    checkNetworkLock();
+}
+
+function updateBadge(idx, state, agentId) {
+    var badge = document.getElementById('reg_badge_' + idx);
+    var agentIdEl = document.getElementById('reg_agent_id_' + idx);
+    var copyBtn = document.getElementById('reg_copy_' + idx);
+    if (!badge) return;
+
+    badge.className = 'registry-badge';
+    switch (state) {
+        case 'RegistrationConfirmed':
+            badge.className += ' reg-confirmed';
+            badge.textContent = 'Confirmed';
+            break;
+        case 'RegistrationRequested':
+        case 'RegistrationInitiated':
+        case 'Polling':
+            badge.className += ' reg-pending';
+            badge.innerHTML = '<span class="reg-spinner"></span>\u00a0Pending...';
+            break;
+        case 'RegistrationFailed':
+            badge.className += ' reg-failed';
+            badge.textContent = 'Failed';
+            break;
+        case 'DeregistrationIntent':
+        case 'DeregistrationRequested':
+        case 'DeregistrationInitiated':
+            badge.className += ' reg-pending';
+            badge.innerHTML = '<span class="reg-spinner"></span>\u00a0Deregistering...';
+            break;
+        case 'DeregistrationFailed':
+            badge.className += ' reg-failed';
+            badge.textContent = 'Deregistration Failed';
+            break;
+        case 'DeregistrationConfirmed':
+            badge.className += ' reg-not-registered';
+            badge.textContent = 'Deregistered';
+            break;
+        default:
+            badge.className += ' reg-not-registered';
+            badge.textContent = 'Not Registered';
+    }
+
+    if (agentId && agentIdEl) {
+        agentIdEl.style.display = '';
+        agentIdEl.textContent = agentId.substring(0, 24) + '...';
+        agentIdEl.title = agentId;
+        if (copyBtn) copyBtn.style.display = '';
+    } else {
+        if (agentIdEl) agentIdEl.style.display = 'none';
+        if (copyBtn) copyBtn.style.display = 'none';
+    }
+}
+
+// The rail decides which escrow contract a buyer pays into, so the operator
+// has to see it on a registration they did not just create themselves.
+function updateRailBadge(idx, data) {
+    var el = document.getElementById('reg_rail_' + idx);
+    if (!el) return;
+    var state = data.state || 'NotRegistered';
+    var rail = data.paymentSourceType;
+    if (state === 'NotRegistered' || state === 'DeregistrationConfirmed' ||
+            !rail) {
+        el.style.display = 'none';
+        return;
+    }
+    var isV2 = rail === 'Web3CardanoV2';
+    el.className = 'rail-badge' + (isV2 ? ' rail-v2' : '');
+    el.textContent = isV2 ? 'V2' : 'V1';
+    var title = 'Payment rail: ' + rail;
+    if (isV2 && data.supportedPaymentSourceIndex !== null &&
+            data.supportedPaymentSourceIndex !== undefined) {
+        title += ' (source index ' + data.supportedPaymentSourceIndex + ')';
+    }
+    el.title = title;
+    el.style.display = '';
+}
+
+// A migration is two mints: the V2 agent appears first, the V1 agent is
+// burned afterwards. The panel offers the button only while that makes sense.
+function updateMigrationUI(idx, data) {
+    var migrateBtn = document.getElementById('migrate_btn_' + idx);
+    var deregBtn = document.getElementById('dereg_btn_' + idx);
+    var cancelBtn = document.getElementById('cancel_mig_btn_' + idx);
+    var prevRow = document.getElementById('prev_reg_row_' + idx);
+    var prevId = document.getElementById('prev_reg_id_' + idx);
+    var prevBtn = document.getElementById('prev_dereg_btn_' + idx);
+    var migration = data.migration;
+    // The metadata is what decides, not the last response: a mint that
+    // failed clears its record and must leave the buttons usable again.
+    var pending = !!data.pendingMigration;
+    var previous = data.previousRegistration;
+    var hasPrevious = !!(previous && previous.agentIdentifier);
+    var isV1 = (data.paymentSourceType || 'Web3CardanoV1') === 'Web3CardanoV1';
+
+    if (migrateBtn) {
+        migrateBtn.style.display =
+            (data.state === 'RegistrationConfirmed' && isV1 && !pending)
+                ? '' : 'none';
+    }
+    if ((pending || hasPrevious) && deregBtn) {
+        // The previous agent has to be removed before the live one.
+        deregBtn.style.display = 'none';
+    }
+    if (cancelBtn) {
+        cancelBtn.style.display = pending ? '' : 'none';
+    }
+    if (pending) {
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = 'Migrating to V2. Waiting for the new mint to ' +
+                'confirm. The V1 agent keeps serving until then.';
+        }
+    }
+    // migrationError is stored in the flow metadata, so the reason a
+    // migration stopped survives the page load that follows it. It is
+    // cleared when the next attempt starts, so clear the banner with it.
+    if (data.migrationError) {
+        showRegError(idx, data.migrationError);
+    } else if (migration && migration.migrationError) {
+        showRegError(idx, migration.migrationError);
+    } else if (migration && migration.deregisterError) {
+        showRegError(idx, 'Migrated, but the V1 agent could not be ' +
+            'deregistered: ' + migration.deregisterError);
+    } else if (migration || data.previousRegistration) {
+        hideRegError(idx);
+    }
+
+    if (prevRow) {
+        if (previous && previous.agentIdentifier) {
+            prevRow.style.display = '';
+            if (prevId) {
+                prevId.textContent =
+                    previous.agentIdentifier.substring(0, 24) + '...';
+                prevId.title = previous.agentIdentifier;
+            }
+            if (prevBtn) {
+                var canRetry = !previous.deregisterRequested ||
+                    previous.deregistrationState === 'DeregistrationFailed';
+                prevBtn.disabled = !canRetry;
+                prevBtn.innerHTML = canRetry
+                    ? '<i>remove_circle</i><span>Deregister V1</span>'
+                    : '<span class="reg-spinner"></span>\u00a0Deregistering...';
+            }
+        } else {
+            prevRow.style.display = 'none';
+        }
+    }
+}
+
+function copyAgentId(idx) {
+    var el = document.getElementById('reg_agent_id_' + idx);
+    if (!el) return;
+    navigator.clipboard.writeText(el.title).then(function() {
+        var btn = document.getElementById('reg_copy_' + idx);
+        if (btn) {
+            var icon = btn.querySelector('i');
+            icon.textContent = 'check';
+            setTimeout(function() { icon.textContent = 'content_copy'; }, 1500);
+        }
+    });
+}
+
+function showRegError(idx, msg) {
+    var el = document.getElementById('reg_error_' + idx);
+    if (el) { el.style.display = 'block'; el.textContent = msg; }
+}
+
+function hideRegError(idx) {
+    var el = document.getElementById('reg_error_' + idx);
+    if (el) el.style.display = 'none';
+}
+
+function blockRegistrySync(idx, msg) {
+    var ta = document.querySelector('[name="meta_data_' + idx + '"]');
+    if (ta) (ta.dataset || (ta.dataset = {})).registrySyncBlocked = 'true';
+    showRegError(idx, msg);
+}
+
+// Never replace edits made after the registry request started.
+function syncMetaYaml(
+        idx, yamlText, expectedYaml, updatedEtag, previousEtag) {
+    var ta = document.querySelector('[name="meta_data_' + idx + '"]');
+    if (!ta) return true;
+    var syncState = ta.dataset || (ta.dataset = {});
+    if (!yamlText) return syncState.registrySyncBlocked !== 'true';
+    var etag = document.getElementById('etag');
+    if (updatedEtag && (!etag || previousEtag === undefined ||
+            previousEtag === null || etag.value !== String(previousEtag))) {
+        blockRegistrySync(
+            idx,
+            'A newer form or registry update was saved. Reload the page ' +
+            'before applying this registry response.'
+        );
+        return false;
+    }
+    var expected = expectedYaml === undefined ? ta.defaultValue : expectedYaml;
+    if (ta.value !== expected) {
+        blockRegistrySync(
+            idx,
+            'Registry data changed while this flow has unsaved edits. ' +
+            'Copy your edits, then reload the page.'
+        );
+        return false;
+    }
+    ta.value = yamlText;
+    ta.defaultValue = yamlText;
+    if (etag && updatedEtag) etag.value = updatedEtag;
+    delete syncState.registrySyncBlocked;
+    return true;
+}
+
+// Clear a stuck pending mint so a retry or deregistration can proceed.
+async function cancelMigration(idx) {
+    var section = document.getElementById('registry_' + idx);
+    if (!section) return;
+    var cancelBtn = document.getElementById('cancel_mig_btn_' + idx);
+    if (cancelBtn && cancelBtn.disabled) return;
+    var flowUrl = section.dataset.flowUrl;
+    var etag = document.getElementById('etag');
+    if (!confirm('Stop waiting for the Web3CardanoV2 mint?\n\n' +
+            'The flow keeps serving its current agent. If the mint still ' +
+            'confirms later, deregister the new agent in the Masumi admin ' +
+            'interface.')) {
+        return;
+    }
+    hideRegError(idx);
+    if (cancelBtn) cancelBtn.disabled = true;
+    var wasPolling = !!pollIntervals[idx];
+    if (wasPolling) {
+        clearInterval(pollIntervals[idx]);
+        delete pollIntervals[idx];
+    }
+    var generation = beginRegistryRequest(idx);
+    try {
+        var resp = await fetch(
+            '/expose/' + exposeName + '/registry/migrate/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    flow_url: flowUrl,
+                    meta_etag: etag ? etag.value : null
+                })
+            });
+        var data = await resp.json();
+        if (!resp.ok) {
+            if (!isCurrentRegistryRequest(idx, generation)) return;
+            if (cancelBtn) cancelBtn.disabled = false;
+            if (wasPolling) startPolling(idx, flowUrl, true);
+            showRegError(idx, data.detail || 'Could not cancel the migration');
+            return;
+        }
+        var synced = syncMetaYaml(
+            idx, data.updatedYaml, undefined, data.updatedEtag,
+            data.previousEtag);
+        if (!isCurrentRegistryRequest(idx, generation)) return;
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+            cancelBtn.disabled = false;
+        }
+        if (synced) await checkRegistryStatus(idx, flowUrl);
+        var info = document.getElementById('reg_info_' + idx);
+        if (info && data.notice) {
+            info.style.display = 'block';
+            info.style.color = 'var(--on-surface-variant)';
+            info.textContent = data.notice;
+        }
+    } catch (e) {
+        blockRegistrySync(
+            idx, 'Could not cancel the migration: ' + e +
+            '. Reload the page before another registry action.');
+        if (!isCurrentRegistryRequest(idx, generation)) return;
+        if (cancelBtn) cancelBtn.disabled = false;
+        if (wasPolling) startPolling(idx, flowUrl, true);
+        await checkRegistryStatus(idx, flowUrl);
+    }
+}
+
+
+// ─── Polling ────────────────────────────────────────────────────
+
+function startPolling(idx, flowUrl, isMigration) {
+    if (pollIntervals[idx]) return;
+
+    var pollCount = 0;
+    // A second mint gets the longer polling budget.
+    var maxPolls = isMigration ? 80 : 20; // 15s each: 20 or 5 minutes
+    pollIntervals[idx] = setInterval(async function() {
+        if (pollInFlight[idx]) return;
+        pollCount++;
+        if (pollCount > maxPolls) {
+            clearInterval(pollIntervals[idx]);
+            delete pollIntervals[idx];
+            showRegError(idx, isMigration
+                ? 'The migration is taking longer than expected. It carries ' +
+                  'on in the background. Reload the page to check it.'
+                : 'Registry update is taking longer than expected. Reload ' +
+                  'the page to check status.');
+            return;
+        }
+        pollInFlight[idx] = true;
+        var generation = beginRegistryRequest(idx);
+        try {
+            var resp = await fetch('/expose/' + exposeName + '/registry/poll', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ flow_url: flowUrl })
+            });
+            if (!resp.ok) return;
+            var data = await resp.json();
+            if (!isCurrentRegistryRequest(idx, generation)) {
+                var staleUpdate = data.updatedYaml ? data : data.migration;
+                if (staleUpdate) syncMetaYaml(
+                    idx, staleUpdate.updatedYaml, undefined,
+                    staleUpdate.updatedEtag, staleUpdate.previousEtag);
+                return;
+            }
+
+            // During a migration the flow still reports its confirmed V1
+            // agent, so the migration state decides when to stop.
+            if (data.migration) {
+                var migrationSynced = syncMetaYaml(
+                    idx, data.updatedYaml, undefined, data.updatedEtag,
+                    data.previousEtag);
+                if (migrationSynced) updateRegistryUI(idx, data);
+                var migState = data.migration.migrationState;
+                if (migState === 'MigrationConfirmed' ||
+                        migState === 'RegistrationFailed') {
+                    clearInterval(pollIntervals[idx]);
+                    delete pollIntervals[idx];
+                    var migInfo = document.getElementById('reg_info_' + idx);
+                    if (migInfo && migState === 'MigrationConfirmed') {
+                        migInfo.style.display = 'block';
+                        migInfo.style.color = 'var(--on-surface-variant)';
+                        migInfo.textContent = migrationSynced
+                            ? 'Migrated to V2.'
+                            : 'Migrated to V2. Copy edits, then reload.';
+                    } else if (migInfo) {
+                        migInfo.style.display = 'none';
+                    }
+                }
+                return;
+            }
+
+            if (data.state === 'RegistrationConfirmed') {
+                clearInterval(pollIntervals[idx]);
+                delete pollIntervals[idx];
+                var yamlSynced = syncMetaYaml(
+                    idx, data.updatedYaml, undefined, data.updatedEtag,
+                    data.previousEtag);
+                if (yamlSynced) updateRegistryUI(idx, data);
+                var info = document.getElementById('reg_info_' + idx);
+                if (info) {
+                    info.style.display = 'block';
+                    info.style.color = 'var(--on-surface-variant)';
+                    info.textContent = yamlSynced
+                        ? 'Agent registered on-chain.'
+                        : 'Agent registered on-chain. Copy edits, then reload.';
+                }
+            } else if (data.state === 'RegistrationFailed') {
+                clearInterval(pollIntervals[idx]);
+                delete pollIntervals[idx];
+                var failureSynced = syncMetaYaml(
+                    idx, data.updatedYaml, undefined, data.updatedEtag,
+                    data.previousEtag);
+                if (failureSynced) updateRegistryUI(idx, data);
+                var failInfo = document.getElementById('reg_info_' + idx);
+                if (failInfo && data.errorMessage) {
+                    failInfo.style.display = 'block';
+                    failInfo.style.color = 'var(--error)';
+                    failInfo.textContent = 'Registration failed: ' + data.errorMessage;
+                }
+            } else if (data.state === 'NotRegistered' ||
+                    data.state === 'DeregistrationConfirmed' ||
+                    data.state === 'DeregistrationFailed') {
+                clearInterval(pollIntervals[idx]);
+                delete pollIntervals[idx];
+                var deregistrationSynced = syncMetaYaml(
+                    idx, data.updatedYaml, undefined, data.updatedEtag,
+                    data.previousEtag);
+                if (deregistrationSynced) updateRegistryUI(idx, data);
+            } else {
+                var pendingSynced = syncMetaYaml(
+                    idx, data.updatedYaml, undefined, data.updatedEtag,
+                    data.previousEtag);
+                if (pendingSynced) {
+                    updateBadge(
+                        idx, data.state || 'Polling', data.agentIdentifier);
+                }
+            }
+        } catch (e) {
+            console.error('Poll error:', e);
+        } finally {
+            delete pollInFlight[idx];
+        }
+    }, 15000);
+}

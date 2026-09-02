@@ -4,12 +4,10 @@ Controller for expose API endpoints.
 All endpoints require operator role authentication.
 """
 
-import asyncio
 import logging
 import time
-import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -17,20 +15,15 @@ import yaml
 import litestar
 from litestar import Request, delete, get, post
 from litestar.datastructures import State
-from litestar.exceptions import ClientException, NotFoundException, ValidationException
-from litestar.response import Redirect, Stream, Template
-from sqlalchemy import select
+from litestar.exceptions import ClientException, NotFoundException
+from litestar.response import Redirect, Template
 
-from kodosumi.dtypes import Role
 from kodosumi.helper import HTTPXClient
 from kodosumi.service.expose.boot import (
     BootMessage,
-    BootStep,
     boot_lock,
     get_ray_serve_address_from_config,
     run_boot_process,
-    run_shutdown,
-    start_boot_background,
     check_app_running,
     check_endpoint_alive,
     fetch_registered_flows,
@@ -47,6 +40,8 @@ from kodosumi.service.expose.models import (
     ExposeResponse,
     meta_to_yaml,
 )
+from kodosumi.service.expose.flow_meta import (has_registry_lifecycle,
+                                               registry_action_lock)
 
 # Default serve config
 RAY_SERVE_CONFIG = "./data/serve_config.yaml"
@@ -99,30 +94,6 @@ def ensure_serve_config():
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if not config_path.exists():
         config_path.write_text(DEFAULT_SERVE_CONFIG)
-
-
-async def get_username(user_id: str, state: State) -> str:
-    """
-    Look up username from user ID.
-
-    Args:
-        user_id: UUID string of the user
-        state: Litestar state containing session_maker_class
-
-    Returns:
-        Username string, or the user_id if lookup fails
-    """
-    try:
-        session = state["session_maker_class"]()
-        async with session:
-            query = select(Role).where(Role.id == uuid.UUID(user_id))
-            result = await session.execute(query)
-            role = result.scalar_one_or_none()
-            if role:
-                return role.name
-    except Exception:
-        pass
-    return user_id  # Fallback to ID if lookup fails
 
 
 class ExposeControl(litestar.Controller):
@@ -186,45 +157,21 @@ class ExposeControl(litestar.Controller):
             data.original_name
             and data.original_name != data.name
         )
-
-        if is_rename:
-            # Rename case: original_name -> name
-            # Check if the NEW name already exists (would be a different record)
-            existing_new = await db.get_expose(data.name)
-            if existing_new:
+        expected_updated = None
+        if data.etag:
+            try:
+                expected_updated = float(data.etag)
+            except ValueError:
                 raise ClientException(
-                    detail=f"An expose with name '{data.name}' already exists.",
+                    detail="This record has an invalid ETag. "
+                           "Please reload the page and try again.",
                     status_code=409,
                 )
-
-            # Validate ETag against the ORIGINAL record
-            if data.etag:
-                existing_original = await db.get_expose(data.original_name)
-                if existing_original:
-                    current_etag = str(existing_original["updated"])
-                    if data.etag != current_etag:
-                        raise ClientException(
-                            detail="This record has been modified by another user. "
-                                   "Please reload the page and try again.",
-                            status_code=409,
-                        )
-
-            # Delete the old record (will be recreated with new name)
-            await db.delete_expose(data.original_name)
-        else:
-            # Update case (same name or new record)
-            # ETag validation for optimistic concurrency control
-            if data.etag:
-                existing = await db.get_expose(data.name)
-                if existing:
-                    current_etag = str(existing["updated"])
-                    if data.etag != current_etag:
-                        raise ClientException(
-                            detail="This record has been modified by another user. "
-                                   "Please reload the page and try again.",
-                            status_code=409,
-                        )
-
+        if is_rename and expected_updated is None:
+            raise ClientException(
+                detail="Reload the record before renaming it.",
+                status_code=409,
+            )
         # Determine state based on actual Ray status
         if not data.bootstrap or not data.bootstrap.strip():
             # No bootstrap config = DRAFT
@@ -244,16 +191,55 @@ class ExposeControl(litestar.Controller):
         meta_yaml = meta_to_yaml(data.meta)
 
         # Upsert
-        row = await db.upsert_expose(
-            name=data.name,
-            display=data.display,
-            network=data.network,
-            enabled=data.enabled,
-            state=state_value,
-            heartbeat=now,
-            bootstrap=data.bootstrap,
-            meta=meta_yaml,
-        )
+        current_name = data.original_name if is_rename else data.name
+        async with registry_action_lock(current_name):
+            current = await db.get_expose(current_name)
+            has_registry = bool(
+                current and has_registry_lifecycle(current))
+            if current and expected_updated is None and has_registry:
+                raise ClientException(
+                    detail="Reload the record before editing an expose with "
+                           "registry state.",
+                    status_code=409,
+                )
+            # db.upsert_expose keeps the stored network when the request
+            # omits it, so only a different value is a network change.
+            if (current and data.network is not None
+                    and current.get("network") != data.network):
+                if expected_updated is None:
+                    raise ClientException(
+                        detail="Reload the record before changing its network.",
+                        status_code=409,
+                    )
+                if has_registry:
+                    raise ClientException(
+                        detail="Deregister all agents and clear registry "
+                               "actions before changing the expose network.",
+                        status_code=409,
+                    )
+            if is_rename and await db.get_expose(data.name):
+                raise ClientException(
+                    detail=f"An expose with name '{data.name}' already exists.",
+                    status_code=409,
+                )
+            row = await db.upsert_expose(
+                name=data.name,
+                display=data.display,
+                network=data.network,
+                enabled=data.enabled,
+                state=state_value,
+                heartbeat=now,
+                bootstrap=data.bootstrap,
+                meta=meta_yaml,
+                expected_updated=expected_updated,
+                original_name=data.original_name if is_rename else None,
+            )
+        if row is None:
+            raise ClientException(
+                detail="This record has been modified by another user. "
+                       "Please reload the page and try again.",
+                status_code=409,
+            )
 
         return ExposeResponse.from_db_row(row)
 
@@ -474,7 +460,17 @@ class ExposeControl(litestar.Controller):
         if updated_metas:
             meta_yaml = meta_to_yaml(updated_metas)
             if meta_yaml:
-                await db.update_expose_meta(expose_name, meta_yaml)
+                saved = await db.update_expose_meta(
+                    expose_name,
+                    meta_yaml,
+                    expected_updated=float(row["updated"]),
+                    expected_meta=row.get("meta"),
+                )
+                if not saved:
+                    logger.warning(
+                        "Skipped stale health metadata for %s",
+                        expose_name,
+                    )
 
         await db.update_expose_state(expose_name, expose_state, now)
 
@@ -498,572 +494,6 @@ class ExposeControl(litestar.Controller):
             "fields_ok": fields_ok,
             "meta": meta_results,
         }
-
-
-class RegistryControl(litestar.Controller):
-    """Controller for Masumi Registry integration endpoints."""
-
-    path = "/expose/{name:str}/registry"
-    tags = ["Registry"]
-    guards = [operator_guard]
-
-    @get(
-        "",
-        summary="Get registry status for a flow",
-        description="Check Masumi on-chain registry status for a specific flow. Returns registration state, agentIdentifier, and transaction details.",
-        operation_id="registry_status",
-    )
-    async def get_status(
-        self, name: str, state: State, flow_url: Optional[str] = None
-    ) -> dict:
-        """
-        Check Masumi Registry status for a specific flow.
-
-        Reads agentIdentifier/registrationId from the flow's meta YAML
-        and queries the Masumi Registry API for current status.
-        """
-        await db.init_database()
-        row = await db.get_expose(name)
-        if not row:
-            raise NotFoundException(detail=f"Expose '{name}' not found")
-
-        network = row.get("network")
-        if not network:
-            return {"registered": False, "error": "No network configured"}
-
-        try:
-            masumi = state["settings"].get_masumi(network)
-        except ValueError as e:
-            return {"registered": False, "error": str(e)}
-
-        # Parse meta to find the flow
-        meta_data = self._get_flow_meta(row, flow_url)
-        if meta_data is None:
-            return {"registered": False, "error": "Flow not found"}
-
-        agent_id = meta_data.get("agentIdentifier")
-        reg_id = meta_data.get("registrationId")
-
-        if not agent_id and not reg_id:
-            return {"registered": False, "state": "NotRegistered"}
-
-        # If agentIdentifier is in YAML, the agent IS registered on-chain.
-        # Query registry for latest details but don't flip to "not registered"
-        # if the API is temporarily unavailable.
-        from kodosumi.service.expose.registry import get_registration_status
-        try:
-            result = await get_registration_status(
-                masumi,
-                registration_id=reg_id,
-                agent_identifier=agent_id,
-            )
-        except Exception as e:
-            logger.warning("Registry API error for %s: %s", name, e)
-            result = None
-
-        if not result:
-            if agent_id:
-                # Trust YAML — agent was confirmed on-chain
-                return {
-                    "registered": True,
-                    "state": "RegistrationConfirmed",
-                    "agentIdentifier": agent_id,
-                    "registrationId": reg_id,
-                }
-            return {
-                "registered": False,
-                "state": "Polling",
-                "registrationId": reg_id,
-            }
-
-        # Backfill registrationId only — this is a one-time essential fix.
-        # Do NOT sync other fields here as it changes the ETag and causes
-        # 409 conflicts when the user tries to save the form.
-        result_reg_id = result.get("id")
-        if agent_id and not reg_id and result_reg_id and flow_url:
-            await self._update_flow_meta(row, name, flow_url, {
-                "registrationId": result_reg_id,
-            })
-
-        tx = result.get("CurrentTransaction") or {}
-        # Error can be in CurrentTransaction.errorMessage or top-level error field
-        error_message = tx.get("errorMessage") or tx.get("error") or ""
-        if not error_message:
-            top_error = result.get("error") or ""
-            if top_error and top_error != "{}":
-                error_message = top_error
-
-        return {
-            "registered": result.get("state") == "RegistrationConfirmed",
-            "state": result.get("state", "Unknown"),
-            "agentIdentifier": result.get("agentIdentifier") or agent_id,
-            "registrationId": result_reg_id or reg_id,
-            "name": result.get("name"),
-            "transaction": tx or None,
-            "errorMessage": error_message,
-        }
-
-    @post(
-        "",
-        summary="Register agent on Masumi",
-        description="Register an agent flow on the Masumi on-chain registry. Reads display, description, tags, and pricing from the flow's meta YAML. Requires wallet_vkey and flow_url in request body.",
-        operation_id="registry_register",
-    )
-    async def register(
-        self, name: str, data: dict, state: State
-    ) -> dict:
-        """
-        Register an agent flow on the Masumi on-chain registry.
-
-        Reads display, description, tags, pricing from the flow's meta YAML.
-        Requires wallet_vkey and flow_url in the request body.
-
-        Body:
-            flow_url: str - Flow URL path (e.g. /myapp/analyze)
-            wallet_vkey: str - Selling wallet verification key
-            pricing_type: str - "Free" or "Fixed" (optional, reads from YAML if not set)
-            amount: float - Human-readable amount (optional, reads from YAML if not set)
-            currency: str - "USDM" or "ADA" (optional, reads from YAML if not set)
-        """
-        await db.init_database()
-        row = await db.get_expose(name)
-        if not row:
-            raise NotFoundException(detail=f"Expose '{name}' not found")
-
-        network = row.get("network")
-        if not network:
-            raise ClientException(detail="No network configured for this expose", status_code=422)
-
-        try:
-            masumi = state["settings"].get_masumi(network)
-        except ValueError as e:
-            raise ClientException(detail=str(e), status_code=422)
-
-        # Validate API connectivity first
-        from kodosumi.service.expose.registry import (
-            register_agent, pricing_yaml_to_registry, pricing_to_yaml_format,
-            update_meta_yaml_field, list_wallets,
-        )
-
-        # Quick health check to validate token
-        try:
-            wallets = await list_wallets(masumi)
-        except Exception as e:
-            raise ClientException(
-                detail=f"Cannot reach Masumi API: {e}. Check KODO_MASUMI configuration.",
-                status_code=502,
-            )
-
-        if not wallets:
-            raise ClientException(
-                detail=f"No wallets found for network '{network}'. "
-                       "Check KODO_MASUMI token and payment source configuration.",
-                status_code=422,
-            )
-
-        flow_url = data.get("flow_url", "")
-        wallet_vkey = data.get("wallet_vkey", "")
-
-        if not flow_url:
-            raise ClientException(detail="flow_url is required", status_code=422)
-        if not wallet_vkey:
-            raise ClientException(detail="wallet_vkey is required", status_code=422)
-
-        # Validate wallet exists
-        valid_vkeys = [w["walletVkey"] for w in wallets]
-        if wallet_vkey not in valid_vkeys:
-            raise ClientException(
-                detail=f"Wallet '{wallet_vkey[:8]}...' not found. Available: {[v[:8] + '...' for v in valid_vkeys]}",
-                status_code=422,
-            )
-
-        # Parse meta YAML — prefer live textarea content from frontend
-        # over stale DB data, so unsaved edits are used for registration.
-        frontend_yaml = data.get("meta_yaml", "")
-        if frontend_yaml:
-            try:
-                parsed = yaml.safe_load(frontend_yaml)
-                if not isinstance(parsed, dict):
-                    raise ClientException(
-                        detail="Invalid YAML format — expected a mapping (key: value pairs).",
-                        status_code=422,
-                    )
-                meta_data = parsed
-            except yaml.YAMLError as e:
-                raise ClientException(
-                    detail=f"YAML parse error in flow metadata: {e}",
-                    status_code=422,
-                )
-        else:
-            meta_data = self._get_flow_meta(row, flow_url)
-        if meta_data is None:
-            raise ClientException(detail=f"Flow '{flow_url}' not found", status_code=404)
-
-        if meta_data.get("agentIdentifier"):
-            raise ClientException(
-                detail="This flow is already registered. Deregister first to re-register.",
-                status_code=409,
-            )
-
-        # Build registration data from YAML
-        display_name = meta_data.get("display", name)
-        description = meta_data.get("description", "")
-        tags = meta_data.get("tags", [])
-        author_data = meta_data.get("author")
-        capability_data = meta_data.get("capability")
-        legal_data = meta_data.get("legal")
-
-        # Build author dict for registry
-        author = None
-        if author_data and isinstance(author_data, dict):
-            author = {
-                "name": author_data.get("name") or "",
-                "contactEmail": author_data.get("contact_email") or "",
-                "organization": author_data.get("organization") or "",
-            }
-
-        # Build capability dict
-        capability = None
-        if capability_data and isinstance(capability_data, dict):
-            capability = {
-                "name": capability_data.get("name") or "",
-                "version": str(capability_data.get("version", "1.0")),
-            }
-
-        # Determine pricing
-        pricing_type = data.get("pricing_type")
-        amount = data.get("amount")
-        currency = data.get("currency")
-
-        reg_network = masumi.registry_network  # "Preprod" or "Mainnet"
-
-        if pricing_type and pricing_type != "Free" and amount is not None and currency:
-            # Use values from dialog
-            yaml_pricing = pricing_to_yaml_format(pricing_type, float(amount), currency, reg_network)
-            registry_pricing = pricing_yaml_to_registry(yaml_pricing, reg_network)
-        elif meta_data.get("agentPricing"):
-            # Use values from YAML
-            yaml_pricing = meta_data["agentPricing"]
-            registry_pricing = pricing_yaml_to_registry(yaml_pricing, reg_network)
-        else:
-            raise ClientException(
-                detail="No pricing configured. Set pricing_type/amount/currency or add agentPricing to the YAML.",
-                status_code=422,
-            )
-
-        # Compute apiBaseUrl
-        sumi_address = state["settings"].sumi_address.rstrip("/")
-        api_base_url = f"{sumi_address}/sumi{flow_url}"
-
-        # Register
-        try:
-            result = await register_agent(
-                masumi=masumi,
-                name=display_name,
-                description=description,
-                api_base_url=api_base_url,
-                tags=tags,
-                pricing=registry_pricing,
-                author=author,
-                capability=capability,
-                legal=legal_data,
-                wallet_vkey=wallet_vkey,
-            )
-        except RuntimeError as e:
-            raise ClientException(detail=str(e), status_code=502)
-
-        registration_id = result.get("id", "")
-
-        # Update meta YAML with registrationId and pricing.
-        # Use frontend_yaml as base so unsaved textarea edits are preserved.
-        updated_yaml = await self._update_flow_meta(row, name, flow_url, {
-            "registrationId": registration_id,
-            "agentPricing": yaml_pricing if pricing_type else meta_data.get("agentPricing"),
-        }, base_data=frontend_yaml or None)
-
-        return {
-            "success": True,
-            "registrationId": registration_id,
-            "state": result.get("state", "RegistrationRequested"),
-            "agentIdentifier": result.get("agentIdentifier"),
-            "updatedYaml": updated_yaml,
-        }
-
-    @post(
-        "/poll",
-        summary="Poll registry status and update YAML",
-        description="Poll Masumi registry for registration confirmation. Updates meta YAML with agentIdentifier when confirmed. Called periodically by frontend after registration.",
-        operation_id="registry_poll",
-    )
-    async def poll(
-        self, name: str, data: dict, state: State
-    ) -> dict:
-        """
-        Poll registration status and update meta YAML when confirmed.
-
-        Called periodically by frontend JS after registration.
-
-        Body:
-            flow_url: str - Flow URL path
-        """
-        await db.init_database()
-        row = await db.get_expose(name)
-        if not row:
-            raise NotFoundException(detail=f"Expose '{name}' not found")
-
-        network = row.get("network")
-        if not network:
-            return {"error": "No network configured"}
-
-        try:
-            masumi = state["settings"].get_masumi(network)
-        except ValueError as e:
-            return {"error": str(e)}
-
-        flow_url = data.get("flow_url", "")
-        meta_data = self._get_flow_meta(row, flow_url)
-        if meta_data is None:
-            return {"error": "Flow not found"}
-
-        agent_id = meta_data.get("agentIdentifier")
-        reg_id = meta_data.get("registrationId")
-
-        if not reg_id and not agent_id:
-            return {"state": "NotRegistered"}
-
-        if agent_id:
-            return {"state": "RegistrationConfirmed", "agentIdentifier": agent_id}
-
-        # Poll registry
-        from kodosumi.service.expose.registry import get_registration_status
-        result = await get_registration_status(
-            masumi,
-            registration_id=reg_id,
-            agent_identifier=agent_id,
-        )
-
-        if not result:
-            return {"state": "Polling", "registrationId": reg_id}
-
-        reg_state = result.get("state", "Unknown")
-        new_agent_id = result.get("agentIdentifier")
-
-        # If confirmed, write agentIdentifier to YAML
-        updated_yaml = None
-        if reg_state == "RegistrationConfirmed" and new_agent_id:
-            updated_yaml = await self._update_flow_meta(row, name, flow_url, {
-                "agentIdentifier": new_agent_id,
-            })
-
-        tx = result.get("CurrentTransaction") or {}
-        error_message = tx.get("errorMessage") or tx.get("error") or ""
-        if not error_message:
-            top_error = result.get("error") or ""
-            if top_error and top_error != "{}":
-                error_message = top_error
-
-        return {
-            "state": reg_state,
-            "agentIdentifier": new_agent_id,
-            "registrationId": result.get("id"),
-            "errorMessage": error_message,
-            "transaction": tx or None,
-            "updatedYaml": updated_yaml,
-        }
-
-    @post(
-        "/deregister",
-        summary="Deregister agent",
-        description="Remove an agent from the Masumi on-chain registry. Clears agentIdentifier and registrationId from the flow's meta YAML.",
-        operation_id="registry_deregister",
-    )
-    async def deregister(
-        self, name: str, data: dict, state: State
-    ) -> dict:
-        """
-        Deregister an agent from the on-chain registry.
-
-        Body:
-            flow_url: str - Flow URL path
-        """
-        await db.init_database()
-        row = await db.get_expose(name)
-        if not row:
-            raise NotFoundException(detail=f"Expose '{name}' not found")
-
-        network = row.get("network")
-        if not network:
-            raise ClientException(detail="No network configured", status_code=422)
-
-        try:
-            masumi = state["settings"].get_masumi(network)
-        except ValueError as e:
-            raise ClientException(detail=str(e), status_code=422)
-
-        flow_url = data.get("flow_url", "")
-        meta_data = self._get_flow_meta(row, flow_url)
-        if meta_data is None:
-            raise ClientException(detail=f"Flow '{flow_url}' not found", status_code=404)
-
-        agent_id = meta_data.get("agentIdentifier")
-        if not agent_id:
-            raise ClientException(detail="No agentIdentifier found — not registered", status_code=422)
-
-        from kodosumi.service.expose.registry import deregister_agent
-        try:
-            result = await deregister_agent(masumi, agent_id)
-        except RuntimeError as e:
-            raise ClientException(detail=str(e), status_code=502)
-
-        # Remove agentIdentifier and registrationId from YAML
-        await self._update_flow_meta(row, name, flow_url, {
-            "agentIdentifier": None,
-            "registrationId": None,
-        })
-
-        return {
-            "success": True,
-            "state": result.get("state", "DeregistrationRequested"),
-        }
-
-    def _get_flow_meta(self, row: dict, flow_url: Optional[str]) -> Optional[dict]:
-        """Parse meta YAML and return the data dict for a specific flow URL."""
-        if not row.get("meta"):
-            return None
-
-        try:
-            meta_list = yaml.safe_load(row["meta"])
-            if not meta_list:
-                return None
-        except yaml.YAMLError:
-            return None
-
-        for entry in meta_list:
-            entry_url = entry.get("url", "")
-            if flow_url and entry_url != flow_url:
-                continue
-            # Parse the data YAML string
-            data_str = entry.get("data", "")
-            if not data_str:
-                return {}
-            try:
-                parsed = yaml.safe_load(data_str)
-                return parsed if isinstance(parsed, dict) else {}
-            except yaml.YAMLError:
-                return {}
-
-        return None
-
-    async def _update_flow_meta(
-        self, row: dict, expose_name: str, flow_url: str, updates: dict,
-        base_data: Optional[str] = None,
-    ) -> Optional[str]:
-        """Update fields in a flow's meta YAML data and save to DB.
-
-        If base_data is provided, it replaces the stored data YAML for
-        this flow before applying updates.  This allows the caller to
-        pass the live textarea content so unsaved edits are preserved.
-
-        Returns the updated data YAML string for the flow, or None.
-        """
-        if not row.get("meta"):
-            return None
-
-        try:
-            meta_list = yaml.safe_load(row["meta"])
-            if not meta_list:
-                return None
-        except yaml.YAMLError:
-            return None
-
-        updated = False
-        updated_data_yaml = None
-        for entry in meta_list:
-            if entry.get("url") != flow_url:
-                continue
-
-            data_str = base_data if base_data else entry.get("data", "")
-            try:
-                parsed = yaml.safe_load(data_str) if data_str else {}
-                if not isinstance(parsed, dict):
-                    parsed = {}
-            except yaml.YAMLError:
-                parsed = {}
-
-            for key, value in updates.items():
-                if value is None:
-                    parsed.pop(key, None)
-                else:
-                    parsed[key] = value
-
-            updated_data_yaml = yaml.dump(
-                parsed,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            )
-            entry["data"] = updated_data_yaml
-            updated = True
-            break
-
-        if updated:
-            new_meta_yaml = yaml.dump(
-                meta_list,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            )
-            await db.update_expose_meta(expose_name, new_meta_yaml)
-
-        return updated_data_yaml
-
-
-class WalletsControl(litestar.Controller):
-    """Controller for wallet listing endpoint."""
-
-    path = "/expose/{name:str}/wallets"
-    tags = ["Registry"]
-    guards = [operator_guard]
-
-    @get(
-        "",
-        summary="List wallets for expose network",
-        description="List available selling wallets from Masumi Payment API for the expose's configured network.",
-        operation_id="registry_wallets",
-    )
-    async def list_wallets(self, name: str, state: State) -> dict:
-        """List available selling wallets for the expose's configured network."""
-        await db.init_database()
-        row = await db.get_expose(name)
-        if not row:
-            raise NotFoundException(detail=f"Expose '{name}' not found")
-
-        network = row.get("network")
-        if not network:
-            return {"wallets": [], "error": "No network configured. Set network first."}
-
-        try:
-            masumi = state["settings"].get_masumi(network)
-        except ValueError as e:
-            return {"wallets": [], "error": str(e)}
-
-        from kodosumi.service.expose.registry import list_wallets
-        try:
-            wallets = await list_wallets(masumi)
-        except Exception as e:
-            return {
-                "wallets": [],
-                "error": f"Cannot reach Masumi API: {e}. Check KODO_MASUMI token.",
-            }
-
-        if not wallets:
-            return {
-                "wallets": [],
-                "error": f"No selling wallets found for network '{network}'. "
-                         "Check your Masumi Payment API token and configuration.",
-            }
-
-        return {"wallets": wallets, "network": network}
 
 
 class ExposeUIControl(litestar.Controller):
@@ -1233,253 +663,6 @@ class ExposeUIControl(litestar.Controller):
         return Redirect(path="/admin/expose")
 
 
-class BootControl(litestar.Controller):
-    """Controller for boot/shutdown endpoints."""
-
-    path = "/boot"
-    tags = ["Boot"]
-    guards = [operator_guard]
-
-    @post(
-        "",
-        summary="Boot all enabled exposures",
-        description="Start Ray Serve deployment for all enabled exposures. Returns streaming text output.",
-        operation_id="boot_start",
-    )
-    async def boot(
-        self,
-        request: Request,
-        state: State,
-        force: bool = False,
-    ) -> Stream:
-        """
-        Execute boot process with streaming output.
-
-        The boot runs as a background task so it continues even if
-        the client disconnects. The initiator subscribes to the
-        message stream just like late joiners.
-
-        Args:
-            force: Override existing boot lock if True
-        """
-        # Get settings
-        ray_dashboard = state["settings"].RAY_DASHBOARD
-        # Get Ray Serve address from serve config (with fallback to settings)
-        ray_serve_address = get_ray_serve_address_from_config(
-            fallback=state["settings"].RAY_SERVE_ADDRESS
-        )
-        app_server = state["settings"].APP_SERVER
-        boot_timeout = state["settings"].BOOT_HEALTH_TIMEOUT
-
-        # Get auth cookies from request
-        auth_cookies = dict(request.cookies)
-
-        # Get username for audit logging
-        owner = await get_username(request.user, state) if request.user else "operator"
-
-        # Start boot as background task
-        started = await start_boot_background(
-            ray_dashboard=ray_dashboard,
-            ray_serve_address=ray_serve_address,
-            app_server=app_server,
-            auth_cookies=auth_cookies,
-            force=force,
-            owner=owner,
-            boot_timeout=boot_timeout
-        )
-
-        if not started and not force:
-            # Boot already in progress, return error
-            async def already_running():
-                yield "[ERROR] Boot already in progress. Use force=true to override.\n"
-            return Stream(already_running(), media_type="text/plain")
-
-        # Subscribe to message stream (same as late joiner)
-        queue = boot_lock.subscribe()
-
-        async def generate():
-            try:
-                while True:
-                    try:
-                        msg = await asyncio.wait_for(queue.get(), timeout=0.5)
-                        yield f"{msg}\n"
-                        if msg.step in (BootStep.COMPLETE, BootStep.ERROR):
-                            break
-                    except asyncio.TimeoutError:
-                        if not boot_lock.is_locked and queue.empty():
-                            break
-                        continue
-            finally:
-                boot_lock.unsubscribe(queue)
-
-        return Stream(generate(), media_type="text/plain")
-
-    @get(
-        "",
-        summary="Get boot status",
-        description="Get current boot status and messages if boot is in progress.",
-        operation_id="boot_status",
-    )
-    async def boot_status(self, state: State) -> dict:
-        """Get current boot lock status."""
-        return {
-            "locked": boot_lock.is_locked,
-            "lock_time": boot_lock.lock_time,
-            "messages": [str(m) for m in boot_lock.messages]
-        }
-
-    @get(
-        "/stream",
-        summary="Stream boot messages",
-        description="Subscribe to boot message stream (for operators joining an in-progress boot).",
-        operation_id="boot_stream",
-    )
-    async def boot_stream(self, state: State) -> Stream:
-        """Stream boot messages to client."""
-        if not boot_lock.is_locked:
-            async def no_boot():
-                yield "No boot in progress\n"
-            return Stream(no_boot(), media_type="text/plain")
-
-        queue = boot_lock.subscribe()
-
-        async def generate():
-            try:
-                while True:
-                    try:
-                        # Short timeout to check for new messages
-                        msg = await asyncio.wait_for(queue.get(), timeout=0.5)
-                        yield f"{msg}\n"
-                        if msg.step in (BootStep.COMPLETE, BootStep.ERROR):
-                            break
-                    except asyncio.TimeoutError:
-                        # If lock released and queue empty, we're done
-                        if not boot_lock.is_locked and queue.empty():
-                            break
-                        continue
-            finally:
-                boot_lock.unsubscribe(queue)
-
-        return Stream(generate(), media_type="text/plain")
-
-    @delete(
-        "",
-        summary="Shutdown Ray Serve",
-        description="Execute serve shutdown command.",
-        operation_id="boot_shutdown",
-        status_code=200,
-    )
-    async def shutdown(self, request: Request, state: State) -> Stream:
-        """Execute shutdown with streaming output."""
-        # Get app server and auth cookies for flow register call
-        app_server = str(request.base_url).rstrip("/")
-        auth_cookies = dict(request.cookies) if request.cookies else None
-
-        # Get username for audit logging
-        owner = await get_username(request.user, state) if request.user else "operator"
-
-        async def generate():
-            async for msg in run_shutdown(app_server, auth_cookies, owner):
-                yield f"{msg}\n"
-
-        return Stream(generate(), media_type="text/plain")
-
-    @post(
-        "/refresh/{name:str}",
-        summary="Refresh single expose",
-        description="Refresh a single expose by: disable → boot → enable → boot.",
-        operation_id="boot_refresh_expose",
-        status_code=200,
-    )
-    async def refresh_expose(
-        self,
-        name: str,
-        request: Request,
-        state: State,
-    ) -> Stream:
-        """
-        Refresh a single expose.
-
-        This runs the full refresh cycle:
-        1. Disable the expose
-        2. Run boot process (removes the expose's flows)
-        3. Enable the expose
-        4. Run boot process again (re-adds the expose's flows)
-        """
-        from kodosumi.service.expose.boot import run_refresh_expose
-
-        # Check if expose exists
-        await db.init_database()
-        expose = await db.get_expose(name)
-        if not expose:
-            async def not_found():
-                yield f"[ERROR] Expose '{name}' not found\n"
-            return Stream(not_found(), media_type="text/plain")
-
-        # Get config from state
-        ray_dashboard = state["settings"].RAY_DASHBOARD
-        ray_serve_address = get_ray_serve_address_from_config()
-        app_server = state["settings"].APP_SERVER
-        auth_cookies = dict(request.cookies) if request.cookies else None
-
-        async def generate():
-            async for msg in run_refresh_expose(
-                expose_name=name,
-                ray_dashboard=ray_dashboard,
-                ray_serve_address=ray_serve_address,
-                app_server=app_server,
-                auth_cookies=auth_cookies,
-            ):
-                yield f"{msg}\n"
-
-        return Stream(generate(), media_type="text/plain")
-
-
-class BootUIControl(litestar.Controller):
-    """Controller for boot UI pages."""
-
-    path = "/admin/expose/boot"
-    tags = ["Boot UI"]
-    guards = [operator_guard]
-
-    @get(
-        "",
-        summary="Boot screen",
-        description="Display the boot console screen.",
-        operation_id="boot_page",
-    )
-    async def boot_page(self, state: State) -> Template:
-        """Render the boot screen."""
-        return Template("expose/boot.html", context={
-            "is_locked": boot_lock.is_locked,
-            "messages": [str(m) for m in boot_lock.messages]
-        })
-
-    @get(
-        "/shutdown",
-        summary="Shutdown confirmation screen",
-        description="Display shutdown confirmation dialog.",
-        operation_id="shutdown_page",
-    )
-    async def shutdown_page(self, state: State) -> Template:
-        """Render the shutdown confirmation screen."""
-        return Template("expose/shutdown.html", context={})
-
-    @get(
-        "/refresh/{name:str}",
-        summary="Refresh expose screen",
-        description="Display boot console for refreshing a single expose.",
-        operation_id="refresh_expose_page",
-    )
-    async def refresh_expose_page(self, name: str, state: State) -> Template:
-        """Render the boot console for refreshing a specific expose."""
-        return Template("expose/boot.html", context={
-            "is_locked": boot_lock.is_locked,
-            "messages": [str(m) for m in boot_lock.messages],
-            "refresh_expose": name,
-        })
-
-
 class MaintenanceControl(litestar.Controller):
     """
     Controller for maintenance page.
@@ -1511,255 +694,3 @@ class MaintenanceControl(litestar.Controller):
         return Template("expose/maintenance.html", context={
             "is_booting": True
         })
-
-
-class ExchangeControl(litestar.Controller):
-    """Controller for export/import endpoints."""
-
-    path = "/exchange"
-    tags = ["Exchange"]
-    guards = [operator_guard]
-
-    @get(
-        "/export",
-        summary="Export expose database",
-        description="Export all expose items to JSON format.",
-        operation_id="exchange_export",
-    )
-    async def export_exposes(self, state: State) -> dict:
-        """Export all expose items to JSON."""
-        await db.init_database()
-        rows = await db.get_all_exposes()
-
-        # Convert to list of dicts with parsed meta
-        items = []
-        for row in rows:
-            item = dict(row)
-            # Parse meta YAML to list for cleaner JSON export
-            if item.get("meta"):
-                try:
-                    item["meta"] = yaml.safe_load(item["meta"])
-                except yaml.YAMLError:
-                    pass  # Keep as string if parse fails
-            items.append(item)
-
-        return {
-            "version": "1.0",
-            "exported_at": time.time(),
-            "count": len(items),
-            "exposes": items,
-        }
-
-    @post(
-        "/import",
-        summary="Import expose database",
-        description="Import expose items from JSON. Creates backup before import.",
-        operation_id="exchange_import",
-    )
-    async def import_exposes(
-        self, request: Request, state: State
-    ) -> dict:
-        """
-        Import expose items from JSON.
-
-        Creates a backup of current database before import.
-        """
-        from datetime import datetime
-        import shutil
-        import json
-
-        # Parse JSON body
-        try:
-            body = await request.body()
-            data = json.loads(body)
-        except (json.JSONDecodeError, Exception) as e:
-            raise ValidationException(detail=f"Invalid JSON: {e}")
-
-        # Validate structure
-        if not isinstance(data, dict):
-            raise ValidationException(detail="Expected JSON object")
-
-        exposes = data.get("exposes", [])
-        if not isinstance(exposes, list):
-            raise ValidationException(detail="Expected 'exposes' to be a list")
-
-        # Create backup
-        db_path = Path(db.EXPOSE_DATABASE)
-        if db_path.exists():
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            backup_path = db_path.with_suffix(f".{timestamp}.db")
-            shutil.copy2(db_path, backup_path)
-            backup_created = str(backup_path)
-        else:
-            backup_created = None
-
-        # Import items
-        await db.init_database()
-        now = time.time()
-        imported = 0
-        errors = []
-
-        for item in exposes:
-            try:
-                name = item.get("name")
-                if not name:
-                    errors.append("Item missing 'name' field")
-                    continue
-
-                # Convert meta back to YAML if it's a list
-                meta = item.get("meta")
-                if isinstance(meta, list):
-                    meta = yaml.dump(meta, default_flow_style=False, allow_unicode=True)
-
-                await db.upsert_expose(
-                    name=name,
-                    display=item.get("display"),
-                    network=item.get("network"),
-                    enabled=bool(item.get("enabled", True)),
-                    state=item.get("state", "DRAFT"),
-                    heartbeat=item.get("heartbeat") or now,
-                    bootstrap=item.get("bootstrap"),
-                    meta=meta,
-                )
-                imported += 1
-            except Exception as e:
-                errors.append(f"{item.get('name', 'unknown')}: {e}")
-
-        return {
-            "imported": imported,
-            "errors": errors,
-            "backup": backup_created,
-        }
-
-
-class ExchangeUIControl(litestar.Controller):
-    """Controller for exchange UI page."""
-
-    path = "/admin/expose/exchange"
-    tags = ["Exchange UI"]
-    guards = [operator_guard]
-
-    @get(
-        "",
-        summary="Exchange page",
-        description="Display import/export page.",
-        operation_id="exchange_page",
-    )
-    async def exchange_page(self, state: State) -> Template:
-        """Render the exchange page."""
-        return Template("expose/exchange.html", context={})
-
-
-class AuditLogControl(litestar.Controller):
-    """Controller for audit log viewing."""
-
-    path = "/audit"
-    tags = ["Audit"]
-    guards = [operator_guard]
-
-    @get(
-        "/stream",
-        summary="Stream audit log",
-        description="Stream audit log entries from offset. Only INFO level (no sensitive details).",
-        operation_id="audit_stream",
-    )
-    async def stream_audit_log(
-        self,
-        state: State,
-        offset: int = 0,
-        limit: int = 100,
-    ) -> dict:
-        """
-        Stream audit log entries from a given byte offset.
-
-        Args:
-            offset: Byte offset to start reading from (default: 0)
-            limit: Maximum number of lines to return (default: 100)
-
-        Returns:
-            dict with:
-            - lines: List of log lines (INFO level only)
-            - next_offset: Byte offset for next read
-            - file_size: Current file size
-        """
-        audit_log_path = Path(state["settings"].AUDIT_LOG_FILE).resolve()
-
-        if not audit_log_path.exists():
-            return {
-                "lines": [f"Audit log file not found: {audit_log_path}"],
-                "next_offset": 0,
-                "file_size": 0,
-            }
-
-        file_size = audit_log_path.stat().st_size
-
-        # If offset is beyond file size (e.g., after rotation), reset to 0
-        if offset > file_size:
-            offset = 0
-
-        lines = []
-        next_offset = offset
-        try:
-            with open(audit_log_path, "r", encoding="utf-8") as f:
-                f.seek(offset)
-                bytes_read = 0
-                max_bytes = 64 * 1024  # 64KB max read per request
-
-                while True:
-                    line = f.readline()
-                    if not line:
-                        break
-
-                    line_bytes = len(line.encode("utf-8"))
-                    bytes_read += line_bytes
-
-                    # Filter: only INFO level and above (no DEBUG)
-                    # Format: "2024-01-01 00:00:00,000 INFO - message"
-                    if " INFO " in line or " WARNING " in line or " ERROR " in line:
-                        lines.append(line.rstrip())
-
-                    if len(lines) >= limit or bytes_read >= max_bytes:
-                        break
-
-                next_offset = f.tell()
-
-        except Exception as e:
-            return {
-                "lines": [f"Error reading audit log: {e}"],
-                "next_offset": offset,
-                "file_size": file_size,
-            }
-
-        return {
-            "lines": lines,
-            "next_offset": next_offset,
-            "file_size": file_size,
-        }
-
-    @get(
-        "/info",
-        summary="Audit log info",
-        description="Get audit log file information.",
-        operation_id="audit_info",
-    )
-    async def audit_log_info(self, state: State) -> dict:
-        """Get audit log file information."""
-        audit_log_path = Path(state["settings"].AUDIT_LOG_FILE)
-
-        if not audit_log_path.exists():
-            return {
-                "exists": False,
-                "path": str(audit_log_path),
-                "size": 0,
-                "max_bytes": state["settings"].AUDIT_LOG_MAX_BYTES,
-                "backup_count": state["settings"].AUDIT_LOG_BACKUP_COUNT,
-            }
-
-        return {
-            "exists": True,
-            "path": str(audit_log_path),
-            "size": audit_log_path.stat().st_size,
-            "max_bytes": state["settings"].AUDIT_LOG_MAX_BYTES,
-            "backup_count": state["settings"].AUDIT_LOG_BACKUP_COUNT,
-            "modified": audit_log_path.stat().st_mtime,
-        }

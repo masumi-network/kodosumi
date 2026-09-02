@@ -5,14 +5,21 @@ This module provides async SQLite database access for the expose system,
 separate from the main admin.db database.
 """
 
+import math
 import time
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 import aiosqlite
 
 # Database path constant
 EXPOSE_DATABASE = "./data/expose.db"
+_EXPECTED_META_UNSET = object()
+
+
+def next_expose_etag(current: float) -> float:
+    """Return an ETag newer than both the clock and the current row."""
+    return max(time.time(), math.nextafter(float(current), math.inf))
 
 
 def _ensure_db_dir(db_path: str) -> None:
@@ -84,38 +91,52 @@ async def upsert_expose(
     heartbeat: float,
     bootstrap: Optional[str],
     meta: Optional[str],
-    db_path: Optional[str] = None
-) -> dict:
+    db_path: Optional[str] = None,
+    *,
+    expected_updated: Optional[float] = None,
+    original_name: Optional[str] = None,
+) -> Optional[dict]:
     """Create or update an expose item."""
     if db_path is None:
         db_path = EXPOSE_DATABASE
     _ensure_db_dir(db_path)
-    now = time.time()
     async with aiosqlite.connect(db_path) as conn:
         conn.row_factory = aiosqlite.Row
-        # Check if exists
+        is_rename = bool(original_name and original_name != name)
+        lookup_name = original_name if is_rename else name
         cursor = await conn.execute(
-            "SELECT created FROM expose WHERE name = ?", (name,)
+            "SELECT created, display, network, meta, updated "
+            "FROM expose WHERE name = ?",
+            (lookup_name,),
         )
         existing = await cursor.fetchone()
 
         if existing:
-            # Update — preserve display, network, meta when incoming
+            # Preserve display, network, and meta when incoming
             # values are None/empty, so partial updates (e.g. bootstrap-only)
             # don't wipe Masumi registration data or network config.
             # A proper PATCH endpoint is tracked in #41.
             created = existing["created"]
-            cur = await conn.execute(
-                "SELECT display, network, meta FROM expose WHERE name = ?",
-                (name,)
-            )
-            current = await cur.fetchone()
-            eff_display = display if display is not None else current["display"]
-            eff_network = network if network is not None else current["network"]
-            eff_meta = meta if meta and meta.strip() else current["meta"]
+            eff_display = display if display is not None else existing["display"]
+            eff_network = network if network is not None else existing["network"]
+            eff_meta = meta if meta and meta.strip() else existing["meta"]
+            now = next_expose_etag(existing["updated"])
 
-            await conn.execute("""
-                UPDATE expose SET
+            params = (
+                eff_display, eff_network, int(enabled), state,
+                heartbeat, bootstrap, eff_meta, now,
+            )
+            assignments = "" if not is_rename else "name = ?,"
+            if is_rename:
+                params = (name,) + params
+            where = "WHERE name = ?"
+            params += (lookup_name,)
+            if expected_updated is not None:
+                where += " AND updated = ?"
+                params += (expected_updated,)
+            try:
+                updated_row = await conn.execute(f"""
+                UPDATE expose SET {assignments}
                     display = ?,
                     network = ?,
                     enabled = ?,
@@ -124,11 +145,19 @@ async def upsert_expose(
                     bootstrap = ?,
                     meta = ?,
                     updated = ?
-                WHERE name = ?
-            """, (eff_display, eff_network, int(enabled), state,
-                  heartbeat, bootstrap, eff_meta, now, name))
+                {where}
+            """, params)
+            except aiosqlite.IntegrityError:
+                await conn.rollback()
+                return None
+            if updated_row.rowcount == 0:
+                await conn.rollback()
+                return None
         else:
+            if is_rename or expected_updated is not None:
+                return None
             # Insert
+            now = time.time()
             created = now
             await conn.execute("""
                 INSERT INTO expose (name, display, network, enabled, state,
@@ -144,7 +173,7 @@ async def upsert_expose(
             "SELECT * FROM expose WHERE name = ?", (name,)
         )
         row = await cursor.fetchone()
-        return dict(row)
+        return dict(row) if row else None
 
 
 async def delete_expose(name: str, db_path: Optional[str] = None) -> bool:
@@ -168,9 +197,9 @@ async def update_expose_state(
 ) -> bool:
     """Update only the state and heartbeat of an expose item.
 
-    Does not touch ``updated`` — that field is reserved for user-initiated
-    edits via upsert_expose() and serves as the ETag for optimistic
-    concurrency control on the edit form.
+    Does not touch ``updated``. That field is the ETag of the edit form.
+    upsert_expose(), the registry writers and the boot update advance it;
+    state and heartbeat changes leave it alone.
     """
     if db_path is None:
         db_path = EXPOSE_DATABASE
@@ -187,20 +216,41 @@ async def update_expose_state(
 async def update_expose_meta(
     name: str,
     meta: str,
-    db_path: Optional[str] = None
+    db_path: Optional[str] = None,
+    *,
+    updated: Optional[float] = None,
+    expected_updated: Optional[float] = None,
+    expected_meta: object = _EXPECTED_META_UNSET,
 ) -> bool:
     """Update only the meta field of an expose item.
 
-    Does NOT update the 'updated' timestamp to avoid changing the ETag.
-    The ETag is used for optimistic concurrency control on form saves.
+    Registry writes and the boot update supply ``updated`` and advance the
+    form ETag, so an open edit form of that expose has to reload. Health
+    writes omit it and leave the ETag alone.
     """
     if db_path is None:
         db_path = EXPOSE_DATABASE
     _ensure_db_dir(db_path)
     async with aiosqlite.connect(db_path) as conn:
-        cursor = await conn.execute("""
-            UPDATE expose SET meta = ?
-            WHERE name = ?
-        """, (meta, name))
+        if updated is None:
+            statement = "UPDATE expose SET meta = ?"
+            params = (meta,)
+        else:
+            statement = "UPDATE expose SET meta = ?, updated = ?"
+            params = (meta, updated)
+
+        where = ["name = ?"]
+        params += (name,)
+        if expected_updated is not None:
+            where.append("updated = ?")
+            params += (expected_updated,)
+        if expected_meta is not _EXPECTED_META_UNSET:
+            if expected_meta is None:
+                where.append("meta IS NULL")
+            else:
+                where.append("meta = ?")
+                params += (expected_meta,)
+        cursor = await conn.execute(
+            f"{statement} WHERE {' AND '.join(where)}", params)
         await conn.commit()
         return cursor.rowcount > 0

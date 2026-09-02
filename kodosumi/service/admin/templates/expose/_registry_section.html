@@ -1,0 +1,50 @@
+                            <!-- Masumi Registry -->
+                            <div class="registry-section" id="registry_{{ loop.index0 }}" data-flow-url="{{ meta.url }}">
+                                <div class="registry-header">
+                                    <i style="font-size: 18px;">verified</i>
+                                    Masumi Registry
+                                </div>
+                                <div class="registry-status-row">
+                                    <span style="font-size: 0.85rem;">Status:</span>
+                                    <span class="registry-badge reg-not-registered" id="reg_badge_{{ loop.index0 }}">Loading...</span>
+                                    <span class="rail-badge" id="reg_rail_{{ loop.index0 }}" style="display:none;" title="Payment rail of this registration"></span>
+                                    <span class="agent-id-text" id="reg_agent_id_{{ loop.index0 }}" style="display:none;"></span>
+                                    <button type="button" class="small" id="reg_copy_{{ loop.index0 }}" style="display:none;" onclick="copyAgentId({{ loop.index0 }})" title="Copy Agent ID">
+                                        <i>content_copy</i>
+                                    </button>
+                                    <button type="button" class="small" id="migrate_btn_{{ loop.index0 }}" style="display:none;" onclick="openMigrateDialog({{ loop.index0 }})" title="Register this agent again on a Web3CardanoV2 payment source">
+                                        <i>upgrade</i>
+                                        <span>Migrate to V2</span>
+                                    </button>
+                                    <button type="button" class="small" id="cancel_mig_btn_{{ loop.index0 }}" style="display:none;" onclick="cancelMigration({{ loop.index0 }})" title="Stop waiting for the Web3CardanoV2 mint. The flow keeps serving its current agent.">
+                                        <i>cancel</i>
+                                        <span>Cancel migration</span>
+                                    </button>
+                                    <button type="button" class="small" id="dereg_btn_{{ loop.index0 }}" style="display:none; background: var(--error); color: white;" onclick="deregisterAgent({{ loop.index0 }})">
+                                        <i>remove_circle</i>
+                                        <span>Deregister</span>
+                                    </button>
+                                </div>
+                                <div class="registry-status-row" id="prev_reg_row_{{ loop.index0 }}" style="display:none;">
+                                    <span style="font-size: 0.85rem;">Replaced V1 agent:</span>
+                                    <span class="agent-id-text" id="prev_reg_id_{{ loop.index0 }}"></span>
+                                    <button type="button" class="small" id="prev_dereg_btn_{{ loop.index0 }}" style="background: var(--error); color: white;" onclick="deregisterPrevious({{ loop.index0 }})" title="Burn the V1 agent this migration replaced">
+                                        <i>remove_circle</i>
+                                        <span>Deregister V1</span>
+                                    </button>
+                                </div>
+                                <div class="registry-actions-row" id="reg_actions_{{ loop.index0 }}">
+                                    <div class="field border label" style="min-width: 350px; margin: 0;">
+                                        <select class="wallet-select" style="font-size: 0.85rem;">
+                                            <option value="">Select wallet...</option>
+                                        </select>
+                                        <label>Wallet</label>
+                                    </div>
+                                    <button type="button" class="small primary" id="reg_btn_{{ loop.index0 }}" onclick="openRegisterDialog({{ loop.index0 }})">
+                                        <i>app_registration</i>
+                                        <span>Register</span>
+                                    </button>
+                                </div>
+                                <div class="registry-error" id="reg_error_{{ loop.index0 }}" style="display:none;"></div>
+                                <div class="registry-info" id="reg_info_{{ loop.index0 }}" style="display:none;"></div>
+                            </div>

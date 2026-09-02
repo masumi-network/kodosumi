@@ -86,6 +86,8 @@ class MasumiClient:
         input_hash: str,
         identifier_from_purchaser: str,
         metadata: Optional[str] = None,
+        supported_payment_source_index: Optional[int] = None,
+        payment_source_type: Optional[str] = None,
     ) -> dict:
         """
         Initialize a payment request with Masumi.
@@ -96,6 +98,11 @@ class MasumiClient:
             input_hash: Hash of the job inputs
             identifier_from_purchaser: Customer-provided identifier
             metadata: Optional private metadata for the payment
+            supported_payment_source_index: Index of the advertised payment
+                source to charge. Required for Web3CardanoV2 agents and
+                rejected for V1 agents, so it is sent only when set.
+            payment_source_type: Expected payment source type. The payment
+                node rejects a registry source with a different type.
 
         Returns:
             Dict with payment details including blockchainIdentifier
@@ -119,6 +126,13 @@ class MasumiClient:
 
         if metadata:
             payload["metadata"] = metadata
+
+        if payment_source_type is not None:
+            payload["paymentSourceType"] = payment_source_type
+
+        if supported_payment_source_index is not None:
+            payload["supportedPaymentSourceIndex"] = (
+                supported_payment_source_index)
 
         # await self._put_async(EVENT_DEBUG, f"start request: {payload}")
 
