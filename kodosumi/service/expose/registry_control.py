@@ -113,9 +113,6 @@ class RegistryControl(litestar.Controller):
                     "agentIdentifier": agent_id,
                     "registrationId": reg_id,
                     "migration": migration,
-                    "pendingMigration": meta_data.get("pendingMigration"),
-                    "previousRegistration": meta_data.get(
-                        "previousRegistration"),
                     **rail_fields(meta_data),
                 }
             return {
@@ -123,9 +120,6 @@ class RegistryControl(litestar.Controller):
                 "state": "Polling",
                 "registrationId": reg_id,
                 "migration": migration,
-                "pendingMigration": meta_data.get("pendingMigration"),
-                "previousRegistration": meta_data.get(
-                    "previousRegistration"),
                 **rail_fields(meta_data),
             }
 
@@ -459,9 +453,6 @@ class RegistryControl(litestar.Controller):
                     migration.get("updatedEtag") if migration else None),
                 "previousEtag": (
                     migration.get("previousEtag") if migration else None),
-                "pendingMigration": meta_data.get("pendingMigration"),
-                "previousRegistration": meta_data.get(
-                    "previousRegistration"),
                 **rail_fields(meta_data),
             }
 
@@ -525,8 +516,6 @@ class RegistryControl(litestar.Controller):
             "errorMessage": error_message,
             "transaction": tx or None,
             "migration": migration,
-            "pendingMigration": meta_data.get("pendingMigration"),
-            "previousRegistration": meta_data.get("previousRegistration"),
             **flow_meta_update_fields(updated_yaml),
             **rail_fields(meta_data),
         }

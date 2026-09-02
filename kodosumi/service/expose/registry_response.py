@@ -27,8 +27,6 @@ def registry_row_response(
         "transaction": transaction or None,
         "errorMessage": error_message,
         "migration": migration,
-        "pendingMigration": meta_data.get("pendingMigration"),
-        "previousRegistration": meta_data.get("previousRegistration"),
         **update_fields,
         **rail_fields(meta_data),
     }

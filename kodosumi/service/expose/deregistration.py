@@ -106,8 +106,6 @@ async def active_deregistration_response(
         "errorMessage": error_message,
         "transaction": transaction or None,
         "migration": migration,
-        "pendingMigration": meta_data.get("pendingMigration"),
-        "previousRegistration": meta_data.get("previousRegistration"),
         **flow_meta_update_fields(updated_yaml),
         **rail_fields(response_meta),
     }
