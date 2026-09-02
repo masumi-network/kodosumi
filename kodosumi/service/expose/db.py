@@ -197,9 +197,9 @@ async def update_expose_state(
 ) -> bool:
     """Update only the state and heartbeat of an expose item.
 
-    Does not touch ``updated`` — that field is reserved for user-initiated
-    edits via upsert_expose() and serves as the ETag for optimistic
-    concurrency control on the edit form.
+    Does not touch ``updated``. That field is the ETag of the edit form.
+    upsert_expose(), the registry writers and the boot update advance it;
+    state and heartbeat changes leave it alone.
     """
     if db_path is None:
         db_path = EXPOSE_DATABASE
@@ -224,8 +224,9 @@ async def update_expose_meta(
 ) -> bool:
     """Update only the meta field of an expose item.
 
-    Registry writes can supply ``updated`` to invalidate stale edit forms.
-    Boot and health writes omit it, so they do not change the form ETag.
+    Registry writes and the boot update supply ``updated`` and advance the
+    form ETag, so an open edit form of that expose has to reload. Health
+    writes omit it and leave the ETag alone.
     """
     if db_path is None:
         db_path = EXPOSE_DATABASE
