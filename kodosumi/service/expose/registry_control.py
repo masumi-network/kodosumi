@@ -323,9 +323,17 @@ class RegistryControl(litestar.Controller):
                     payment_source_type=saved_meta.get("paymentSourceType"),
                     registry_row_only=True,
                 )
-                if (not previous_result
-                        or previous_result.get("state")
-                        != "RegistrationFailed"):
+                if not previous_result:
+                    raise ClientException(
+                        detail=(
+                            f"Registration {saved_registration_id} is saved "
+                            "for this flow, but the registry returned no "
+                            "row for it. Retry later. If the row is gone on "
+                            "the Masumi node, remove registrationId from "
+                            "the flow metadata to register again."),
+                        status_code=409,
+                    )
+                if previous_result.get("state") != "RegistrationFailed":
                     raise ClientException(
                         detail="This flow already has a pending registration.",
                         status_code=409,

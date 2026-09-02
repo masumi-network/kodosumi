@@ -165,3 +165,28 @@ class TestRegisterSavesTheMintedPrice:
         updates = mock_write.call_args.args[3]
         assert updates["agentPricing"][0]["pricingType"] == "Fixed"
         assert "conditional_updates" not in mock_write.call_args.kwargs
+
+
+class TestRegisterWithASavedRegistrationId:
+
+    @pytest.mark.asyncio
+    async def test_a_missing_registry_row_names_the_saved_id(self):
+        # The saved id may point at a row the node deleted, or the read
+        # may have failed once. "Pending" would send the operator to wait
+        # for a poll that cannot end.
+        mocks = _patches(meta={"display": "A", "registrationId": "reg0",
+                               "agentPricing": [{"pricingType": "Free"}]})
+        status = patch(
+            "kodosumi.service.expose.registry.get_registration_status",
+            new_callable=AsyncMock, return_value=None)
+        with mocks["init"], mocks["row"], mocks["meta"], \
+                mocks["wallets"], mocks["register"] as register, status:
+            with pytest.raises(ClientException) as err:
+                await REGISTER(
+                    None, name="expose",
+                    data={"flow_url": "/flow", "wallet_vkey": "vkey1"},
+                    state=_state())
+        assert err.value.status_code == 409
+        assert "reg0" in err.value.detail
+        assert "registrationId" in err.value.detail
+        register.assert_not_called()
