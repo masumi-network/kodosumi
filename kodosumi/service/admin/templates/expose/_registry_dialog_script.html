@@ -265,7 +265,14 @@ async function openMigrateDialog(idx) {
     // this dialog shows the reason itself and must not leave a standing
     // error on registry sections that are working.
     await loadWallets({quiet: true});
-    if (generation !== migrateDialogGeneration || activeDialogIdx !== idx) {
+    if (generation !== migrateDialogGeneration) return;
+    if (activeDialogIdx !== idx) {
+        // The dialog was closed while the list loaded. Quiet kept the
+        // reason off the page, so hand it back now: an unreachable node
+        // must not look like nothing having happened.
+        if (walletLoadError) {
+            showWalletInfo(walletLoadError, walletLoadIsWarning);
+        }
         return;
     }
 
@@ -278,6 +285,7 @@ async function openMigrateDialog(idx) {
         // A failed load, and a list with a failed request behind it, both
         // set walletLoadError: report that instead, or the operator goes
         // looking for a wallet that a transient error merely hid.
+        errEl.style.color = '';
         errEl.textContent = walletLoadError
             ? 'No Web3CardanoV2 selling wallet could be listed. ' +
               walletLoadError
@@ -287,9 +295,12 @@ async function openMigrateDialog(idx) {
     } else {
         // The offered wallets are real even when another source failed, so
         // the migration may go ahead. Say that one is missing, in case the
-        // operator is looking for it.
+        // operator is looking for it, but not in the colour that means
+        // "you cannot continue".
         errEl.style.display = walletLoadError ? 'block' : 'none';
         errEl.textContent = walletLoadError || '';
+        errEl.style.color = walletLoadIsWarning
+            ? 'var(--on-surface-variant)' : '';
         submitBtn.disabled = false;
         v2Wallets.forEach(function(w) {
             var opt = document.createElement('option');

@@ -43,14 +43,20 @@ def _is_absolute_http_url(value: str) -> bool:
     or a newline in it, both pass one and are useless on chain, where the
     mint cannot be taken back. The scheme is case insensitive per RFC 3986,
     so HTTPS:// is a legal url and must not be refused.
+
+    A non-empty netloc is not enough either: "http://:8080" and "http://@"
+    both have one and neither has a host. An invisible character is the
+    same kind of trap, because a zero width space survives a copy out of a
+    document and cannot be seen in the field afterwards.
     """
-    if value != value.strip() or any(c.isspace() for c in value):
+    if not value.isprintable() or any(c.isspace() for c in value):
         return False
     try:
         parsed = urlparse(value)
+        host = parsed.hostname
     except ValueError:
         return False
-    return parsed.scheme.lower() in ("http", "https") and bool(parsed.netloc)
+    return parsed.scheme.lower() in ("http", "https") and bool(host)
 
 
 class RegistryMigrateControl(litestar.Controller):

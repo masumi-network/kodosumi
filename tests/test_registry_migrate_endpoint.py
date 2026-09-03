@@ -578,7 +578,12 @@ class TestMigrateApiBaseUrl:
         # A truncated paste passes a startswith check and mints an agent
         # that no buyer can reach.
         for value in ("http://", "https://", "https:// evil.com",
-                      "http://a\nb"):
+                      "http://a\nb",
+                      # A netloc is not a host: both of these have one.
+                      "http://:8080", "http://@",
+                      # Invisible characters survive a copy out of a doc
+                      # and cannot be spotted in the field afterwards.
+                      "http://a\x00b", "http://\u200bexample.com"):
             with pytest.raises(ClientException) as err:
                 await _call_migrate({"api_base_url": value})
             assert err.value.status_code == 422, value

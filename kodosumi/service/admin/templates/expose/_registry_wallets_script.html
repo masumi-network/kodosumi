@@ -7,6 +7,9 @@ let loadedWallets = [];
 // apart, so the reason travels with the list instead of being guessed
 // at from its length.
 let walletLoadError = '';
+// Whether that reason still leaves a usable list. A caution painted in the
+// error colour reads as a refusal, and an operator who can act stops.
+let walletLoadIsWarning = false;
 
 // options.quiet keeps a failure out of the registry sections. The migrate
 // dialog reloads on every open and shows the reason in its own error line,
@@ -14,9 +17,10 @@ let walletLoadError = '';
 // section of the page and leave it there until a reload.
 async function loadWallets(options) {
     var quiet = !!(options && options.quiet);
-    function report(message) {
+    function report(message, soft) {
         walletLoadError = message;
-        if (!quiet) showWalletInfo(message);
+        walletLoadIsWarning = !!soft;
+        if (!quiet) showWalletInfo(message, soft);
     }
     if (!exposeName) return;
     // A failed reload must not leave the previous list standing. The
@@ -24,6 +28,7 @@ async function loadWallets(options) {
     // would be minted against a wallet this node no longer reports.
     loadedWallets = [];
     walletLoadError = '';
+    walletLoadIsWarning = false;
     try {
         const resp = await fetch('/expose/' + exposeName + '/wallets', {
             credentials: 'same-origin'
@@ -49,7 +54,8 @@ async function loadWallets(options) {
         // A list can arrive non-empty and still be short of a wallet whose
         // payment source could not be read. Keep the list, keep the reason.
         if (data.warning) {
-            report(data.warning);
+            // The list is usable, so this is a caution, not a refusal.
+            report(data.warning, true);
         }
 
         // Populate all wallet select elements (use class selector, not id prefix)
@@ -79,14 +85,15 @@ async function loadWallets(options) {
     }
 }
 
-function showWalletInfo(msg) {
+function showWalletInfo(msg, soft) {
     document.querySelectorAll('.registry-section').forEach(function(section) {
         var idx = section.id.replace('registry_', '');
         var info = document.getElementById('reg_info_' + idx);
         if (info) {
             info.style.display = 'block';
             info.textContent = msg;
-            info.style.color = 'var(--error)';
+            info.style.color = soft
+                ? 'var(--on-surface-variant)' : 'var(--error)';
         }
     });
 }
