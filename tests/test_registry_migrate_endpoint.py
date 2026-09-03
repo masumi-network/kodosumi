@@ -658,7 +658,19 @@ class TestMigrateApiBaseUrl:
                       "http://0x7f.1/sumi",
                       "http://api.example.123/sumi",
                       "http://1.2.3.4.5/sumi",
-                      "http://999.999.999.999/sumi"):
+                      "http://999.999.999.999/sumi",
+                      # A root dot makes the last label empty, which used
+                      # to skip the whole rule. Node still reads every one
+                      # of these as a number: 0177.0.0.1. is 127.0.0.1 and
+                      # 010.0.0.1. is 8.0.0.1, a third party's address.
+                      "http://0177.0.0.1./sumi/flow",
+                      "http://010.0.0.1./sumi",
+                      "http://2130706433./sumi",
+                      "http://0x7f000001./sumi",
+                      "http://999999999999./sumi",
+                      # Even the plain quad disagrees once it carries the
+                      # dot: urlparse keeps it, Node drops it.
+                      "http://10.0.0.7./sumi"):
             with pytest.raises(ClientException) as err:
                 await _call_migrate({"api_base_url": value})
             assert err.value.status_code == 422, value
@@ -670,7 +682,11 @@ class TestMigrateApiBaseUrl:
         for value in ("http://10.0.0.7/sumi", "http://0.0.0.0/sumi",
                       "http://255.255.255.255/sumi",
                       "https://4you.example.com/sumi",
-                      "https://host.4you/sumi"):
+                      "https://host.4you/sumi",
+                      # A fully qualified name keeps its root dot in both
+                      # parsers, so it is not a disagreement.
+                      "http://example.com./sumi",
+                      "https://sub.example.com.:8443/sumi"):
             _, _, register = await _call_migrate({"api_base_url": value})
             assert register.call_args.kwargs["api_base_url"] == value
 

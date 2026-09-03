@@ -118,7 +118,12 @@ def _is_absolute_http_url(value: str) -> bool:
     # public address here and loopback there, and "api.example.123" is a
     # host here and a parse error there, so a number may only appear in
     # the one form both read alike.
-    last_label = host.rsplit(".", 1)[-1]
+    # Strip the root dot before reading the last label. "example.com."
+    # is a legitimate fully qualified name that both parsers keep, but
+    # without this the last label is "" and the whole number rule below
+    # is skipped: "http://0177.0.0.1." was minted, and a client resolves
+    # it to 127.0.0.1.
+    last_label = host.rstrip(".").rsplit(".", 1)[-1]
     if ((last_label.isdigit() or last_label.startswith("0x"))
             and not _is_dotted_quad(host)):
         return False
