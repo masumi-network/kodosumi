@@ -583,7 +583,11 @@ class TestMigrateApiBaseUrl:
                       "http://:8080", "http://@",
                       # Invisible characters survive a copy out of a doc
                       # and cannot be spotted in the field afterwards.
-                      "http://a\x00b", "http://\u200bexample.com"):
+                      "http://a\x00b", "http://\u200bexample.com",
+                      # A letter O for a zero in the port, and a host that
+                      # is punctuation only.
+                      "http://example.com:8O80/sumi", "http://.",
+                      "http://-", "http://%00"):
             with pytest.raises(ClientException) as err:
                 await _call_migrate({"api_base_url": value})
             assert err.value.status_code == 422, value
@@ -595,6 +599,16 @@ class TestMigrateApiBaseUrl:
             {"api_base_url": "HTTPS://Example.com/sumi/flow"})
         assert register.call_args.kwargs["api_base_url"] == \
             "HTTPS://Example.com/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_the_shapes_a_real_deployment_uses_are_accepted(self):
+        for value in ("https://host.example/sumi/flow",
+                      "http://localhost:3370/sumi/flow",
+                      "http://[::1]:8080/sumi",
+                      "https://xn--mnchen-3ya.de/sumi",
+                      "https://a.example:8443/sumi?x=1#y"):
+            _, _, register = await _call_migrate({"api_base_url": value})
+            assert register.call_args.kwargs["api_base_url"] == value
 
     @pytest.mark.asyncio
     async def test_a_non_string_is_refused_with_a_reason(self):

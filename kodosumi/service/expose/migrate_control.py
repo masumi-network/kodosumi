@@ -54,9 +54,18 @@ def _is_absolute_http_url(value: str) -> bool:
     try:
         parsed = urlparse(value)
         host = parsed.hostname
+        parsed.port  # raises when the port is not a number in range
     except ValueError:
         return False
-    return parsed.scheme.lower() in ("http", "https") and bool(host)
+    if parsed.scheme.lower() not in ("http", "https") or not host:
+        return False
+    # "http://." and "http://-" have a host by the parser's reckoning and
+    # resolve for nobody, which is what a mistyped paste looks like.
+    if not any(character.isalnum() for character in host):
+        return False
+    # Percent encoding in a host is a paste artefact, except in the zone id
+    # of a bracketed IPv6 literal, where it is how the zone is written.
+    return "%" not in host or parsed.netloc.startswith("[")
 
 
 class RegistryMigrateControl(litestar.Controller):
