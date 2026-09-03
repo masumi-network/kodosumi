@@ -13,25 +13,15 @@ import yaml
 
 from kodosumi.config import MasumiConfig
 from kodosumi.helper import HTTPXClient
+from kodosumi.service.expose.currency import (CURRENCY_DECIMALS,  # noqa: F401
+                                              CURRENCY_UNITS,
+                                              base_to_human_amount,
+                                              human_to_base_amount,
+                                              unit_to_currency)
 from kodosumi.service.expose.wallet_inventory import (WalletReport,
                                                       record_problem)
 
 logger = logging.getLogger(__name__)
-
-# Currency mapping: human-readable → hex unit on-chain
-CURRENCY_UNITS = {
-    "USDM": {
-        "Preprod": "16a55b2a349361ff88c03788f93e1e966e5d689605d044fef722ddde0014df10745553444d",
-        "Mainnet": "c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad0014df105553444d",
-    },
-    "ADA": {
-        "Preprod": "",
-        "Mainnet": "",
-    },
-}
-
-# All currencies have 6 decimal places
-CURRENCY_DECIMALS = 6
 
 # Masumi payment source types. A payment source is the deployed escrow
 # contract a selling wallet belongs to, and it decides the registration
@@ -61,26 +51,6 @@ MAX_WALLET_PAGES = 50
 MAX_CONCURRENT_WALLET_REQUESTS = 20
 PAYMENT_SOURCE_PAGE_SIZE = 100
 MAX_PAYMENT_SOURCE_PAGES = 50
-
-
-def human_to_base_amount(amount: float) -> str:
-    """Convert human-readable amount (e.g. 0.01) to base units string (e.g. '10000')."""
-    base = round(amount * (10 ** CURRENCY_DECIMALS))
-    return str(base)
-
-
-def base_to_human_amount(base_amount: str) -> float:
-    """Convert base units string (e.g. '10000') to human-readable amount (e.g. 0.01)."""
-    return int(base_amount) / (10 ** CURRENCY_DECIMALS)
-
-
-def unit_to_currency(unit: str) -> str:
-    """Map hex unit string back to human-readable currency name."""
-    for currency, networks in CURRENCY_UNITS.items():
-        for network, hex_unit in networks.items():
-            if hex_unit == unit:
-                return currency
-    return "ADA" if unit == "" else "unknown"
 
 
 def pricing_yaml_to_registry(pricing_yaml: Any, network: str) -> Dict:
