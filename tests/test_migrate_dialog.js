@@ -27,6 +27,19 @@ const end = dialogSource.indexOf('\nasync function deregisterPrevious(', start);
 assert.ok(end > start);
 const openSource = dialogSource.slice(start, end);
 
+// The real generation helpers, not stubs. Stubs that ignore their
+// arguments cannot see submitMigration passing the wrong idx or losing
+// the generation, and either mistake silently swallows every refusal.
+const registrySource = fs.readFileSync(
+    'kodosumi/service/admin/templates/expose/_registry_script.html', 'utf8');
+const helpersStart = registrySource.indexOf(
+    'const registryRequestGenerations = {};');
+assert.notEqual(helpersStart, -1);
+const helpersEnd = registrySource.indexOf(
+    '\nfunction getNetworkEl(', helpersStart);
+assert.ok(helpersEnd > helpersStart);
+const helpersSource = registrySource.slice(helpersStart, helpersEnd);
+
 function makeElement(extra) {
     return Object.assign({
         value: '',
@@ -227,7 +240,11 @@ function jsonResponse(payload) {
         vm.createContext(context);
         vm.runInContext(walletsSource + '\n' + openSource, context);
         const first = context.openMigrateDialog(0);
-        context.activeDialogIdx = null;          // Escape closes the dialog
+        // Escape really closes the dialog: oncancel nulls the index and
+        // the element reports itself shut. A test that only nulls the
+        // index leaves .open true and stops testing the real thing.
+        context.activeDialogIdx = null;
+        elements['migrate-dialog'].close();
         const second = context.openMigrateDialog(0);
         await second;
         release();
@@ -290,6 +307,7 @@ function jsonResponse(payload) {
         vm.runInContext(walletsSource + '\n' + openSource, context);
         const pending = context.openMigrateDialog(0);
         context.activeDialogIdx = null;      // Escape closes the dialog
+        elements['migrate-dialog'].close();
         release();
         await pending;
         console.log('\n8. dialog closed while the quiet load failed');
@@ -386,8 +404,6 @@ function jsonResponse(payload) {
         const context = {
             console, exposeName: 'meme-copy', activeDialogIdx: 0,
             hideRegError() {},
-            beginRegistryRequest: () => 1,
-            isCurrentRegistryRequest: () => true,
             showRegError() {},
             jsyaml: {load: () => ({agentIdentifier: 'a'})},
             fetch: async (url, init) => {
@@ -404,7 +420,9 @@ function jsonResponse(payload) {
             },
         };
         vm.createContext(context);
-        vm.runInContext(walletsSource + '\n' + openSource, context);
+        vm.runInContext(
+            helpersSource + '\n' + walletsSource + '\n' + openSource,
+            context);
         await context.submitMigration();
         console.log('\n11. submit sends the url the operator typed');
         console.log('   api_base_url :', JSON.stringify(sent.api_base_url));
@@ -517,6 +535,9 @@ function jsonResponse(payload) {
         vm.createContext(context);
         vm.runInContext(walletsSource + '\n' + openSource, context);
         const opened = context.openMigrateDialog(0);
+        // The dialog is on screen for the whole load, so Migrate has to be
+        // disabled from the moment it opens, not only once a list arrives.
+        assert.equal(elements.mig_submit.disabled, true);
         elements['migrate-dialog'].close();     // Escape
         context.activeDialogIdx = null;
         const reopened = context.openMigrateDialog(0);
@@ -640,5 +661,54 @@ function jsonResponse(payload) {
                      'Waiting for on-chain confirmation...');
     }
 
-    console.log('\nall fifteen dialog cases behaved as expected');
+    // 16. The network drops mid-submit. Nothing else runs this branch, so
+    //     without it the refusal colour there rests on a text scan that a
+    //     reformat could satisfy while the bug stayed.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement({value: 'vkey-v2'}),
+            mig_submit: makeElement(),
+            mig_error: makeElement(
+                {style: {color: 'var(--on-surface-variant)'}}),
+            mig_deregister: makeElement(), mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/flow/x'}}),
+            etag: makeElement({value: 'etag-1'}),
+        };
+        let blocked = null;
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: 0,
+            hideRegError() {}, showRegError() {},
+            blockRegistrySync: (idx, message) => { blocked = message; },
+            checkRegistryStatus: async () => {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async () => { throw new Error('Failed to fetch'); },
+            document: {
+                querySelector: () => ({value: 'display: x'}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}] : [],
+                getElementById: (id) => elements[id] || null,
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(
+            helpersSource + '\n' + walletsSource + '\n' + openSource,
+            context);
+        await context.submitMigration();
+        console.log('\n16. the network drops mid-submit');
+        console.log('   dialog :', elements.mig_error.textContent);
+        console.log('   colour :',
+                    JSON.stringify(elements.mig_error.style.color));
+        console.log('   blocked:', blocked);
+        assert.equal(elements.mig_error.textContent,
+                     'Network error: Failed to fetch');
+        assert.equal(elements.mig_error.style.color, '');
+        assert.match(blocked, /Reload the page/);
+        // The finally block hands the button back once the dialog is free.
+        assert.equal(elements.mig_submit.disabled, false);
+    }
+
+    console.log('\nall sixteen dialog cases behaved as expected');
 })();
