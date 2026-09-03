@@ -612,7 +612,47 @@ class TestMigrateApiBaseUrl:
 
     @pytest.mark.asyncio
     async def test_a_non_string_is_refused_with_a_reason(self):
-        for value in (42, ["https://a"], {"u": "x"}):
+        # The falsy ones matter most: reading the field with "or" turns
+        # them into "" and drops them silently, so a caller who sent the
+        # wrong type gets a mint against the default url and no warning.
+        for value in (42, ["https://a"], {"u": "x"}, 0, False, [], {}):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value
+
+    @pytest.mark.asyncio
+    async def test_a_host_two_parsers_read_differently_is_refused(self):
+        # urlparse follows RFC 3986 and every client follows the WHATWG
+        # url standard. A backslash is an ordinary host character to the
+        # first and a separator to the second, so approving a host here
+        # and handing a buyer another one is the failure to avoid.
+        # "https://good.com\\@evil.com" is evil.com to urlparse and
+        # good.com to a browser.
+        for value in ("http://exa\\mple.com/sumi/flow",
+                      "https://good.com\\@evil.com/sumi",
+                      # A fraction slash reads as a path and mints a host.
+                      "http://example.com\u2044evil/sumi",
+                      # A backslash below the host diverges too: a client
+                      # calls /pa/th where urlparse sees /pa\\th.
+                      "https://host.example/pa\\th",
+                      # A raw IDN has to be entered as punycode, which is
+                      # what DNS carries and what both parsers agree on.
+                      "https://\u4f8b\u3048.jp/sumi",
+                      # A zone id names a link on this machine. No buyer
+                      # can call it, and Node refuses to parse it at all.
+                      "http://[fe80::1%25eth0]/sumi"):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value
+
+    @pytest.mark.asyncio
+    async def test_credentials_in_the_authority_are_refused(self):
+        # The value is minted into a public registry entry that nobody can
+        # edit afterwards, so a password pasted with the host would stay
+        # readable on chain for good. parsed.hostname strips the userinfo,
+        # so the host check alone never sees it.
+        for value in ("https://ops:hunter2@agents.example/sumi/flow",
+                      "https://ops@agents.example/sumi"):
             with pytest.raises(ClientException) as err:
                 await _call_migrate({"api_base_url": value})
             assert err.value.status_code == 422, value

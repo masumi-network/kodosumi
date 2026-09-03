@@ -36,6 +36,14 @@ from kodosumi.service.jwt import operator_guard
 logger = logging.getLogger(__name__)
 
 
+# What a host may hold. urlparse is not the parser that will fetch this
+# url, and the two disagree outside these sets, so a character outside
+# them is refused rather than guessed at. A host outside ASCII has to be
+# entered in its punycode form, which is what DNS carries anyway.
+HOST_CHARACTERS = set("abcdefghijklmnopqrstuvwxyz0123456789.-")
+IPV6_CHARACTERS = set("0123456789abcdef:.")
+
+
 def _is_absolute_http_url(value: str) -> bool:
     """Accept only a url a buyer can actually call.
 
@@ -48,8 +56,20 @@ def _is_absolute_http_url(value: str) -> bool:
     both have one and neither has a host. An invisible character is the
     same kind of trap, because a zero width space survives a copy out of a
     document and cannot be seen in the field afterwards.
+
+    The parser here is not the parser that fetches the url. urlparse reads
+    RFC 3986 and every client reads the WHATWG url standard, and the two
+    disagree about a backslash and about a host outside ASCII. To urlparse
+    the host of "https://good.com\\@evil.com" is evil.com; to a browser it
+    is good.com. Approving one host and handing a buyer the other is worse
+    than refusing, because the mint is permanent, so only the shapes both
+    parsers read the same way are accepted.
     """
     if not value.isprintable() or any(c.isspace() for c in value):
+        return False
+    # A client reads a backslash in the authority as a separator. urlparse
+    # reads it as one more character of the host.
+    if "\\" in value:
         return False
     try:
         parsed = urlparse(value)
@@ -59,13 +79,17 @@ def _is_absolute_http_url(value: str) -> bool:
         return False
     if parsed.scheme.lower() not in ("http", "https") or not host:
         return False
+    # A user name or a password here would be minted into a public
+    # registry entry that nobody can edit afterwards.
+    if parsed.username or parsed.password:
+        return False
+    allowed = IPV6_CHARACTERS if parsed.netloc.startswith("[") \
+        else HOST_CHARACTERS
+    if not set(host) <= allowed:
+        return False
     # "http://." and "http://-" have a host by the parser's reckoning and
     # resolve for nobody, which is what a mistyped paste looks like.
-    if not any(character.isalnum() for character in host):
-        return False
-    # Percent encoding in a host is a paste artefact, except in the zone id
-    # of a bracketed IPv6 literal, where it is how the zone is written.
-    return "%" not in host or parsed.netloc.startswith("[")
+    return any(character.isalnum() for character in host)
 
 
 class RegistryMigrateControl(litestar.Controller):
@@ -124,7 +148,12 @@ class RegistryMigrateControl(litestar.Controller):
             raise ClientException(
                 detail="wallet_vkey is required", status_code=422)
 
-        api_base_url_override = data.get("api_base_url") or ""
+        # Read the raw value before any falsy default. "or" would turn 0,
+        # False and [] into "" and drop them silently, on a field that
+        # decides an irreversible mint.
+        api_base_url_override = data.get("api_base_url")
+        if api_base_url_override is None:
+            api_base_url_override = ""
         if not isinstance(api_base_url_override, str):
             raise ClientException(
                 detail="api_base_url must be a string",
