@@ -271,8 +271,7 @@ async function openMigrateDialog(idx) {
     // register dialog on the same section leaves it pointing at idx while
     // this dialog is shut, and the reason below would go into a hidden
     // element instead of onto the page.
-    if (!document.getElementById('migrate-dialog').open ||
-            activeDialogIdx !== idx) {
+    if (!document.getElementById('migrate-dialog').open) {
         // The dialog was closed while the list loaded. Quiet kept the
         // reason off the page, so hand it back now: an unreachable node
         // must not look like nothing having happened.
@@ -297,6 +296,10 @@ async function openMigrateDialog(idx) {
               walletLoadError
             : 'No Web3CardanoV2 selling wallet on this network. ' +
               'Add one in the Masumi payment service first.';
+        // Not redundant with the disable at the top of this function. A
+        // submitMigration started before this open re-enables the button
+        // in its finally, and that can land while this load is running,
+        // so the button has to be taken back here.
         submitBtn.disabled = true;
     } else {
         // The offered wallets are real even when another source failed, so
