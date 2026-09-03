@@ -41,10 +41,9 @@ assert.ok(helpersEnd > helpersStart);
 const helpersSource = registrySource.slice(helpersStart, helpersEnd);
 
 function makeElement(extra) {
-    return Object.assign({
+    const el = Object.assign({
         value: '',
         textContent: '',
-        innerHTML: '',
         checked: false,
         disabled: false,
         style: {},
@@ -53,6 +52,17 @@ function makeElement(extra) {
         showModal() { this.shown = true; this.open = true; },
         close() { this.open = false; },
     }, extra || {});
+    // Writing innerHTML replaces the children. Modelling it as a plain
+    // field made every missing reset invisible: a select that was never
+    // cleared before it was refilled looked the same as one that was.
+    let html = '';
+    Object.defineProperty(el, 'innerHTML', {
+        get() { return html; },
+        set(value) { html = value; this.children = []; },
+        enumerable: true,
+        configurable: true,
+    });
+    return el;
 }
 
 async function open(responder) {
@@ -503,6 +513,7 @@ function jsonResponse(payload) {
             mig_api_base_url: makeElement(),
             'migrate-dialog': makeElement(),
         };
+        const pageInfo = makeElement();
         let releaseFirst, releaseSecond;
         const first = new Promise((r) => { releaseFirst = r; });
         const second = new Promise((r) => { releaseSecond = r; });
@@ -528,7 +539,7 @@ function jsonResponse(payload) {
                 querySelectorAll: (s) => s === '.registry-section'
                     ? [{id: 'registry_0'}] : [],
                 getElementById: (id) => id === 'reg_info_0'
-                    ? makeElement() : (elements[id] || null),
+                    ? pageInfo : (elements[id] || null),
                 createElement: () => makeElement(),
             },
         };
@@ -553,6 +564,11 @@ function jsonResponse(payload) {
         assert.deepEqual(elements.mig_wallet.children, []);
         assert.equal(elements.mig_submit.disabled, true);
         assert.match(elements.mig_error.textContent, /HTTP 502/);
+        // The dialog reloads quietly, so the failure belongs in the dialog
+        // and nowhere else. Painting the sections here would leave red text
+        // on flows the operator never opened.
+        console.log('   page   :', JSON.stringify(pageInfo.textContent));
+        assert.equal(pageInfo.textContent, '');
     }
 
     // 14. The mirror image: an abandoned FAILURE must not overwrite the
@@ -609,6 +625,11 @@ function jsonResponse(payload) {
         assert.equal(elements.mig_wallet.children.length, 1);
         assert.equal(elements.mig_submit.disabled, false);
         assert.equal(elements.mig_error.textContent, '');
+        // The three assertions above are decided by the dialog's own
+        // generation counter, which predates this fix. The shared state
+        // is what the retirement protects, so read it directly.
+        assert.equal(vm.runInContext('walletLoadError', context), '');
+        assert.equal(vm.runInContext('loadedWallets.length', context), 1);
     }
 
     // 15. A failed load paints every registry section, including flows the
@@ -710,5 +731,274 @@ function jsonResponse(payload) {
         assert.equal(elements.mig_submit.disabled, false);
     }
 
-    console.log('\nall sixteen dialog cases behaved as expected');
+    // 17. Reopening the dialog must not stack a second copy of the same
+    //     wallet on the select. Both renders really happen here, so only
+    //     the clear before the refill can keep the list at one.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement(), mig_submit: makeElement(),
+            mig_error: makeElement(), mig_deregister: makeElement(),
+            mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+        };
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: null,
+            hideRegError() {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async () => jsonResponse({wallets: [
+                {walletVkey: 'vkey-v2', walletAddress: 'addr',
+                 note: 'v2 seller', paymentSourceType: 'Web3CardanoV2'}]}),
+            document: {
+                querySelector: () => ({value: ''}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}] : [],
+                getElementById: (id) => id === 'reg_info_0'
+                    ? makeElement() : (elements[id] || null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource + '\n' + openSource, context);
+        await context.openMigrateDialog(0);
+        elements['migrate-dialog'].close();
+        context.activeDialogIdx = null;
+        await context.openMigrateDialog(0);
+        console.log('\n17. reopening does not stack the options');
+        console.log('   options :',
+                    elements.mig_wallet.children.map((o) => o.textContent));
+        assert.equal(elements.mig_wallet.children.length, 1);
+    }
+
+    // 18. The same, for the page's own wallet selects, which loadWallets
+    //     refills on every load.
+    {
+        const select = makeElement();
+        const context = {
+            console, exposeName: 'meme-copy', hideRegError() {},
+            fetch: async () => jsonResponse({wallets: [
+                {walletVkey: 'vkey-v2', walletAddress: 'addr',
+                 note: 'v2 seller', paymentSourceType: 'Web3CardanoV2'}]}),
+            document: {
+                querySelectorAll: (s) => s === 'select.wallet-select'
+                    ? [select] : [],
+                getElementById: () => null,
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource, context);
+        await context.loadWallets();
+        await context.loadWallets();
+        console.log('\n18. a second load refills, it does not append');
+        console.log('   options :',
+                    select.children.map((o) => o.textContent));
+        assert.equal(select.children.length, 1);
+    }
+
+    // 19. A submit that is still in flight when the operator reopens the
+    //     dialog re-enables Migrate from its finally block. The empty-list
+    //     branch has to take the button back, or Migrate sits enabled
+    //     beside the words "could not be listed" with nothing selected.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement({value: 'vkey-v2'}),
+            mig_submit: makeElement(),
+            mig_error: makeElement(), mig_deregister: makeElement(),
+            mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/flow/x'}}),
+            etag: makeElement({value: 'etag-1'}),
+        };
+        elements['migrate-dialog'].showModal();
+        let releasePost, releaseWallets;
+        const post = new Promise((r) => { releasePost = r; });
+        const wallets = new Promise((r) => { releaseWallets = r; });
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: 0,
+            hideRegError() {}, showRegError() {},
+            blockRegistrySync() {}, checkRegistryStatus: async () => {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async (url) => {
+                if (String(url).indexOf('/registry/migrate') !== -1) {
+                    await post;
+                    return {ok: false, status: 422,
+                            json: async () => ({detail: 'nope'})};
+                }
+                await wallets;
+                return {ok: false, status: 502, json: async () => ({})};
+            },
+            document: {
+                querySelector: () => ({value: 'display: x'}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}] : [],
+                getElementById: (id) => id === 'reg_info_0'
+                    ? makeElement() : (elements[id] || null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(
+            helpersSource + '\n' + walletsSource + '\n' + openSource,
+            context);
+        const submitting = context.submitMigration();
+        context.activeDialogIdx = null;              // Escape
+        elements['migrate-dialog'].close();
+        const reopened = context.openMigrateDialog(0);
+        releasePost();                                // finally re-enables
+        await submitting;
+        releaseWallets();                             // then the load fails
+        await reopened;
+        console.log('\n19. a late submit re-enables Migrate mid-load');
+        console.log('   dialog :', elements.mig_error.textContent);
+        console.log('   submit disabled:', elements.mig_submit.disabled);
+        assert.match(elements.mig_error.textContent, /could be listed/);
+        assert.deepEqual(elements.mig_wallet.children, []);
+        assert.equal(elements.mig_submit.disabled, true);
+    }
+
+    // 20. A retired load whose response is fine and whose json() is what
+    //     straddles the newer load must still write nothing.
+    {
+        let releaseJson;
+        const jsonGate = new Promise((r) => { releaseJson = r; });
+        let call = 0;
+        const context = {
+            console, exposeName: 'meme-copy', hideRegError() {},
+            fetch: async () => {
+                call += 1;
+                if (call === 1) {
+                    return {ok: true, status: 200, json: async () => {
+                        await jsonGate;
+                        return {wallets: [
+                            {walletVkey: 'vkey-STALE', walletAddress: 'a',
+                             note: 'stale',
+                             paymentSourceType: 'Web3CardanoV2'}]};
+                    }};
+                }
+                return jsonResponse({wallets: []});
+            },
+            document: {
+                querySelectorAll: () => [],
+                getElementById: () => null,
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource, context);
+        const first = context.loadWallets();
+        await new Promise((r) => setTimeout(r, 0));
+        const second = context.loadWallets();
+        await second;
+        releaseJson();
+        await first;
+        console.log('\n20. retired between the response and its json');
+        console.log('   loadedWallets:',
+                    vm.runInContext('loadedWallets.length', context));
+        console.log('   walletLoadError:',
+                    JSON.stringify(vm.runInContext('walletLoadError',
+                                                   context)));
+        assert.equal(vm.runInContext('loadedWallets.length', context), 0);
+        assert.match(vm.runInContext('walletLoadError', context),
+                     /No selling wallets found/);
+    }
+
+    // 21. A retired load that throws must not report its failure over the
+    //     live load's good list.
+    {
+        let releaseError;
+        const errorGate = new Promise((r) => { releaseError = r; });
+        let call = 0;
+        const context = {
+            console, exposeName: 'meme-copy', hideRegError() {},
+            fetch: async () => {
+                call += 1;
+                if (call === 1) {
+                    await errorGate;
+                    throw new Error('boom');
+                }
+                return jsonResponse({wallets: [
+                    {walletVkey: 'vkey-v2', walletAddress: 'addr',
+                     note: 'v2 seller',
+                     paymentSourceType: 'Web3CardanoV2'}]});
+            },
+            document: {
+                querySelectorAll: (s) => s === 'select.wallet-select'
+                    ? [makeElement()] : [],
+                getElementById: () => null,
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource, context);
+        const first = context.loadWallets();
+        const second = context.loadWallets();
+        await second;
+        releaseError();
+        await first;
+        console.log('\n21. a retired load throws after a good one landed');
+        console.log('   loadedWallets:',
+                    vm.runInContext('loadedWallets.length', context));
+        console.log('   walletLoadError:',
+                    JSON.stringify(vm.runInContext('walletLoadError',
+                                                   context)));
+        assert.equal(vm.runInContext('loadedWallets.length', context), 1);
+        assert.equal(vm.runInContext('walletLoadError', context), '');
+    }
+
+    // 22. A reason from an earlier load must not survive into a later
+    //     one that worked. Nothing else clears walletLoadError, so a
+    //     stale sentence would sit in the error colour beside a wallet
+    //     the operator can actually migrate to.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement(), mig_submit: makeElement(),
+            mig_error: makeElement(), mig_deregister: makeElement(),
+            mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+        };
+        let call = 0;
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: null,
+            hideRegError() {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async () => {
+                call += 1;
+                return call === 1
+                    ? {ok: false, status: 503, json: async () => ({})}
+                    : jsonResponse({wallets: [
+                        {walletVkey: 'vkey-v2', walletAddress: 'addr',
+                         note: 'v2 seller',
+                         paymentSourceType: 'Web3CardanoV2'}]});
+            },
+            document: {
+                querySelector: () => ({value: ''}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}]
+                    : (s === 'select.wallet-select' ? [makeElement()] : []),
+                getElementById: (id) => id === 'reg_info_0'
+                    ? makeElement() : (elements[id] || null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource + '\n' + openSource, context);
+        await context.loadWallets();                 // fails, sets a reason
+        assert.match(vm.runInContext('walletLoadError', context), /503/);
+        await context.openMigrateDialog(0);          // then a good reload
+        console.log('\n22. an old reason does not survive a good load');
+        console.log('   dialog :',
+                    JSON.stringify(elements.mig_error.textContent),
+                    'display=', JSON.stringify(elements.mig_error.style.display));
+        console.log('   options:',
+                    elements.mig_wallet.children.map((o) => o.textContent));
+        assert.equal(vm.runInContext('walletLoadError', context), '');
+        assert.equal(elements.mig_error.textContent, '');
+        assert.equal(elements.mig_error.style.display, 'none');
+        assert.equal(elements.mig_submit.disabled, false);
+    }
+
+    console.log('\nall twenty-two dialog cases behaved as expected');
 })();
