@@ -247,6 +247,7 @@ async function openMigrateDialog(idx) {
     var errEl = document.getElementById('mig_error');
 
     document.getElementById('mig_deregister').checked = false;
+    document.getElementById('mig_api_base_url').value = '';
     submitBtn.disabled = true;
     errEl.style.display = 'none';
     document.getElementById('migrate-dialog').showModal();
@@ -309,6 +310,8 @@ async function submitMigration() {
                 flow_url: flowUrl,
                 wallet_vkey: walletSelect.value,
                 deregister_previous: document.getElementById('mig_deregister').checked,
+                api_base_url:
+                    document.getElementById('mig_api_base_url').value.trim(),
                 meta_yaml: metaYaml,
                 meta_etag: etag ? etag.value : null
             })

@@ -56,6 +56,10 @@ class RegistryMigrateControl(litestar.Controller):
             flow_url: str - Flow URL path (e.g. /myapp/analyze)
             wallet_vkey: str - Selling wallet of a Web3CardanoV2 source
             deregister_previous: bool - burn the V1 agent once V2 confirms
+            api_base_url: str - url the new agent advertises (optional). It
+                defaults to the url of the V1 listing, which is what a
+                single deployment wants. Set it only when another
+                deployment serves the V2 agent.
             meta_yaml: str - live YAML of the flow (optional)
         """
         await db.init_database()
@@ -86,6 +90,16 @@ class RegistryMigrateControl(litestar.Controller):
         if not wallet_vkey:
             raise ClientException(
                 detail="wallet_vkey is required", status_code=422)
+
+        api_base_url_override = (data.get("api_base_url") or "").strip()
+        if api_base_url_override and not api_base_url_override.startswith(
+                ("http://", "https://")):
+            raise ClientException(
+                detail="api_base_url must start with http:// or https://. "
+                       "The value is minted on chain, so a relative or "
+                       "malformed url cannot be corrected from here.",
+                status_code=422,
+            )
 
         deregister_previous = data.get("deregister_previous", False)
         if not isinstance(deregister_previous, bool):
@@ -224,7 +238,7 @@ class RegistryMigrateControl(litestar.Controller):
                     masumi=masumi,
                     name=fields["name"],
                     description=fields["description"],
-                    api_base_url=sumi_api_base_url(
+                    api_base_url=api_base_url_override or sumi_api_base_url(
                         state["settings"].sumi_address, flow_url),
                     tags=fields["tags"],
                     pricing=None,
