@@ -25,6 +25,7 @@ from kodosumi.service.expose.pricing import (  # noqa: F401
     PAYMENT_SOURCE_TYPE_V2, pricing_to_yaml_format,
     pricing_yaml_to_registry, registry_pricing_to_supported_sources)
 from kodosumi.service.expose.wallet_inventory import (WalletReport,
+                                                      describe_exception,
                                                       record_problem)
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,12 @@ async def _list_source_selling_wallets(
     that come back without them.
     """
     if not source_id:
+        # No id means no way to ask for this source's wallets, so its
+        # wallets are missing from the answer rather than absent.
+        record_problem(
+            report,
+            "a payment source arrived without an id, so its selling "
+            "wallets could not be read")
         return []
     wallets: List[Dict] = []
     seen_ids = set()
@@ -150,7 +157,9 @@ async def _list_payment_sources(
                     "Could not load the complete payment source list"
                 ) from error
             record_problem(
-                report, f"GET /payment-source failed: {error}")
+                report,
+                f"GET /payment-source failed: "
+                f"{describe_exception(error)}")
             logger.warning(
                 "Stopped listing payment sources after %s entries: %s",
                 len(sources), error,
@@ -265,7 +274,8 @@ async def list_wallets(
                     record_problem(
                         report,
                         f"GET /wallet for payment source "
-                        f"{sources[index].get('id', '')} failed: {result}")
+                        f"{sources[index].get('id', '')} failed: "
+                        f"{describe_exception(result)}")
                     logger.warning(
                         "Failed to list wallets of payment source %s: %s",
                         sources[index].get("id", ""), result)
@@ -293,7 +303,8 @@ async def list_wallets(
         logger.error("Error listing wallets: %s", e)
         if require_complete:
             raise
-        record_problem(report, str(e))
+        record_problem(
+            report, f"listing the wallets failed: {describe_exception(e)}")
         return []
 
 

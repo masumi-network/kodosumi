@@ -81,6 +81,20 @@ class WalletReport:
         )
 
 
+def describe_exception(error: BaseException) -> str:
+    """Name an exception that stringifies to nothing.
+
+    Every httpx timeout carries an empty message, so "failed: " reached
+    the operator with nothing after the colon. A problem that names no
+    cause is the state this evidence exists to replace, and the class
+    name is the least that always says something.
+    """
+    text = str(error).strip()
+    if not text:
+        return type(error).__name__
+    return f"{type(error).__name__}: {text}"
+
+
 def record_problem(report: Optional[WalletReport], message: str) -> None:
     """Note a request that did not answer, when a report is being kept."""
     if report is not None:

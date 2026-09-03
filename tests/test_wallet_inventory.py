@@ -220,6 +220,45 @@ class TestListWalletsReport:
         assert "src-main" in report.problems[0]
 
     @pytest.mark.asyncio
+    async def test_names_an_exception_that_carries_no_message(self):
+        # Every httpx timeout stringifies to "". Without the class name
+        # the panel showed the operator a sentence that ended in a colon
+        # and said nothing, which is the state this evidence replaces.
+        import httpx
+        sources = _json_response({"data": {"PaymentSources": [
+            {"id": "src-main", "network": "Mainnet",
+             "paymentSourceType": "Web3CardanoV2"},
+        ]}})
+        report = WalletReport()
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.__aexit__.return_value = None
+        client.get.side_effect = [sources, httpx.ReadTimeout("")]
+        with patch("kodosumi.service.expose.registry.HTTPXClient",
+                   MagicMock(return_value=client)):
+            await list_wallets(_make_config(), report=report)
+
+        assert report.problems == [
+            "GET /wallet for payment source src-main failed: ReadTimeout"]
+        assert report.describe_empty("Mainnet").endswith("ReadTimeout")
+
+    @pytest.mark.asyncio
+    async def test_records_a_source_that_arrived_without_an_id(self):
+        # No id means no way to ask for that source's wallets. Silence
+        # here reads as "this source has no selling wallet".
+        sources = _json_response({"data": {"PaymentSources": [
+            {"network": "Mainnet", "paymentSourceType": "Web3CardanoV2"},
+        ]}})
+        report = WalletReport()
+        _, patched = _patch_registry_client([sources])
+        with patched:
+            wallets = await list_wallets(_make_config(), report=report)
+
+        assert wallets == []
+        assert len(report.problems) == 1
+        assert "without an id" in report.problems[0]
+
+    @pytest.mark.asyncio
     async def test_records_a_wallet_request_that_raised(self):
         # asyncio.gather returns the exception rather than raising it, and
         # an unrecorded exception left the panel saying "add a wallet"
