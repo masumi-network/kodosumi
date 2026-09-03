@@ -10,10 +10,8 @@ payment node would reject with an opaque 400.
 
 from typing import Any, Dict, List
 
-from kodosumi.service.expose.currency import (CURRENCY_DECIMALS,
-                                              CURRENCY_UNITS,
-                                              human_to_base_amount,
-                                              unit_to_currency)
+from kodosumi.service.expose.currency import (CURRENCY_UNITS,
+                                              human_to_base_amount)
 
 # Masumi payment source types. A payment source is the deployed escrow
 # contract a selling wallet belongs to, and it decides the registration
