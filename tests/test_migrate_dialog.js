@@ -473,5 +473,172 @@ function jsonResponse(payload) {
         assert.match(elements.mig_error.textContent, /HTTP 502/);
     }
 
-    console.log('\nall twelve dialog cases behaved as expected');
+    // 13. Two loads overlap and the abandoned one lands first. Its answer
+    //     must not refill the list the live load just cleared, or the
+    //     dialog offers a wallet the node no longer reports, with Submit
+    //     enabled, beside the words "could not be loaded".
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement(), mig_submit: makeElement(),
+            mig_error: makeElement(), mig_deregister: makeElement(),
+            mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+        };
+        let releaseFirst, releaseSecond;
+        const first = new Promise((r) => { releaseFirst = r; });
+        const second = new Promise((r) => { releaseSecond = r; });
+        let call = 0;
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: null,
+            hideRegError() {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async () => {
+                call += 1;
+                if (call === 1) {
+                    await first;
+                    return jsonResponse({wallets: [
+                        {walletVkey: 'vkey-v2-STALE', walletAddress: 'addr',
+                         note: 'wallet from the abandoned load',
+                         paymentSourceType: 'Web3CardanoV2'}]});
+                }
+                await second;
+                return {ok: false, status: 502, json: async () => ({})};
+            },
+            document: {
+                querySelector: () => ({value: ''}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}] : [],
+                getElementById: (id) => id === 'reg_info_0'
+                    ? makeElement() : (elements[id] || null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource + '\n' + openSource, context);
+        const opened = context.openMigrateDialog(0);
+        elements['migrate-dialog'].close();     // Escape
+        context.activeDialogIdx = null;
+        const reopened = context.openMigrateDialog(0);
+        releaseFirst();                          // the abandoned load lands
+        await new Promise((r) => setTimeout(r, 0));
+        releaseSecond();                         // then the live one fails
+        await Promise.all([opened, reopened]);
+        console.log('\n13. abandoned load lands before the live one');
+        console.log('   options :',
+                    elements.mig_wallet.children.map((o) => o.textContent));
+        console.log('   dialog  :', elements.mig_error.textContent);
+        console.log('   submit disabled:', elements.mig_submit.disabled);
+        assert.deepEqual(elements.mig_wallet.children, []);
+        assert.equal(elements.mig_submit.disabled, true);
+        assert.match(elements.mig_error.textContent, /HTTP 502/);
+    }
+
+    // 14. The mirror image: an abandoned FAILURE must not overwrite the
+    //     reason of a load that succeeded after it.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement(), mig_submit: makeElement(),
+            mig_error: makeElement(), mig_deregister: makeElement(),
+            mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+        };
+        let releaseFirst;
+        const first = new Promise((r) => { releaseFirst = r; });
+        let call = 0;
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: null,
+            hideRegError() {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async () => {
+                call += 1;
+                if (call === 1) {
+                    await first;
+                    return {ok: false, status: 500, json: async () => ({})};
+                }
+                return jsonResponse({wallets: [
+                    {walletVkey: 'vkey-v2-live', walletAddress: 'addr',
+                     note: 'v2 seller',
+                     paymentSourceType: 'Web3CardanoV2'}]});
+            },
+            document: {
+                querySelector: () => ({value: ''}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}] : [],
+                getElementById: (id) => id === 'reg_info_0'
+                    ? makeElement() : (elements[id] || null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource + '\n' + openSource, context);
+        const opened = context.openMigrateDialog(0);
+        elements['migrate-dialog'].close();
+        context.activeDialogIdx = null;
+        const reopened = context.openMigrateDialog(0);
+        await reopened;
+        releaseFirst();
+        await opened;
+        console.log('\n14. abandoned failure lands after a good load');
+        console.log('   options :',
+                    elements.mig_wallet.children.map((o) => o.textContent));
+        console.log('   dialog  :',
+                    JSON.stringify(elements.mig_error.textContent));
+        assert.equal(elements.mig_wallet.children.length, 1);
+        assert.equal(elements.mig_submit.disabled, false);
+        assert.equal(elements.mig_error.textContent, '');
+    }
+
+    // 15. A failed load paints every registry section, including flows the
+    //     operator never touched. Nothing else takes that message down, so
+    //     a later good load has to.
+    {
+        const info = {0: makeElement(), 1: makeElement()};
+        let call = 0;
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: null,
+            hideRegError() {},
+            fetch: async () => {
+                call += 1;
+                return call === 1
+                    ? {ok: false, status: 500, json: async () => ({})}
+                    : jsonResponse({wallets: [
+                        {walletVkey: 'vkey-v2', walletAddress: 'addr',
+                         note: 'v2 seller',
+                         paymentSourceType: 'Web3CardanoV2'}]});
+            },
+            document: {
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}, {id: 'registry_1'}]
+                    : (s === 'select.wallet-select' ? [makeElement()] : []),
+                getElementById: (id) => id === 'reg_info_0' ? info[0]
+                    : (id === 'reg_info_1' ? info[1] : null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource, context);
+        await context.loadWallets();
+        console.log('\n15. a good load takes down what a bad one wrote');
+        console.log('   after the failure, section 1:',
+                    JSON.stringify(info[1].textContent));
+        assert.match(info[0].textContent, /HTTP 500/);
+        assert.match(info[1].textContent, /HTTP 500/);
+        // updateRegistryUI owns these elements too. A status line it wrote
+        // over the wallet message must survive the clear.
+        info[1].textContent = 'Waiting for on-chain confirmation...';
+        await context.loadWallets();
+        console.log('   after the good load, section 0:',
+                    JSON.stringify(info[0].textContent),
+                    'display=', JSON.stringify(info[0].style.display));
+        console.log('   a status line elsewhere  :',
+                    JSON.stringify(info[1].textContent));
+        assert.equal(info[0].textContent, '');
+        assert.equal(info[0].style.display, 'none');
+        assert.equal(info[1].textContent,
+                     'Waiting for on-chain confirmation...');
+    }
+
+    console.log('\nall fifteen dialog cases behaved as expected');
 })();
