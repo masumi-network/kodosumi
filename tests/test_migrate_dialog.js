@@ -34,7 +34,8 @@ function makeElement(extra) {
         style: {},
         children: [],
         appendChild(child) { this.children.push(child); },
-        showModal() { this.shown = true; },
+        showModal() { this.shown = true; this.open = true; },
+        close() { this.open = false; },
     }, extra || {});
 }
 
@@ -280,5 +281,52 @@ function jsonResponse(payload) {
         assert.deepEqual(offenders, []);
     }
 
-    console.log('\nall nine dialog cases behaved as expected');
+    // 10. The operator presses Escape and then opens the register dialog
+    //     on the same section. activeDialogIdx belongs to both dialogs, so
+    //     it points at this section again while the migrate dialog is
+    //     shut. The reason must still reach the page, not the hidden
+    //     migrate error line.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement(), mig_submit: makeElement(),
+            mig_error: makeElement(), mig_deregister: makeElement(),
+            mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+        };
+        const info = makeElement();
+        let release;
+        const gate = new Promise((r) => { release = r; });
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: null,
+            hideRegError() {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async () => {
+                await gate;
+                return {ok: false, status: 503, json: async () => ({})};
+            },
+            document: {
+                querySelector: () => ({value: ''}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}] : [],
+                getElementById: (id) => id === 'reg_info_0'
+                    ? info : (elements[id] || null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource + '\n' + openSource, context);
+        const pending = context.openMigrateDialog(0);
+        elements['migrate-dialog'].close();   // Escape shuts the dialog
+        context.activeDialogIdx = 0;          // the register dialog claims it
+        release();
+        await pending;
+        console.log('\n10. register dialog opened on the same section');
+        console.log('   page   :', info.textContent);
+        console.log('   hidden :', elements.mig_error.textContent);
+        assert.match(info.textContent, /HTTP 503/);
+        assert.equal(elements.mig_error.textContent, '');
+    }
+
+    console.log('\nall ten dialog cases behaved as expected');
 })();
