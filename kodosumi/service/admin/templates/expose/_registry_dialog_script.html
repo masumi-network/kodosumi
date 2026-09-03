@@ -208,7 +208,14 @@ async function submitRegistration() {
 
 // ─── Migrate Dialog ─────────────────────────────────────────────
 
+// Counts every open of the migrate dialog. Closing and reopening the same
+// flow leaves activeDialogIdx unchanged, so that check alone cannot retire
+// the first open: its late wallet load would append a second copy of the
+// options the second open already rendered.
+let migrateDialogGeneration = 0;
+
 async function openMigrateDialog(idx) {
+    var generation = ++migrateDialogGeneration;
     hideRegError(idx);
     activeDialogIdx = idx;
 
@@ -254,26 +261,35 @@ async function openMigrateDialog(idx) {
 
     // Read the wallet list again. The operator may have added the V2
     // payment source after this page loaded, and the copy from page init
-    // would then claim a wallet that exists is missing.
-    await loadWallets();
-    if (activeDialogIdx !== idx) return;
+    // would then claim a wallet that exists is missing. Quiet, because
+    // this dialog shows the reason itself and must not leave a standing
+    // error on registry sections that are working.
+    await loadWallets({quiet: true});
+    if (generation !== migrateDialogGeneration || activeDialogIdx !== idx) {
+        return;
+    }
 
     var v2Wallets = loadedWallets.filter(function(w) {
         return w.paymentSourceType === 'Web3CardanoV2';
     });
     if (v2Wallets.length === 0) {
         errEl.style.display = 'block';
-        // Only a list that actually loaded can prove a V2 wallet is
-        // missing. When the load itself failed, the node's own reason is
-        // the answer, and blaming a missing wallet sends the operator
-        // looking for the wrong thing.
+        // Only a list that loaded in full can prove a V2 wallet is missing.
+        // A failed load, and a list with a failed request behind it, both
+        // set walletLoadError: report that instead, or the operator goes
+        // looking for a wallet that a transient error merely hid.
         errEl.textContent = walletLoadError
-            ? 'No selling wallet could be listed. ' + walletLoadError
+            ? 'No Web3CardanoV2 selling wallet could be listed. ' +
+              walletLoadError
             : 'No Web3CardanoV2 selling wallet on this network. ' +
               'Add one in the Masumi payment service first.';
         submitBtn.disabled = true;
     } else {
-        errEl.style.display = 'none';
+        // The offered wallets are real even when another source failed, so
+        // the migration may go ahead. Say that one is missing, in case the
+        // operator is looking for it.
+        errEl.style.display = walletLoadError ? 'block' : 'none';
+        errEl.textContent = walletLoadError || '';
         submitBtn.disabled = false;
         v2Wallets.forEach(function(w) {
             var opt = document.createElement('option');

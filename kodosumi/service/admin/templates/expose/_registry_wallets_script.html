@@ -8,7 +8,16 @@ let loadedWallets = [];
 // at from its length.
 let walletLoadError = '';
 
-async function loadWallets() {
+// options.quiet keeps a failure out of the registry sections. The migrate
+// dialog reloads on every open and shows the reason in its own error line,
+// so without this one blip while opening it would paint red text on every
+// section of the page and leave it there until a reload.
+async function loadWallets(options) {
+    var quiet = !!(options && options.quiet);
+    function report(message) {
+        walletLoadError = message;
+        if (!quiet) showWalletInfo(message);
+    }
     if (!exposeName) return;
     // A failed reload must not leave the previous list standing. The
     // migrate dialog mints against what it finds here, so a stale entry
@@ -21,25 +30,26 @@ async function loadWallets() {
         });
         if (!resp.ok) {
             console.error('Wallets endpoint returned', resp.status);
-            walletLoadError =
-                'Wallets could not be loaded (HTTP ' + resp.status + ').';
-            showWalletInfo(walletLoadError);
+            report('Wallets could not be loaded (HTTP ' + resp.status + ').');
             return;
         }
         const data = await resp.json();
 
         if (data.error) {
-            walletLoadError = data.error;
-            showWalletInfo(data.error);
+            report(data.error);
             return;
         }
 
         const wallets = data.wallets || [];
         loadedWallets = wallets;
         if (wallets.length === 0) {
-            walletLoadError = 'No selling wallets found for this network.';
-            showWalletInfo(walletLoadError);
+            report('No selling wallets found for this network.');
             return;
+        }
+        // A list can arrive non-empty and still be short of a wallet whose
+        // payment source could not be read. Keep the list, keep the reason.
+        if (data.warning) {
+            report(data.warning);
         }
 
         // Populate all wallet select elements (use class selector, not id prefix)
@@ -65,8 +75,7 @@ async function loadWallets() {
         });
     } catch (e) {
         console.error('Failed to load wallets:', e);
-        walletLoadError = 'Failed to load wallets: ' + e.message;
-        showWalletInfo(walletLoadError);
+        report('Failed to load wallets: ' + e.message);
     }
 }
 

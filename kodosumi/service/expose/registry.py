@@ -393,16 +393,17 @@ async def list_wallets(
         async with HTTPXClient() as client:
             payment_sources = await _list_payment_sources(
                 client, masumi, headers, require_complete, report)
-            if report is not None:
-                report.source_count = len(payment_sources)
-                report.networks = sorted(
-                    {source.get("network") for source in payment_sources
-                     if source.get("network")})
             sources = [
                 source for source in payment_sources
                 if not source.get("network")
                 or source.get("network") == masumi.registry_network
             ]
+            if report is not None:
+                report.source_count = len(payment_sources)
+                report.matched_count = len(sources)
+                report.networks = sorted(
+                    {source.get("network") for source in payment_sources
+                     if source.get("network")})
             missing = [index for index, source in enumerate(sources)
                        if not source.get("SellingWallets")]
             semaphore = asyncio.Semaphore(
@@ -430,6 +431,10 @@ async def list_wallets(
                         raise RuntimeError(
                             "Could not load the complete selling wallet "
                             "inventory") from result
+                    record_problem(
+                        report,
+                        f"GET /wallet for payment source "
+                        f"{sources[index].get('id', '')} failed: {result}")
                     logger.warning(
                         "Failed to list wallets of payment source %s: %s",
                         sources[index].get("id", ""), result)

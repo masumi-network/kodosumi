@@ -53,10 +53,20 @@ class WalletsControl(litestar.Controller):
         if not wallets:
             # The node answers a token that may not read this network with a
             # normal empty 200, so the empty list alone cannot name its own
-            # cause. The report carries what the token could see.
+            # cause. The report carries what the token could see. It is
+            # compared against the node's own network name, never against
+            # the name of the KODO_MASUMI entry the operator chose.
             return {
                 "wallets": [],
-                "error": report.describe_empty(network),
+                "error": report.describe_empty(masumi.registry_network),
             }
 
-        return {"wallets": wallets, "network": network}
+        # A list can be non-empty and still be missing the one wallet the
+        # operator is looking for, when a payment source could not be read.
+        # Saying so is what stops the migrate dialog from reporting a
+        # transient failure as a missing Web3CardanoV2 wallet.
+        warning = report.describe_partial()
+        result = {"wallets": wallets, "network": network}
+        if warning:
+            result["warning"] = warning
+        return result

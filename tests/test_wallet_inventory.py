@@ -64,15 +64,39 @@ class TestDescribeEmpty:
         assert "KODO_MASUMI" in message
 
     def test_other_network_names_what_the_token_sees(self):
-        report = WalletReport(source_count=2, networks=["Preprod"])
+        report = WalletReport(
+            source_count=2, matched_count=0, networks=["Preprod"])
         message = report.describe_empty("Mainnet")
         assert "Preprod" in message
         assert "network limit" in message
 
     def test_right_network_without_a_wallet_asks_for_a_wallet(self):
-        report = WalletReport(source_count=1, networks=["Mainnet"])
+        report = WalletReport(
+            source_count=1, matched_count=1, networks=["Mainnet"])
         message = report.describe_empty("Mainnet")
         assert "has a selling wallet yet" in message
+
+    def test_a_source_without_a_network_still_counts_as_matched(self):
+        # list_wallets keeps a source whose row carries no network, so a
+        # report that judged by the networks list alone would blame the
+        # token for a source it did read.
+        report = WalletReport(source_count=1, matched_count=1, networks=[])
+        message = report.describe_empty("Mainnet")
+        assert "has a selling wallet yet" in message
+        assert "network limit" not in message
+
+    def test_a_clean_run_has_nothing_to_warn_about(self):
+        assert WalletReport(source_count=1, matched_count=1) \
+            .describe_partial() is None
+
+    def test_a_failed_request_warns_even_with_wallets_in_hand(self):
+        report = WalletReport(
+            source_count=2, matched_count=2,
+            problems=["GET /wallet for payment source src-v2 answered "
+                      "HTTP 503"])
+        warning = report.describe_partial()
+        assert "may be incomplete" in warning
+        assert "HTTP 503" in warning
 
 
 class TestListWalletsReport:
@@ -147,3 +171,92 @@ class TestListWalletsReport:
         assert [w["walletVkey"] for w in wallets] == ["vkey-1"]
         assert wallets[0]["paymentSourceType"] == "Web3CardanoV2"
         assert report.problems == []
+
+    @pytest.mark.asyncio
+    async def test_records_a_wallet_request_that_raised(self):
+        # asyncio.gather returns the exception rather than raising it, and
+        # an unrecorded exception left the panel saying "add a wallet"
+        # about a node it could not reach.
+        sources = _json_response({"data": {"PaymentSources": [
+            {"id": "src-main", "network": "Mainnet",
+             "paymentSourceType": "Web3CardanoV2"},
+        ]}})
+        report = WalletReport()
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.__aexit__.return_value = None
+        client.get.side_effect = [sources, OSError("connection refused")]
+        with patch("kodosumi.service.expose.registry.HTTPXClient",
+                   MagicMock(return_value=client)):
+            wallets = await list_wallets(_make_config(), report=report)
+
+        assert wallets == []
+        assert len(report.problems) == 1
+        assert "connection refused" in report.problems[0]
+        assert "connection refused" in report.describe_empty("Mainnet")
+
+
+class TestWalletsEndpoint:
+    """The endpoint answers with the node's network name and its evidence."""
+
+    def _state(self, config_name):
+        settings = MagicMock()
+        settings.get_masumi.return_value = _make_config(network=config_name)
+        return {"settings": settings}
+
+    async def _call(self, list_impl, config_name="Mainnet"):
+        from kodosumi.service.expose.wallet_control import WalletsControl
+        handler = getattr(WalletsControl.list_wallets, "fn",
+                          WalletsControl.list_wallets)
+        with patch("kodosumi.service.expose.wallet_control.db.init_database",
+                   new_callable=AsyncMock), \
+             patch("kodosumi.service.expose.wallet_control.db.get_expose",
+                   new_callable=AsyncMock,
+                   return_value={"name": "x", "network": config_name}), \
+             patch("kodosumi.service.expose.registry.list_wallets",
+                   new=list_impl):
+            return await handler(WalletsControl, name="x",
+                                 state=self._state(config_name))
+
+    @pytest.mark.asyncio
+    async def test_empty_list_quotes_the_network_the_node_knows(self):
+        # The expose row holds the KODO_MASUMI entry name, which is free
+        # text. Comparing it against the node's own network values made the
+        # endpoint blame the token for a payment source it had just read.
+        async def fake(masumi, require_complete=False, report=None):
+            report.source_count = 1
+            report.matched_count = 1
+            report.networks = ["Mainnet"]
+            return []
+
+        result = await self._call(fake, config_name="Mainnet-prod")
+        assert result["wallets"] == []
+        assert "has a selling wallet yet" in result["error"]
+        assert "Mainnet-prod" not in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_a_partial_list_is_returned_with_a_warning(self):
+        async def fake(masumi, require_complete=False, report=None):
+            report.source_count = 2
+            report.matched_count = 2
+            report.problems.append(
+                "GET /wallet for payment source src-v2 answered HTTP 503")
+            return [{"walletVkey": "vkey-1",
+                     "paymentSourceType": "Web3CardanoV1"}]
+
+        result = await self._call(fake)
+        assert len(result["wallets"]) == 1
+        assert "error" not in result
+        assert "HTTP 503" in result["warning"]
+
+    @pytest.mark.asyncio
+    async def test_a_clean_list_carries_no_warning(self):
+        async def fake(masumi, require_complete=False, report=None):
+            report.source_count = 1
+            report.matched_count = 1
+            return [{"walletVkey": "vkey-1",
+                     "paymentSourceType": "Web3CardanoV2"}]
+
+        result = await self._call(fake)
+        assert "warning" not in result
+        assert "error" not in result
