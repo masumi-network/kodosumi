@@ -20,7 +20,10 @@ const dialogSource = fs.readFileSync(
 
 const start = dialogSource.indexOf('let migrateDialogGeneration = 0;');
 assert.notEqual(start, -1);
-const end = dialogSource.indexOf('\nasync function submitMigration(', start);
+// Take openMigrateDialog and submitMigration together: the dialog
+// writes the api_base_url field and the submit reads it, and a test
+// that loads only the first half cannot see the field leave the page.
+const end = dialogSource.indexOf('\nasync function deregisterPrevious(', start);
 assert.ok(end > start);
 const openSource = dialogSource.slice(start, end);
 
@@ -148,10 +151,44 @@ function jsonResponse(payload) {
     assert.match(run.elements.mig_error.textContent, /HTTP 502/);
     assert.doesNotMatch(run.elements.mig_error.textContent, /Add one in the/);
 
-    // 5. The url override starts empty on every open.
-    console.log('\n5. url override default:',
-                JSON.stringify(run.elements.mig_api_base_url.value));
-    assert.equal(run.elements.mig_api_base_url.value, '');
+    // 5. The url override starts empty on every open. A fresh element is
+    //    empty anyway, so type into it and reopen: only a real reset can
+    //    clear it. A url left over from an abandoned dialog would be
+    //    minted on chain by the next migration.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement(), mig_submit: makeElement(),
+            mig_error: makeElement(), mig_deregister: makeElement(),
+            mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+        };
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: null,
+            hideRegError() {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async () => jsonResponse({wallets: []}),
+            document: {
+                querySelector: () => ({value: ''}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}] : [],
+                getElementById: (id) => id === 'reg_info_0'
+                    ? makeElement() : (elements[id] || null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource + '\n' + openSource, context);
+        await context.openMigrateDialog(0);
+        elements.mig_api_base_url.value = 'https://stale.example/sumi/old';
+        elements.mig_deregister.checked = true;
+        context.activeDialogIdx = null;
+        await context.openMigrateDialog(0);
+        console.log('\n5. url override after a reopen:',
+                    JSON.stringify(elements.mig_api_base_url.value));
+        assert.equal(elements.mig_api_base_url.value, '');
+        assert.equal(elements.mig_deregister.checked, false);
+    }
 
     // 6. Reopen the same flow while the first load is still in flight.
     //    The late one must not append a second copy of the options.
@@ -328,5 +365,113 @@ function jsonResponse(payload) {
         assert.equal(elements.mig_error.textContent, '');
     }
 
-    console.log('\nall ten dialog cases behaved as expected');
+    // 11. The url the operator typed has to leave the browser. Nothing
+    //     else in the suite loads submitMigration, so the field could be
+    //     dropped from the request body and every other case would pass.
+    //     The refusal that follows also has to be painted as a refusal.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement({value: 'vkey-v2-bbbbbb'}),
+            mig_submit: makeElement(),
+            mig_error: makeElement({style: {color: 'var(--on-surface-variant)'}}),
+            mig_deregister: makeElement({checked: true}),
+            mig_api_base_url: makeElement(
+                {value: '  https://v2.example/sumi/flow  '}),
+            'migrate-dialog': makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/flow/x'}}),
+            etag: makeElement({value: 'etag-1'}),
+        };
+        let sent = null;
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: 0,
+            hideRegError() {},
+            beginRegistryRequest: () => 1,
+            isCurrentRegistryRequest: () => true,
+            showRegError() {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async (url, init) => {
+                sent = JSON.parse(init.body);
+                return {ok: false, status: 422,
+                        json: async () => ({detail: 'api_base_url is wrong'})};
+            },
+            document: {
+                querySelector: () => ({value: 'display: x'}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}] : [],
+                getElementById: (id) => elements[id] || null,
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource + '\n' + openSource, context);
+        await context.submitMigration();
+        console.log('\n11. submit sends the url the operator typed');
+        console.log('   api_base_url :', JSON.stringify(sent.api_base_url));
+        console.log('   wallet_vkey  :', JSON.stringify(sent.wallet_vkey));
+        console.log('   refusal text :', elements.mig_error.textContent);
+        console.log('   refusal colour:',
+                    JSON.stringify(elements.mig_error.style.color));
+        assert.equal(sent.api_base_url, 'https://v2.example/sumi/flow');
+        assert.equal(sent.wallet_vkey, 'vkey-v2-bbbbbb');
+        assert.equal(sent.deregister_previous, true);
+        assert.equal(elements.mig_error.textContent, 'api_base_url is wrong');
+        // A refusal must not inherit the muted colour of a caution.
+        assert.equal(elements.mig_error.style.color, '');
+    }
+
+    // 12. A failed reload must drop the list the previous load produced.
+    //     Without that, the dialog offers a wallet the node has just
+    //     failed to confirm and lets the operator mint against it.
+    {
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement(), mig_submit: makeElement(),
+            mig_error: makeElement(), mig_deregister: makeElement(),
+            mig_api_base_url: makeElement(),
+            'migrate-dialog': makeElement(),
+        };
+        let call = 0;
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: null,
+            hideRegError() {},
+            jsyaml: {load: () => ({agentIdentifier: 'a'})},
+            fetch: async () => {
+                call += 1;
+                if (call === 1) {
+                    return jsonResponse({wallets: [
+                        {walletVkey: 'vkey-v2-old', walletAddress: 'addr2',
+                         note: 'v2 seller',
+                         paymentSourceType: 'Web3CardanoV2'}]});
+                }
+                return {ok: false, status: 502, json: async () => ({})};
+            },
+            document: {
+                querySelector: () => ({value: ''}),
+                querySelectorAll: (s) => s === '.registry-section'
+                    ? [{id: 'registry_0'}]
+                    : (s === 'select.wallet-select' ? [makeElement()] : []),
+                getElementById: (id) => id === 'reg_info_0'
+                    ? makeElement() : (elements[id] || null),
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(walletsSource + '\n' + openSource, context);
+        await context.loadWallets();                 // page load succeeds
+        // loadedWallets is a `let`, so it is a lexical binding of the
+        // script and never a property of the context object.
+        assert.equal(vm.runInContext('loadedWallets.length', context), 1);
+        await context.openMigrateDialog(0);          // reload then fails
+        console.log('\n12. failed reload drops the earlier list');
+        console.log('   options :',
+                    elements.mig_wallet.children.map((o) => o.textContent));
+        console.log('   dialog  :', elements.mig_error.textContent);
+        console.log('   submit disabled:', elements.mig_submit.disabled);
+        assert.deepEqual(elements.mig_wallet.children, []);
+        assert.equal(elements.mig_submit.disabled, true);
+        assert.match(elements.mig_error.textContent, /HTTP 502/);
+    }
+
+    console.log('\nall twelve dialog cases behaved as expected');
 })();
