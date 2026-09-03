@@ -538,3 +538,37 @@ class TestDeregisterPrevious:
             result = await task
         assert result["success"] is True
         assert deregister.call_args.args[1] == "v1-agent"
+
+
+class TestMigrateApiBaseUrl:
+    """The url the new agent advertises is minted on chain.
+
+    kodosumi never calls the payment node's update endpoint, so a url that
+    is wrong at mint time cannot be corrected from here.
+    """
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_the_url_of_the_v1_listing(self):
+        _, _, register = await _call_migrate()
+        assert register.call_args.kwargs["api_base_url"] == \
+            "https://host/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_an_override_replaces_it(self):
+        _, _, register = await _call_migrate(
+            {"api_base_url": "https://v2.example.com/sumi/flow"})
+        assert register.call_args.kwargs["api_base_url"] == \
+            "https://v2.example.com/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_an_empty_override_keeps_the_default(self):
+        _, _, register = await _call_migrate({"api_base_url": "   "})
+        assert register.call_args.kwargs["api_base_url"] == \
+            "https://host/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_a_relative_override_is_refused_before_the_mint(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate({"api_base_url": "/sumi/flow"})
+        assert err.value.status_code == 422
+        assert "http://" in err.value.detail
