@@ -572,3 +572,28 @@ class TestMigrateApiBaseUrl:
             await _call_migrate({"api_base_url": "/sumi/flow"})
         assert err.value.status_code == 422
         assert "http://" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_a_scheme_without_a_host_is_refused(self):
+        # A truncated paste passes a startswith check and mints an agent
+        # that no buyer can reach.
+        for value in ("http://", "https://", "https:// evil.com",
+                      "http://a\nb"):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value
+
+    @pytest.mark.asyncio
+    async def test_an_uppercase_scheme_is_accepted(self):
+        # RFC 3986 schemes are case insensitive, so this is a legal url.
+        _, _, register = await _call_migrate(
+            {"api_base_url": "HTTPS://Example.com/sumi/flow"})
+        assert register.call_args.kwargs["api_base_url"] == \
+            "HTTPS://Example.com/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_a_non_string_is_refused_with_a_reason(self):
+        for value in (42, ["https://a"], {"u": "x"}):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value

@@ -10,6 +10,7 @@ All endpoints require operator role authentication.
 """
 
 import logging
+from urllib.parse import urlparse
 
 import litestar
 from litestar import post
@@ -33,6 +34,23 @@ from kodosumi.service.expose.registration import (build_agent_fields,
 from kodosumi.service.jwt import operator_guard
 
 logger = logging.getLogger(__name__)
+
+
+def _is_absolute_http_url(value: str) -> bool:
+    """Accept only a url a buyer can actually call.
+
+    A prefix check is not enough. "http://" alone, and a value with a space
+    or a newline in it, both pass one and are useless on chain, where the
+    mint cannot be taken back. The scheme is case insensitive per RFC 3986,
+    so HTTPS:// is a legal url and must not be refused.
+    """
+    if value != value.strip() or any(c.isspace() for c in value):
+        return False
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+    return parsed.scheme.lower() in ("http", "https") and bool(parsed.netloc)
 
 
 class RegistryMigrateControl(litestar.Controller):
@@ -91,12 +109,19 @@ class RegistryMigrateControl(litestar.Controller):
             raise ClientException(
                 detail="wallet_vkey is required", status_code=422)
 
-        api_base_url_override = (data.get("api_base_url") or "").strip()
-        if api_base_url_override and not api_base_url_override.startswith(
-                ("http://", "https://")):
+        api_base_url_override = data.get("api_base_url") or ""
+        if not isinstance(api_base_url_override, str):
             raise ClientException(
-                detail="api_base_url must start with http:// or https://. "
-                       "The value is minted on chain, so a relative or "
+                detail="api_base_url must be a string",
+                status_code=422,
+            )
+        api_base_url_override = api_base_url_override.strip()
+        if api_base_url_override and not _is_absolute_http_url(
+                api_base_url_override):
+            raise ClientException(
+                detail="api_base_url must be an absolute http:// or https:// "
+                       "url with a host. The value is minted on chain and "
+                       "kodosumi cannot update a registration, so a "
                        "malformed url cannot be corrected from here.",
                 status_code=422,
             )
