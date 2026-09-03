@@ -40,8 +40,29 @@ logger = logging.getLogger(__name__)
 # url, and the two disagree outside these sets, so a character outside
 # them is refused rather than guessed at. A host outside ASCII has to be
 # entered in its punycode form, which is what DNS carries anyway.
-HOST_CHARACTERS = set("abcdefghijklmnopqrstuvwxyz0123456789.-")
+HOST_CHARACTERS = set("abcdefghijklmnopqrstuvwxyz0123456789.-_")
 IPV6_CHARACTERS = set("0123456789abcdef:.")
+
+
+def _is_dotted_quad(host: str) -> bool:
+    """True for the one spelling of an IPv4 address both parsers agree on.
+
+    A client reads any host whose last label is a number as an address,
+    and reads it in whatever base the digits imply. urlparse never does,
+    so "0177.0.0.1" is a name here and 127.0.0.1 there. Only the plain
+    decimal form with no leading zero means the same thing to both.
+    """
+    labels = host.split(".")
+    if len(labels) != 4:
+        return False
+    for label in labels:
+        if not label.isdigit():
+            return False
+        if label != "0" and label.startswith("0"):
+            return False
+        if int(label) > 255:
+            return False
+    return True
 
 
 def _is_absolute_http_url(value: str) -> bool:
@@ -59,11 +80,15 @@ def _is_absolute_http_url(value: str) -> bool:
 
     The parser here is not the parser that fetches the url. urlparse reads
     RFC 3986 and every client reads the WHATWG url standard, and the two
-    disagree about a backslash and about a host outside ASCII. To urlparse
-    the host of "https://good.com\\@evil.com" is evil.com; to a browser it
-    is good.com. Approving one host and handing a buyer the other is worse
-    than refusing, because the mint is permanent, so only the shapes both
+    disagree about a backslash, about a host outside ASCII, and about a
+    host whose last label is a number. To urlparse the host of
+    "https://good.com\\@evil.com" is evil.com; to a browser it is good.com.
+    Approving one host and handing a buyer the other is worse than
+    refusing, because the mint is permanent, so only the shapes both
     parsers read the same way are accepted.
+
+    An underscore is not one of the disagreements. Both parsers keep it,
+    RFC 2181 allows it, and compose deployments use it, so it stays.
     """
     if not value.isprintable() or any(c.isspace() for c in value):
         return False
@@ -83,9 +108,19 @@ def _is_absolute_http_url(value: str) -> bool:
     # registry entry that nobody can edit afterwards.
     if parsed.username or parsed.password:
         return False
-    allowed = IPV6_CHARACTERS if parsed.netloc.startswith("[") \
-        else HOST_CHARACTERS
-    if not set(host) <= allowed:
+    if parsed.netloc.startswith("["):
+        return (set(host) <= IPV6_CHARACTERS
+                and any(character.isalnum() for character in host))
+    if not set(host) <= HOST_CHARACTERS:
+        return False
+    # A last label that is a number turns the whole host into an address
+    # for a client and leaves it a name for urlparse. "0177.0.0.1" is a
+    # public address here and loopback there, and "api.example.123" is a
+    # host here and a parse error there, so a number may only appear in
+    # the one form both read alike.
+    last_label = host.rsplit(".", 1)[-1]
+    if ((last_label.isdigit() or last_label.startswith("0x"))
+            and not _is_dotted_quad(host)):
         return False
     # "http://." and "http://-" have a host by the parser's reckoning and
     # resolve for nobody, which is what a mistyped paste looks like.

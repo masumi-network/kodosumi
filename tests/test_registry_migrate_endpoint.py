@@ -646,6 +646,44 @@ class TestMigrateApiBaseUrl:
             assert err.value.status_code == 422, value
 
     @pytest.mark.asyncio
+    async def test_a_host_that_reads_as_a_number_is_refused(self):
+        # A client reads any host whose last label is a number as an IPv4
+        # address, in whatever base the digits imply. urlparse never does.
+        # "http://0177.0.0.1" is a public address to the server and
+        # loopback to the buyer, and "http://api.example.123" is a host to
+        # the server and a parse error to the buyer.
+        for value in ("http://0177.0.0.1/sumi/flow",
+                      "http://192.168.010.1/sumi",
+                      "http://2130706433/sumi",
+                      "http://0x7f.1/sumi",
+                      "http://api.example.123/sumi",
+                      "http://1.2.3.4.5/sumi",
+                      "http://999.999.999.999/sumi"):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value
+
+    @pytest.mark.asyncio
+    async def test_the_plain_forms_of_a_number_host_are_accepted(self):
+        # The decimal dotted quad means the same to both parsers, and a
+        # label that merely starts with a digit is a name, not a number.
+        for value in ("http://10.0.0.7/sumi", "http://0.0.0.0/sumi",
+                      "http://255.255.255.255/sumi",
+                      "https://4you.example.com/sumi",
+                      "https://host.4you/sumi"):
+            _, _, register = await _call_migrate({"api_base_url": value})
+            assert register.call_args.kwargs["api_base_url"] == value
+
+    @pytest.mark.asyncio
+    async def test_an_underscore_host_is_accepted(self):
+        # Both parsers keep an underscore and RFC 2181 allows it, so a
+        # compose service name is a legitimate deployment shape.
+        for value in ("http://kodosumi_app:3370/sumi/flow",
+                      "https://my_agent.example.com/sumi"):
+            _, _, register = await _call_migrate({"api_base_url": value})
+            assert register.call_args.kwargs["api_base_url"] == value
+
+    @pytest.mark.asyncio
     async def test_credentials_in_the_authority_are_refused(self):
         # The value is minted into a public registry entry that nobody can
         # edit afterwards, so a password pasted with the host would stay
