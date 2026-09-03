@@ -259,5 +259,26 @@ function jsonResponse(payload) {
         assert.match(info.textContent, /HTTP 500/);
     }
 
-    console.log('\nall eight dialog cases behaved as expected');
+    // 9. Every write into the migrate error element has to set its colour
+    //    too. The element carries a muted caution and a red refusal in the
+    //    same dialog, so a write that leaves the colour alone inherits the
+    //    previous meaning: a refused submit rendered as a mild note.
+    {
+        const lines = dialogSource.split('\n');
+        const offenders = [];
+        lines.forEach((line, i) => {
+            if (!/errEl\.textContent\s*=/.test(line)) return;
+            // The colour may be set on either side of the write, so read a
+            // window around it rather than only what came before.
+            const window = lines.slice(Math.max(0, i - 3), i + 4).join('\n');
+            if (!/errEl\.style\.color\s*=/.test(window)) {
+                offenders.push(i + 1);
+            }
+        });
+        console.log('\n9. error element writes that set a colour');
+        console.log('   writes without one, by line:', offenders);
+        assert.deepEqual(offenders, []);
+    }
+
+    console.log('\nall nine dialog cases behaved as expected');
 })();

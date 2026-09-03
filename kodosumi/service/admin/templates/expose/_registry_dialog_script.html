@@ -352,6 +352,7 @@ async function submitMigration() {
                 return;
             }
             errEl.style.display = 'block';
+            errEl.style.color = '';
             errEl.textContent = data.detail || 'Migration failed';
             return;
         }
@@ -396,6 +397,7 @@ async function submitMigration() {
             return;
         }
         errEl.style.display = 'block';
+        errEl.style.color = '';
         errEl.textContent = 'Network error: ' + e.message;
         await checkRegistryStatus(idx, flowUrl);
     } finally {
