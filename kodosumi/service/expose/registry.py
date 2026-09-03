@@ -13,6 +13,8 @@ import yaml
 
 from kodosumi.config import MasumiConfig
 from kodosumi.helper import HTTPXClient
+from kodosumi.service.expose.wallet_inventory import (WalletReport,
+                                                      record_problem)
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +264,7 @@ async def _list_source_selling_wallets(
     headers: Dict,
     source_id: str,
     require_complete: bool = False,
+    report: Optional[WalletReport] = None,
 ) -> List[Dict]:
     """
     Read selling wallets of one payment source from the /wallet endpoint.
@@ -289,6 +292,10 @@ async def _list_source_selling_wallets(
                 raise RuntimeError(
                     f"Could not list every wallet of payment source "
                     f"{source_id}: HTTP {resp.status_code}")
+            record_problem(
+                report,
+                f"GET /wallet for payment source {source_id} answered "
+                f"HTTP {resp.status_code}")
             logger.warning(
                 "Failed to list wallets of payment source %s: %s",
                 source_id, resp.text,
@@ -328,6 +335,7 @@ async def _list_payment_sources(
     masumi: MasumiConfig,
     headers: dict,
     require_complete: bool = False,
+    report: Optional[WalletReport] = None,
 ) -> List[Dict]:
     """List all payment sources across the node's inclusive cursor."""
     sources: List[Dict] = []
@@ -348,6 +356,8 @@ async def _list_payment_sources(
                 raise RuntimeError(
                     "Could not load the complete payment source list"
                 ) from error
+            record_problem(
+                report, f"GET /payment-source failed: {error}")
             logger.warning(
                 "Stopped listing payment sources after %s entries: %s",
                 len(sources), error,
@@ -358,6 +368,9 @@ async def _list_payment_sources(
                 raise RuntimeError(
                     "Could not load the complete payment source list: "
                     f"HTTP {resp.status_code}")
+            record_problem(
+                report,
+                f"GET /payment-source answered HTTP {resp.status_code}")
             logger.warning("Failed to list payment sources: %s", resp.text)
             return sources
         page = resp.json().get("data", {}).get("PaymentSources", [])
@@ -387,7 +400,9 @@ async def _list_payment_sources(
 
 
 async def list_wallets(
-    masumi: MasumiConfig, require_complete: bool = False
+    masumi: MasumiConfig,
+    require_complete: bool = False,
+    report: Optional[WalletReport] = None,
 ) -> List[Dict]:
     """
     List selling wallets from Masumi Payment API.
@@ -396,13 +411,23 @@ async def list_wallets(
     Each entry carries the paymentSourceType and smartContractAddress of
     its payment source, because the wallet selects the registration
     version: a Web3CardanoV2 wallet registers a V2 agent.
+
+    Pass a report to learn why an empty list is empty. The node answers a
+    token that may not read this network with a normal empty 200, so the
+    result on its own cannot tell a missing wallet from a missing
+    permission.
     """
     headers = {"accept": "application/json", "token": masumi.token}
 
     try:
         async with HTTPXClient() as client:
             payment_sources = await _list_payment_sources(
-                client, masumi, headers, require_complete)
+                client, masumi, headers, require_complete, report)
+            if report is not None:
+                report.source_count = len(payment_sources)
+                report.networks = sorted(
+                    {source.get("network") for source in payment_sources
+                     if source.get("network")})
             sources = [
                 source for source in payment_sources
                 if not source.get("network")
@@ -421,6 +446,7 @@ async def list_wallets(
                         headers,
                         sources[index].get("id", ""),
                         require_complete,
+                        report,
                     )
 
             results = await asyncio.gather(
@@ -461,6 +487,7 @@ async def list_wallets(
         logger.error("Error listing wallets: %s", e)
         if require_complete:
             raise
+        record_problem(report, str(e))
         return []
 
 

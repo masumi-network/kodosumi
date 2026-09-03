@@ -5,8 +5,6 @@ let activeDialogIdx = null;
 const pollIntervals = {};
 const pollInFlight = {};
 const registryRequestGenerations = {};
-// The migrate dialog offers V2 wallets only, so keep the fetched list.
-let loadedWallets = [];
 
 function beginRegistryRequest(idx) {
     var generation = (registryRequestGenerations[idx] || 0) + 1;
@@ -114,70 +112,6 @@ function updateRegistryVisibility() {
                 info.style.display = 'none';
                 info.textContent = '';
             }
-        }
-    });
-}
-
-async function loadWallets() {
-    if (!exposeName) return;
-    try {
-        const resp = await fetch('/expose/' + exposeName + '/wallets', {
-            credentials: 'same-origin'
-        });
-        if (!resp.ok) {
-            console.error('Wallets endpoint returned', resp.status);
-            showWalletInfo('Wallets could not be loaded (HTTP ' + resp.status + ')');
-            return;
-        }
-        const data = await resp.json();
-
-        if (data.error) {
-            showWalletInfo(data.error);
-            return;
-        }
-
-        const wallets = data.wallets || [];
-        loadedWallets = wallets;
-        if (wallets.length === 0) {
-            showWalletInfo('No selling wallets found for this network.');
-            return;
-        }
-
-        // Populate all wallet select elements (use class selector, not id prefix)
-        document.querySelectorAll('select.wallet-select').forEach(function(sel) {
-            var current = sel.value;
-            sel.innerHTML = '<option value="">Select wallet...</option>';
-            wallets.forEach(function(w) {
-                var vk = w.walletVkey;
-                var shortId = vk.substring(0, 6) + '\u2026' + vk.substring(vk.length - 6);
-                var label = w.note ? w.note + ' (' + shortId + ')' : shortId;
-                // The wallet selects the registration version, so name it.
-                if (w.paymentSourceType === 'Web3CardanoV2') {
-                    label += ' [V2]';
-                } else if (w.paymentSourceType === 'Web3CardanoV1') {
-                    label += ' [V1]';
-                }
-                var opt = document.createElement('option');
-                opt.value = vk;
-                opt.textContent = label;
-                if (vk === current) opt.selected = true;
-                sel.appendChild(opt);
-            });
-        });
-    } catch (e) {
-        console.error('Failed to load wallets:', e);
-        showWalletInfo('Failed to load wallets: ' + e.message);
-    }
-}
-
-function showWalletInfo(msg) {
-    document.querySelectorAll('.registry-section').forEach(function(section) {
-        var idx = section.id.replace('registry_', '');
-        var info = document.getElementById('reg_info_' + idx);
-        if (info) {
-            info.style.display = 'block';
-            info.textContent = msg;
-            info.style.color = 'var(--error)';
         }
     });
 }
@@ -626,7 +560,6 @@ async function cancelMigration(idx) {
         await checkRegistryStatus(idx, flowUrl);
     }
 }
-
 
 // ─── Polling ────────────────────────────────────────────────────
 

@@ -6,6 +6,7 @@ from litestar.datastructures import State
 from litestar.exceptions import NotFoundException
 
 from kodosumi.service.expose import db
+from kodosumi.service.expose.wallet_inventory import WalletReport
 from kodosumi.service.jwt import operator_guard
 
 
@@ -39,8 +40,9 @@ class WalletsControl(litestar.Controller):
             return {"wallets": [], "error": str(e)}
 
         from kodosumi.service.expose.registry import list_wallets
+        report = WalletReport()
         try:
-            wallets = await list_wallets(masumi)
+            wallets = await list_wallets(masumi, report=report)
         except Exception as e:
             return {
                 "wallets": [],
@@ -49,10 +51,12 @@ class WalletsControl(litestar.Controller):
             }
 
         if not wallets:
+            # The node answers a token that may not read this network with a
+            # normal empty 200, so the empty list alone cannot name its own
+            # cause. The report carries what the token could see.
             return {
                 "wallets": [],
-                "error": f"No selling wallets found for network '{network}'. "
-                         "Check your Masumi Payment API token and configuration.",
+                "error": report.describe_empty(network),
             }
 
         return {"wallets": wallets, "network": network}

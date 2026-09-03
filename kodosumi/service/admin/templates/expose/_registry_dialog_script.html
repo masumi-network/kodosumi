@@ -208,7 +208,7 @@ async function submitRegistration() {
 
 // ─── Migrate Dialog ─────────────────────────────────────────────
 
-function openMigrateDialog(idx) {
+async function openMigrateDialog(idx) {
     hideRegError(idx);
     activeDialogIdx = idx;
 
@@ -243,15 +243,33 @@ function openMigrateDialog(idx) {
 
     var select = document.getElementById('mig_wallet');
     select.innerHTML = '';
+    var submitBtn = document.getElementById('mig_submit');
+    var errEl = document.getElementById('mig_error');
+
+    document.getElementById('mig_deregister').checked = false;
+    submitBtn.disabled = true;
+    errEl.style.display = 'none';
+    document.getElementById('migrate-dialog').showModal();
+
+    // Read the wallet list again. The operator may have added the V2
+    // payment source after this page loaded, and the copy from page init
+    // would then claim a wallet that exists is missing.
+    await loadWallets();
+    if (activeDialogIdx !== idx) return;
+
     var v2Wallets = loadedWallets.filter(function(w) {
         return w.paymentSourceType === 'Web3CardanoV2';
     });
-    var submitBtn = document.getElementById('mig_submit');
-    var errEl = document.getElementById('mig_error');
     if (v2Wallets.length === 0) {
         errEl.style.display = 'block';
-        errEl.textContent = 'No Web3CardanoV2 selling wallet on this network. ' +
-            'Add one in the Masumi payment service first.';
+        // Only a list that actually loaded can prove a V2 wallet is
+        // missing. When the load itself failed, the node's own reason is
+        // the answer, and blaming a missing wallet sends the operator
+        // looking for the wrong thing.
+        errEl.textContent = walletLoadError
+            ? 'No selling wallet could be listed. ' + walletLoadError
+            : 'No Web3CardanoV2 selling wallet on this network. ' +
+              'Add one in the Masumi payment service first.';
         submitBtn.disabled = true;
     } else {
         errEl.style.display = 'none';
@@ -263,9 +281,6 @@ function openMigrateDialog(idx) {
             select.appendChild(opt);
         });
     }
-
-    document.getElementById('mig_deregister').checked = false;
-    document.getElementById('migrate-dialog').showModal();
 }
 
 async function submitMigration() {
