@@ -288,11 +288,22 @@ async def _list_source_selling_wallets(
                 raise RuntimeError(
                     f"Could not completely paginate wallets of payment "
                     f"source {source_id}")
+            # The list stops here and is not the whole list, so a wallet
+            # can be missing from it. Say so, or the caller reads the
+            # absence as proof that no such wallet exists.
+            record_problem(
+                report,
+                f"the wallet list of payment source {source_id} could not "
+                f"be paged past {len(wallets)} row(s)")
             return wallets
     if require_complete:
         raise RuntimeError(
             f"Could not completely paginate wallets of payment source "
             f"{source_id} within {MAX_WALLET_PAGES} pages")
+    record_problem(
+        report,
+        f"listing the wallets of payment source {source_id} stopped after "
+        f"{MAX_WALLET_PAGES} pages")
     logger.warning(
         "Stopped listing wallets of payment source %s after %s pages",
         source_id, MAX_WALLET_PAGES,
@@ -357,11 +368,19 @@ async def _list_payment_sources(
             if require_complete:
                 raise RuntimeError(
                     "Could not completely paginate payment sources")
+            record_problem(
+                report,
+                f"the payment source list could not be paged past "
+                f"{len(sources)} row(s)")
             return sources
     if require_complete:
         raise RuntimeError(
             "Could not load the complete payment source list within "
             f"{MAX_PAYMENT_SOURCE_PAGES} pages")
+    record_problem(
+        report,
+        f"listing the payment sources stopped after "
+        f"{MAX_PAYMENT_SOURCE_PAGES} pages")
     logger.warning(
         "Stopped listing payment sources after %s pages",
         MAX_PAYMENT_SOURCE_PAGES,

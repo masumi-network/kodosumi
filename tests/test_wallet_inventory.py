@@ -173,6 +173,53 @@ class TestListWalletsReport:
         assert report.problems == []
 
     @pytest.mark.asyncio
+    async def test_records_a_payment_source_page_it_could_not_follow(self):
+        # The node's cursor is the id of the last row. A full page whose
+        # last row carries no id ends the paging early, and the sources
+        # beyond it are never read. Without a recorded problem the caller
+        # reads that truncated list as the whole list, and the panel says
+        # "add a wallet" about a V2 source it never saw.
+        # Every row on this page is for another network, so no wallet
+        # request follows and the truncation is the only event.
+        page = [{"id": f"src-{i}", "network": "Preprod",
+                 "paymentSourceType": "Web3CardanoV1"} for i in range(99)]
+        page.append({"network": "Preprod",
+                     "paymentSourceType": "Web3CardanoV1"})
+        report = WalletReport()
+        _, patched = _patch_registry_client(
+            [_json_response({"data": {"PaymentSources": page}})])
+        with patched:
+            await list_wallets(_make_config(), report=report)
+
+        assert len(report.problems) == 1
+        assert "could not be paged past" in report.problems[0]
+        assert "may be incomplete" in report.describe_partial()
+
+    @pytest.mark.asyncio
+    async def test_records_a_wallet_page_it_could_not_follow(self):
+        sources = _json_response({"data": {"PaymentSources": [
+            {"id": "src-main", "network": "Mainnet",
+             "paymentSourceType": "Web3CardanoV2"},
+        ]}})
+        wallet_page = [{"id": f"w-{i}", "walletVkey": f"vkey-{i}",
+                        "walletAddress": "addr1", "note": "seller"}
+                       for i in range(99)]
+        wallet_page.append({"walletVkey": "vkey-last",
+                            "walletAddress": "addr1", "note": "seller"})
+        report = WalletReport()
+        _, patched = _patch_registry_client(
+            [sources, _json_response({"data": {"Wallets": wallet_page}})])
+        with patched:
+            wallets = await list_wallets(_make_config(), report=report)
+
+        # The list that did arrive is still offered. It is the silence
+        # about the rest that this guards against.
+        assert len(wallets) == 100
+        assert len(report.problems) == 1
+        assert "could not be paged past" in report.problems[0]
+        assert "src-main" in report.problems[0]
+
+    @pytest.mark.asyncio
     async def test_records_a_wallet_request_that_raised(self):
         # asyncio.gather returns the exception rather than raising it, and
         # an unrecorded exception left the panel saying "add a wallet"
