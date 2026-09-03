@@ -13,44 +13,23 @@ import yaml
 
 from kodosumi.config import MasumiConfig
 from kodosumi.helper import HTTPXClient
+from kodosumi.service.expose.currency import (CURRENCY_DECIMALS,  # noqa: F401
+                                              CURRENCY_UNITS,
+                                              base_to_human_amount,
+                                              human_to_base_amount,
+                                              unit_to_currency)
+from kodosumi.service.expose.pricing import (  # noqa: F401
+    DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX, MAX_ATOMIC_AMOUNT,
+    MAX_ATOMIC_AMOUNT_DIGITS, MAX_FIXED_PRICING_ENTRIES,
+    MIN_FIXED_PRICING_ENTRIES, PAYMENT_SOURCE_TYPE_V1,
+    PAYMENT_SOURCE_TYPE_V2, pricing_to_yaml_format,
+    pricing_yaml_to_registry, registry_pricing_to_supported_sources)
+from kodosumi.service.expose.wallet_inventory import (WalletReport,
+                                                      describe_exception,
+                                                      record_problem)
 
 logger = logging.getLogger(__name__)
 
-# Currency mapping: human-readable → hex unit on-chain
-CURRENCY_UNITS = {
-    "USDM": {
-        "Preprod": "16a55b2a349361ff88c03788f93e1e966e5d689605d044fef722ddde0014df10745553444d",
-        "Mainnet": "c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad0014df105553444d",
-    },
-    "ADA": {
-        "Preprod": "",
-        "Mainnet": "",
-    },
-}
-
-# All currencies have 6 decimal places
-CURRENCY_DECIMALS = 6
-
-# Masumi payment source types. A payment source is the deployed escrow
-# contract a selling wallet belongs to, and it decides the registration
-# shape: V1 entries carry top-level AgentPricing, V2 entries carry a
-# supportedPaymentSources list that prices every source on its own.
-PAYMENT_SOURCE_TYPE_V1 = "Web3CardanoV1"
-PAYMENT_SOURCE_TYPE_V2 = "Web3CardanoV2"
-
-# Index into supportedPaymentSources that Kodosumi registers and pays with.
-# Kodosumi advertises exactly one source per agent, so the index is always 0.
-DEFAULT_SUPPORTED_PAYMENT_SOURCE_INDEX = 0
-
-# Bounds the payment node enforces on a V2 registration. Checking them here
-# turns an opaque 400 from the node into a message that names the flow YAML
-# field the operator has to correct.
-MIN_FIXED_PRICING_ENTRIES = 1
-MAX_FIXED_PRICING_ENTRIES = 5
-# The node bounds the amount string at 19 characters and parses it into a
-# Postgres bigint, so leading zeros count and the value has a ceiling.
-MAX_ATOMIC_AMOUNT_DIGITS = 19
-MAX_ATOMIC_AMOUNT = 9223372036854775807
 
 # Page size of the /wallet endpoint. The node caps `take` at 100 and its
 # cursor is inclusive, so a page repeats the row the cursor names.
@@ -61,200 +40,6 @@ PAYMENT_SOURCE_PAGE_SIZE = 100
 MAX_PAYMENT_SOURCE_PAGES = 50
 
 
-def human_to_base_amount(amount: float) -> str:
-    """Convert human-readable amount (e.g. 0.01) to base units string (e.g. '10000')."""
-    base = round(amount * (10 ** CURRENCY_DECIMALS))
-    return str(base)
-
-
-def base_to_human_amount(base_amount: str) -> float:
-    """Convert base units string (e.g. '10000') to human-readable amount (e.g. 0.01)."""
-    return int(base_amount) / (10 ** CURRENCY_DECIMALS)
-
-
-def unit_to_currency(unit: str) -> str:
-    """Map hex unit string back to human-readable currency name."""
-    for currency, networks in CURRENCY_UNITS.items():
-        for network, hex_unit in networks.items():
-            if hex_unit == unit:
-                return currency
-    return "ADA" if unit == "" else "unknown"
-
-
-def pricing_yaml_to_registry(pricing_yaml: Any, network: str) -> Dict:
-    """
-    Convert Kodosumi YAML pricing format to Masumi Registry API format.
-
-    YAML format:
-        agentPricing:
-          - pricingType: Fixed
-            fixedPricing:
-              - amount: "10000"
-                unit: "16a55b2a..."
-
-    Registry format:
-        {"pricingType": "Fixed", "Pricing": [{"amount": "10000", "unit": "16a55b2a..."}]}
-
-    Raises ValueError when the YAML is not one of the shapes above. The
-    metadata is hand edited, so a mapping or a scalar reaches this function
-    and must become a message the operator can act on, not a KeyError.
-    """
-    if not pricing_yaml:
-        return {"pricingType": "Free"}
-
-    # A single mapping is the shape operators write most often by mistake.
-    if isinstance(pricing_yaml, dict):
-        pricing_yaml = [pricing_yaml]
-    if not isinstance(pricing_yaml, list) or not isinstance(
-            pricing_yaml[0], dict):
-        raise ValueError(
-            "agentPricing must be a list of pricing entries, for example: "
-            "agentPricing:\n  - pricingType: Free"
-        )
-
-    first = pricing_yaml[0]
-    pricing_type = first.get("pricingType", "Free")
-
-    if pricing_type == "Free":
-        return {"pricingType": "Free"}
-
-    fixed_pricing = first.get("fixedPricing") or []
-    if not isinstance(fixed_pricing, list):
-        raise ValueError(
-            "agentPricing[0].fixedPricing must be a list of "
-            "{amount, unit} entries")
-    registry_pricing = []
-    for p in fixed_pricing:
-        if not isinstance(p, dict):
-            raise ValueError(
-                "Every agentPricing[0].fixedPricing entry must be a mapping "
-                "with an amount and a unit")
-        unit = p.get("unit", "")
-        # Convert "lovelace" to empty string for registry
-        if unit == "lovelace":
-            unit = ""
-        registry_pricing.append({
-            "amount": str(p.get("amount", "0")),
-            "unit": unit,
-        })
-
-    return {
-        "pricingType": "Fixed",
-        "Pricing": registry_pricing,
-    }
-
-
-def pricing_to_yaml_format(pricing_type: str, amount: float, currency: str, network: str) -> List[Dict]:
-    """
-    Convert UI pricing input to Kodosumi YAML format.
-
-    Returns list suitable for agentPricing in meta YAML.
-    """
-    if pricing_type == "Free":
-        return [{"pricingType": "Free"}]
-
-    unit_hex = CURRENCY_UNITS.get(currency, {}).get(network, "")
-    base_amount = human_to_base_amount(amount)
-
-    return [{
-        "pricingType": "Fixed",
-        "fixedPricing": [{
-            "amount": base_amount,
-            "unit": unit_hex,
-        }],
-    }]
-
-
-def _atomic_amount(amount: Any) -> str:
-    """
-    Render one price as the atomic amount string the payment node accepts.
-
-    The node takes digits only, at most 19 characters of them, and rejects
-    zero. A missing amount used to default to "0" and was refused on chain
-    with an error that never named the flow YAML.
-
-    The result is normalised, so leading zeros written in the YAML cannot
-    push an otherwise valid amount past the node's 19 character bound.
-    """
-    text = str(amount if amount is not None else "").strip()
-    if not text.isdigit() or int(text) <= 0:
-        raise ValueError(
-            f"Pricing amount must be a positive whole number of base units, "
-            f"got '{amount}'."
-        )
-    value = int(text)
-    if value > MAX_ATOMIC_AMOUNT:
-        raise ValueError(
-            f"Pricing amount is above the largest amount the payment node "
-            f"stores ({MAX_ATOMIC_AMOUNT}): '{amount}'."
-        )
-    normalised = str(value)
-    if len(normalised) > MAX_ATOMIC_AMOUNT_DIGITS:
-        raise ValueError(
-            f"Pricing amount has more than {MAX_ATOMIC_AMOUNT_DIGITS} digits: "
-            f"'{amount}'."
-        )
-    return normalised
-
-
-def registry_pricing_to_supported_sources(
-    registry_pricing: Dict,
-    network: str,
-    smart_contract_address: str,
-) -> List[Dict]:
-    """
-    Convert V1 registry pricing into the V2 supportedPaymentSources list.
-
-    V2 registrations reject the top-level AgentPricing field. Each entry in
-    supportedPaymentSources names one escrow contract and owns its price.
-    Kodosumi advertises the single contract the selling wallet belongs to.
-
-    Registry format (V1):
-        {"pricingType": "Fixed", "Pricing": [{"amount": "10000", "unit": ""}]}
-
-    Supported source format (V2):
-        [{"chain": "Cardano", "network": "Preprod",
-          "paymentSourceType": "Web3CardanoV2", "address": "addr_test1...",
-          "pricing": {"pricingType": "Fixed",
-                      "fixed": [{"asset": "", "amount": "10000"}]}}]
-    """
-    if not smart_contract_address:
-        raise ValueError(
-            "V2 registration requires the smart contract address of the "
-            "selling wallet payment source"
-        )
-
-    pricing_type = registry_pricing.get("pricingType", "Free")
-    if pricing_type == "Fixed":
-        pricing: Dict[str, Any] = {
-            "pricingType": "Fixed",
-            "fixed": [
-                {
-                    "asset": price.get("unit", ""),
-                    "amount": _atomic_amount(price.get("amount")),
-                }
-                for price in registry_pricing.get("Pricing") or []
-            ],
-        }
-        entry_count = len(pricing["fixed"])
-        if not (MIN_FIXED_PRICING_ENTRIES <= entry_count
-                <= MAX_FIXED_PRICING_ENTRIES):
-            raise ValueError(
-                f"Fixed pricing needs between {MIN_FIXED_PRICING_ENTRIES} and "
-                f"{MAX_FIXED_PRICING_ENTRIES} priced assets, got "
-                f"{entry_count}. Add fixedPricing entries to agentPricing."
-            )
-    else:
-        pricing = {"pricingType": pricing_type}
-
-    return [{
-        "chain": "Cardano",
-        "network": network,
-        "paymentSourceType": PAYMENT_SOURCE_TYPE_V2,
-        "address": smart_contract_address,
-        "pricing": pricing,
-    }]
-
 
 async def _list_source_selling_wallets(
     client: Any,
@@ -262,6 +47,7 @@ async def _list_source_selling_wallets(
     headers: Dict,
     source_id: str,
     require_complete: bool = False,
+    report: Optional[WalletReport] = None,
 ) -> List[Dict]:
     """
     Read selling wallets of one payment source from the /wallet endpoint.
@@ -271,6 +57,12 @@ async def _list_source_selling_wallets(
     that come back without them.
     """
     if not source_id:
+        # No id means no way to ask for this source's wallets, so its
+        # wallets are missing from the answer rather than absent.
+        record_problem(
+            report,
+            "a payment source arrived without an id, so its selling "
+            "wallets could not be read")
         return []
     wallets: List[Dict] = []
     seen_ids = set()
@@ -289,6 +81,10 @@ async def _list_source_selling_wallets(
                 raise RuntimeError(
                     f"Could not list every wallet of payment source "
                     f"{source_id}: HTTP {resp.status_code}")
+            record_problem(
+                report,
+                f"GET /wallet for payment source {source_id} answered "
+                f"HTTP {resp.status_code}")
             logger.warning(
                 "Failed to list wallets of payment source %s: %s",
                 source_id, resp.text,
@@ -311,11 +107,22 @@ async def _list_source_selling_wallets(
                 raise RuntimeError(
                     f"Could not completely paginate wallets of payment "
                     f"source {source_id}")
+            # The list stops here and is not the whole list, so a wallet
+            # can be missing from it. Say so, or the caller reads the
+            # absence as proof that no such wallet exists.
+            record_problem(
+                report,
+                f"the wallet list of payment source {source_id} could not "
+                f"be paged past {len(wallets)} row(s)")
             return wallets
     if require_complete:
         raise RuntimeError(
             f"Could not completely paginate wallets of payment source "
             f"{source_id} within {MAX_WALLET_PAGES} pages")
+    record_problem(
+        report,
+        f"listing the wallets of payment source {source_id} stopped after "
+        f"{MAX_WALLET_PAGES} pages")
     logger.warning(
         "Stopped listing wallets of payment source %s after %s pages",
         source_id, MAX_WALLET_PAGES,
@@ -328,6 +135,7 @@ async def _list_payment_sources(
     masumi: MasumiConfig,
     headers: dict,
     require_complete: bool = False,
+    report: Optional[WalletReport] = None,
 ) -> List[Dict]:
     """List all payment sources across the node's inclusive cursor."""
     sources: List[Dict] = []
@@ -348,6 +156,10 @@ async def _list_payment_sources(
                 raise RuntimeError(
                     "Could not load the complete payment source list"
                 ) from error
+            record_problem(
+                report,
+                f"GET /payment-source failed: "
+                f"{describe_exception(error)}")
             logger.warning(
                 "Stopped listing payment sources after %s entries: %s",
                 len(sources), error,
@@ -358,6 +170,9 @@ async def _list_payment_sources(
                 raise RuntimeError(
                     "Could not load the complete payment source list: "
                     f"HTTP {resp.status_code}")
+            record_problem(
+                report,
+                f"GET /payment-source answered HTTP {resp.status_code}")
             logger.warning("Failed to list payment sources: %s", resp.text)
             return sources
         page = resp.json().get("data", {}).get("PaymentSources", [])
@@ -374,11 +189,19 @@ async def _list_payment_sources(
             if require_complete:
                 raise RuntimeError(
                     "Could not completely paginate payment sources")
+            record_problem(
+                report,
+                f"the payment source list could not be paged past "
+                f"{len(sources)} row(s)")
             return sources
     if require_complete:
         raise RuntimeError(
             "Could not load the complete payment source list within "
             f"{MAX_PAYMENT_SOURCE_PAGES} pages")
+    record_problem(
+        report,
+        f"listing the payment sources stopped after "
+        f"{MAX_PAYMENT_SOURCE_PAGES} pages")
     logger.warning(
         "Stopped listing payment sources after %s pages",
         MAX_PAYMENT_SOURCE_PAGES,
@@ -387,7 +210,9 @@ async def _list_payment_sources(
 
 
 async def list_wallets(
-    masumi: MasumiConfig, require_complete: bool = False
+    masumi: MasumiConfig,
+    require_complete: bool = False,
+    report: Optional[WalletReport] = None,
 ) -> List[Dict]:
     """
     List selling wallets from Masumi Payment API.
@@ -396,18 +221,29 @@ async def list_wallets(
     Each entry carries the paymentSourceType and smartContractAddress of
     its payment source, because the wallet selects the registration
     version: a Web3CardanoV2 wallet registers a V2 agent.
+
+    Pass a report to learn why an empty list is empty. The node answers a
+    token that may not read this network with a normal empty 200, so the
+    result on its own cannot tell a missing wallet from a missing
+    permission.
     """
     headers = {"accept": "application/json", "token": masumi.token}
 
     try:
         async with HTTPXClient() as client:
             payment_sources = await _list_payment_sources(
-                client, masumi, headers, require_complete)
+                client, masumi, headers, require_complete, report)
             sources = [
                 source for source in payment_sources
                 if not source.get("network")
                 or source.get("network") == masumi.registry_network
             ]
+            if report is not None:
+                report.source_count = len(payment_sources)
+                report.matched_count = len(sources)
+                report.networks = sorted(
+                    {source.get("network") for source in payment_sources
+                     if source.get("network")})
             missing = [index for index, source in enumerate(sources)
                        if not source.get("SellingWallets")]
             semaphore = asyncio.Semaphore(
@@ -421,6 +257,7 @@ async def list_wallets(
                         headers,
                         sources[index].get("id", ""),
                         require_complete,
+                        report,
                     )
 
             results = await asyncio.gather(
@@ -434,6 +271,11 @@ async def list_wallets(
                         raise RuntimeError(
                             "Could not load the complete selling wallet "
                             "inventory") from result
+                    record_problem(
+                        report,
+                        f"GET /wallet for payment source "
+                        f"{sources[index].get('id', '')} failed: "
+                        f"{describe_exception(result)}")
                     logger.warning(
                         "Failed to list wallets of payment source %s: %s",
                         sources[index].get("id", ""), result)
@@ -461,6 +303,8 @@ async def list_wallets(
         logger.error("Error listing wallets: %s", e)
         if require_complete:
             raise
+        record_problem(
+            report, f"listing the wallets failed: {describe_exception(e)}")
         return []
 
 

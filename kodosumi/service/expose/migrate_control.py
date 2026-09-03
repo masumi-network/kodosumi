@@ -10,6 +10,7 @@ All endpoints require operator role authentication.
 """
 
 import logging
+from urllib.parse import urlparse
 
 import litestar
 from litestar import post
@@ -35,6 +36,102 @@ from kodosumi.service.jwt import operator_guard
 logger = logging.getLogger(__name__)
 
 
+# What a host may hold. urlparse is not the parser that will fetch this
+# url, and the two disagree outside these sets, so a character outside
+# them is refused rather than guessed at. A host outside ASCII has to be
+# entered in its punycode form, which is what DNS carries anyway.
+HOST_CHARACTERS = set("abcdefghijklmnopqrstuvwxyz0123456789.-_")
+IPV6_CHARACTERS = set("0123456789abcdef:.")
+
+
+def _is_dotted_quad(host: str) -> bool:
+    """True for the one spelling of an IPv4 address both parsers agree on.
+
+    A client reads any host whose last label is a number as an address,
+    and reads it in whatever base the digits imply. urlparse never does,
+    so "0177.0.0.1" is a name here and 127.0.0.1 there. Only the plain
+    decimal form with no leading zero means the same thing to both.
+    """
+    labels = host.split(".")
+    if len(labels) != 4:
+        return False
+    for label in labels:
+        if not label.isdigit():
+            return False
+        if label != "0" and label.startswith("0"):
+            return False
+        if int(label) > 255:
+            return False
+    return True
+
+
+def _is_absolute_http_url(value: str) -> bool:
+    """Accept only a url a buyer can actually call.
+
+    A prefix check is not enough. "http://" alone, and a value with a space
+    or a newline in it, both pass one and are useless on chain, where the
+    mint cannot be taken back. The scheme is case insensitive per RFC 3986,
+    so HTTPS:// is a legal url and must not be refused.
+
+    A non-empty netloc is not enough either: "http://:8080" and "http://@"
+    both have one and neither has a host. An invisible character is the
+    same kind of trap, because a zero width space survives a copy out of a
+    document and cannot be seen in the field afterwards.
+
+    The parser here is not the parser that fetches the url. urlparse reads
+    RFC 3986 and every client reads the WHATWG url standard, and the two
+    disagree about a backslash, about a host outside ASCII, and about a
+    host whose last label is a number. To urlparse the host of
+    "https://good.com\\@evil.com" is evil.com; to a browser it is good.com.
+    Approving one host and handing a buyer the other is worse than
+    refusing, because the mint is permanent, so only the shapes both
+    parsers read the same way are accepted.
+
+    An underscore is not one of the disagreements. Both parsers keep it,
+    RFC 2181 allows it, and compose deployments use it, so it stays.
+    """
+    if not value.isprintable() or any(c.isspace() for c in value):
+        return False
+    # A client reads a backslash in the authority as a separator. urlparse
+    # reads it as one more character of the host.
+    if "\\" in value:
+        return False
+    try:
+        parsed = urlparse(value)
+        host = parsed.hostname
+        parsed.port  # raises when the port is not a number in range
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in ("http", "https") or not host:
+        return False
+    # A user name or a password here would be minted into a public
+    # registry entry that nobody can edit afterwards.
+    if parsed.username or parsed.password:
+        return False
+    if parsed.netloc.startswith("["):
+        return (set(host) <= IPV6_CHARACTERS
+                and any(character.isalnum() for character in host))
+    if not set(host) <= HOST_CHARACTERS:
+        return False
+    # A last label that is a number turns the whole host into an address
+    # for a client and leaves it a name for urlparse. "0177.0.0.1" is a
+    # public address here and loopback there, and "api.example.123" is a
+    # host here and a parse error there, so a number may only appear in
+    # the one form both read alike.
+    # Strip the root dot before reading the last label. "example.com."
+    # is a legitimate fully qualified name that both parsers keep, but
+    # without this the last label is "" and the whole number rule below
+    # is skipped: "http://0177.0.0.1." was minted, and a client resolves
+    # it to 127.0.0.1.
+    last_label = host.rstrip(".").rsplit(".", 1)[-1]
+    if ((last_label.isdigit() or last_label.startswith("0x"))
+            and not _is_dotted_quad(host)):
+        return False
+    # "http://." and "http://-" have a host by the parser's reckoning and
+    # resolve for nobody, which is what a mistyped paste looks like.
+    return any(character.isalnum() for character in host)
+
+
 class RegistryMigrateControl(litestar.Controller):
     """Controller for the V1 to V2 migration of a registered flow."""
 
@@ -56,6 +153,10 @@ class RegistryMigrateControl(litestar.Controller):
             flow_url: str - Flow URL path (e.g. /myapp/analyze)
             wallet_vkey: str - Selling wallet of a Web3CardanoV2 source
             deregister_previous: bool - burn the V1 agent once V2 confirms
+            api_base_url: str - url the new agent advertises (optional). It
+                defaults to the url of the V1 listing, which is what a
+                single deployment wants. Set it only when another
+                deployment serves the V2 agent.
             meta_yaml: str - live YAML of the flow (optional)
         """
         await db.init_database()
@@ -86,6 +187,28 @@ class RegistryMigrateControl(litestar.Controller):
         if not wallet_vkey:
             raise ClientException(
                 detail="wallet_vkey is required", status_code=422)
+
+        # Read the raw value before any falsy default. "or" would turn 0,
+        # False and [] into "" and drop them silently, on a field that
+        # decides an irreversible mint.
+        api_base_url_override = data.get("api_base_url")
+        if api_base_url_override is None:
+            api_base_url_override = ""
+        if not isinstance(api_base_url_override, str):
+            raise ClientException(
+                detail="api_base_url must be a string",
+                status_code=422,
+            )
+        api_base_url_override = api_base_url_override.strip()
+        if api_base_url_override and not _is_absolute_http_url(
+                api_base_url_override):
+            raise ClientException(
+                detail="api_base_url must be an absolute http:// or https:// "
+                       "url with a host. The value is minted on chain and "
+                       "kodosumi cannot update a registration, so a "
+                       "malformed url cannot be corrected from here.",
+                status_code=422,
+            )
 
         deregister_previous = data.get("deregister_previous", False)
         if not isinstance(deregister_previous, bool):
@@ -224,7 +347,7 @@ class RegistryMigrateControl(litestar.Controller):
                     masumi=masumi,
                     name=fields["name"],
                     description=fields["description"],
-                    api_base_url=sumi_api_base_url(
+                    api_base_url=api_base_url_override or sumi_api_base_url(
                         state["settings"].sumi_address, flow_url),
                     tags=fields["tags"],
                     pricing=None,

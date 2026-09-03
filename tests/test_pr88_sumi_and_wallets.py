@@ -440,7 +440,8 @@ async def test_wallet_fetches_use_the_named_concurrency_limit():
     max_active_requests = 0
 
     async def fetch_wallets(
-        _client, _masumi, _headers, source_id, _require_complete=False
+        _client, _masumi, _headers, source_id, _require_complete=False,
+        _report=None
     ):
         nonlocal active_requests, max_active_requests
         active_requests += 1

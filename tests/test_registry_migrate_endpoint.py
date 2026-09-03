@@ -538,3 +538,175 @@ class TestDeregisterPrevious:
             result = await task
         assert result["success"] is True
         assert deregister.call_args.args[1] == "v1-agent"
+
+
+class TestMigrateApiBaseUrl:
+    """The url the new agent advertises is minted on chain.
+
+    kodosumi never calls the payment node's update endpoint, so a url that
+    is wrong at mint time cannot be corrected from here.
+    """
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_the_url_of_the_v1_listing(self):
+        _, _, register = await _call_migrate()
+        assert register.call_args.kwargs["api_base_url"] == \
+            "https://host/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_an_override_replaces_it(self):
+        _, _, register = await _call_migrate(
+            {"api_base_url": "https://v2.example.com/sumi/flow"})
+        assert register.call_args.kwargs["api_base_url"] == \
+            "https://v2.example.com/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_an_empty_override_keeps_the_default(self):
+        _, _, register = await _call_migrate({"api_base_url": "   "})
+        assert register.call_args.kwargs["api_base_url"] == \
+            "https://host/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_a_relative_override_is_refused_before_the_mint(self):
+        with pytest.raises(ClientException) as err:
+            await _call_migrate({"api_base_url": "/sumi/flow"})
+        assert err.value.status_code == 422
+        assert "http://" in err.value.detail
+
+    @pytest.mark.asyncio
+    async def test_a_scheme_without_a_host_is_refused(self):
+        # A truncated paste passes a startswith check and mints an agent
+        # that no buyer can reach.
+        for value in ("http://", "https://", "https:// evil.com",
+                      "http://a\nb",
+                      # A netloc is not a host: both of these have one.
+                      "http://:8080", "http://@",
+                      # Invisible characters survive a copy out of a doc
+                      # and cannot be spotted in the field afterwards.
+                      "http://a\x00b", "http://\u200bexample.com",
+                      # A letter O for a zero in the port, and a host that
+                      # is punctuation only.
+                      "http://example.com:8O80/sumi", "http://.",
+                      "http://-", "http://%00"):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value
+
+    @pytest.mark.asyncio
+    async def test_an_uppercase_scheme_is_accepted(self):
+        # RFC 3986 schemes are case insensitive, so this is a legal url.
+        _, _, register = await _call_migrate(
+            {"api_base_url": "HTTPS://Example.com/sumi/flow"})
+        assert register.call_args.kwargs["api_base_url"] == \
+            "HTTPS://Example.com/sumi/flow"
+
+    @pytest.mark.asyncio
+    async def test_the_shapes_a_real_deployment_uses_are_accepted(self):
+        for value in ("https://host.example/sumi/flow",
+                      "http://localhost:3370/sumi/flow",
+                      "http://[::1]:8080/sumi",
+                      "https://xn--mnchen-3ya.de/sumi",
+                      "https://a.example:8443/sumi?x=1#y"):
+            _, _, register = await _call_migrate({"api_base_url": value})
+            assert register.call_args.kwargs["api_base_url"] == value
+
+    @pytest.mark.asyncio
+    async def test_a_non_string_is_refused_with_a_reason(self):
+        # The falsy ones matter most: reading the field with "or" turns
+        # them into "" and drops them silently, so a caller who sent the
+        # wrong type gets a mint against the default url and no warning.
+        for value in (42, ["https://a"], {"u": "x"}, 0, False, [], {}):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value
+
+    @pytest.mark.asyncio
+    async def test_a_host_two_parsers_read_differently_is_refused(self):
+        # urlparse follows RFC 3986 and every client follows the WHATWG
+        # url standard. A backslash is an ordinary host character to the
+        # first and a separator to the second, so approving a host here
+        # and handing a buyer another one is the failure to avoid.
+        # "https://good.com\\@evil.com" is evil.com to urlparse and
+        # good.com to a browser.
+        for value in ("http://exa\\mple.com/sumi/flow",
+                      "https://good.com\\@evil.com/sumi",
+                      # A fraction slash reads as a path and mints a host.
+                      "http://example.com\u2044evil/sumi",
+                      # A backslash below the host diverges too: a client
+                      # calls /pa/th where urlparse sees /pa\\th.
+                      "https://host.example/pa\\th",
+                      # A raw IDN has to be entered as punycode, which is
+                      # what DNS carries and what both parsers agree on.
+                      "https://\u4f8b\u3048.jp/sumi",
+                      # A zone id names a link on this machine. No buyer
+                      # can call it, and Node refuses to parse it at all.
+                      "http://[fe80::1%25eth0]/sumi"):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value
+
+    @pytest.mark.asyncio
+    async def test_a_host_that_reads_as_a_number_is_refused(self):
+        # A client reads any host whose last label is a number as an IPv4
+        # address, in whatever base the digits imply. urlparse never does.
+        # "http://0177.0.0.1" is a public address to the server and
+        # loopback to the buyer, and "http://api.example.123" is a host to
+        # the server and a parse error to the buyer.
+        for value in ("http://0177.0.0.1/sumi/flow",
+                      "http://192.168.010.1/sumi",
+                      "http://2130706433/sumi",
+                      "http://0x7f.1/sumi",
+                      "http://api.example.123/sumi",
+                      "http://1.2.3.4.5/sumi",
+                      "http://999.999.999.999/sumi",
+                      # A root dot makes the last label empty, which used
+                      # to skip the whole rule. Node still reads every one
+                      # of these as a number: 0177.0.0.1. is 127.0.0.1 and
+                      # 010.0.0.1. is 8.0.0.1, a third party's address.
+                      "http://0177.0.0.1./sumi/flow",
+                      "http://010.0.0.1./sumi",
+                      "http://2130706433./sumi",
+                      "http://0x7f000001./sumi",
+                      "http://999999999999./sumi",
+                      # Even the plain quad disagrees once it carries the
+                      # dot: urlparse keeps it, Node drops it.
+                      "http://10.0.0.7./sumi"):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value
+
+    @pytest.mark.asyncio
+    async def test_the_plain_forms_of_a_number_host_are_accepted(self):
+        # The decimal dotted quad means the same to both parsers, and a
+        # label that merely starts with a digit is a name, not a number.
+        for value in ("http://10.0.0.7/sumi", "http://0.0.0.0/sumi",
+                      "http://255.255.255.255/sumi",
+                      "https://4you.example.com/sumi",
+                      "https://host.4you/sumi",
+                      # A fully qualified name keeps its root dot in both
+                      # parsers, so it is not a disagreement.
+                      "http://example.com./sumi",
+                      "https://sub.example.com.:8443/sumi"):
+            _, _, register = await _call_migrate({"api_base_url": value})
+            assert register.call_args.kwargs["api_base_url"] == value
+
+    @pytest.mark.asyncio
+    async def test_an_underscore_host_is_accepted(self):
+        # Both parsers keep an underscore and RFC 2181 allows it, so a
+        # compose service name is a legitimate deployment shape.
+        for value in ("http://kodosumi_app:3370/sumi/flow",
+                      "https://my_agent.example.com/sumi"):
+            _, _, register = await _call_migrate({"api_base_url": value})
+            assert register.call_args.kwargs["api_base_url"] == value
+
+    @pytest.mark.asyncio
+    async def test_credentials_in_the_authority_are_refused(self):
+        # The value is minted into a public registry entry that nobody can
+        # edit afterwards, so a password pasted with the host would stay
+        # readable on chain for good. parsed.hostname strips the userinfo,
+        # so the host check alone never sees it.
+        for value in ("https://ops:hunter2@agents.example/sumi/flow",
+                      "https://ops@agents.example/sumi"):
+            with pytest.raises(ClientException) as err:
+                await _call_migrate({"api_base_url": value})
+            assert err.value.status_code == 422, value

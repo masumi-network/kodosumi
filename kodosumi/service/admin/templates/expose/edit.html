@@ -176,7 +176,7 @@
                         <div class="s12 l6">
                             <div class="field border label">
                                 <input type="text" id="name" name="name" required
-                                       pattern="^[a-z0-9][a-z0-9_-]*$"
+                                       pattern="^[a-z0-9][a-z0-9_\-]*$"
                                        value="{{ duplicate_name if duplicate_name else (item.name if item else '') }}">
                                 <label>Name</label>
                             </div>
@@ -513,6 +513,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initRegistrySections();
 });
 
+{% include "expose/_registry_wallets_script.html" %}
 {% include "expose/_registry_script.html" %}
 {% include "expose/_registry_dialog_script.html" %}
 {% endblock %}

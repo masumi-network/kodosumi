@@ -1,0 +1,141 @@
+// ─── Wallet Discovery ───────────────────────────────────────────
+
+// The migrate dialog offers V2 wallets only, so keep the fetched list.
+let loadedWallets = [];
+// Why the last load produced no usable list. An empty list has several
+// causes, and a dialog that only counts the entries cannot tell them
+// apart, so the reason travels with the list instead of being guessed
+// at from its length.
+let walletLoadError = '';
+// Whether that reason still leaves a usable list. A caution painted in the
+// error colour reads as a refusal, and an operator who can act stops.
+let walletLoadIsWarning = false;
+// Which load owns the three variables above. They are shared, and an
+// answer that arrives after a newer load started would otherwise write
+// over it: an abandoned load could refill the list a failed reload had
+// just cleared, and the dialog would offer a wallet the node no longer
+// reports, with Submit enabled, beside the words "could not be loaded".
+let walletLoadGeneration = 0;
+// What showWalletInfo last put on the registry sections. Only that exact
+// text may be taken down again, because updateRegistryUI writes the same
+// elements and a wallet message must not wipe a status line it did not
+// write.
+let walletInfoOnPage = '';
+
+// options.quiet keeps a failure out of the registry sections. The migrate
+// dialog reloads on every open and shows the reason in its own error line,
+// so without this one blip while opening it would paint red text on every
+// section of the page and leave it there until a reload.
+async function loadWallets(options) {
+    var quiet = !!(options && options.quiet);
+    var generation;
+    function retired() {
+        return generation !== walletLoadGeneration;
+    }
+    function report(message, soft) {
+        walletLoadError = message;
+        walletLoadIsWarning = !!soft;
+        if (!quiet) showWalletInfo(message, soft);
+    }
+    if (!exposeName) return;
+    generation = ++walletLoadGeneration;
+    // A failed reload must not leave the previous list standing. The
+    // migrate dialog mints against what it finds here, so a stale entry
+    // would be minted against a wallet this node no longer reports.
+    loadedWallets = [];
+    walletLoadError = '';
+    walletLoadIsWarning = false;
+    try {
+        const resp = await fetch('/expose/' + exposeName + '/wallets', {
+            credentials: 'same-origin'
+        });
+        if (retired()) return;
+        if (!resp.ok) {
+            console.error('Wallets endpoint returned', resp.status);
+            report('Wallets could not be loaded (HTTP ' + resp.status + ').');
+            return;
+        }
+        const data = await resp.json();
+        if (retired()) return;
+
+        if (data.error) {
+            report(data.error);
+            return;
+        }
+
+        const wallets = data.wallets || [];
+        loadedWallets = wallets;
+        if (wallets.length === 0) {
+            report('No selling wallets found for this network.');
+            return;
+        }
+        // A good load has to take down the message a bad one left, on
+        // every section, including flows the operator never opened.
+        clearWalletInfo();
+        // A list can arrive non-empty and still be short of a wallet whose
+        // payment source could not be read. Keep the list, keep the reason.
+        if (data.warning) {
+            // The list is usable, so this is a caution, not a refusal.
+            report(data.warning, true);
+        }
+
+        // Populate all wallet select elements (use class selector, not id prefix)
+        document.querySelectorAll('select.wallet-select').forEach(function(sel) {
+            var current = sel.value;
+            sel.innerHTML = '<option value="">Select wallet...</option>';
+            wallets.forEach(function(w) {
+                var vk = w.walletVkey;
+                var shortId = vk.substring(0, 6) + '…' + vk.substring(vk.length - 6);
+                var label = w.note ? w.note + ' (' + shortId + ')' : shortId;
+                // The wallet selects the registration version, so name it.
+                if (w.paymentSourceType === 'Web3CardanoV2') {
+                    label += ' [V2]';
+                } else if (w.paymentSourceType === 'Web3CardanoV1') {
+                    label += ' [V1]';
+                }
+                var opt = document.createElement('option');
+                opt.value = vk;
+                opt.textContent = label;
+                if (vk === current) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        });
+    } catch (e) {
+        if (retired()) return;
+        console.error('Failed to load wallets:', e);
+        report('Failed to load wallets: ' + e.message);
+    }
+}
+
+function showWalletInfo(msg, soft) {
+    walletInfoOnPage = msg;
+    document.querySelectorAll('.registry-section').forEach(function(section) {
+        var idx = section.id.replace('registry_', '');
+        var info = document.getElementById('reg_info_' + idx);
+        if (info) {
+            info.style.display = 'block';
+            info.textContent = msg;
+            info.style.color = soft
+                ? 'var(--on-surface-variant)' : 'var(--error)';
+        }
+    });
+}
+
+// Take down the wallet message, and only that. Nothing else clears it:
+// hideRegError works on reg_error_<idx>, a different element, and the
+// idle branch of updateRegistryUI only clears its own sentences. So a
+// failed load used to leave every section red until a full reload.
+function clearWalletInfo() {
+    if (!walletInfoOnPage) return;
+    var previous = walletInfoOnPage;
+    walletInfoOnPage = '';
+    document.querySelectorAll('.registry-section').forEach(function(section) {
+        var idx = section.id.replace('registry_', '');
+        var info = document.getElementById('reg_info_' + idx);
+        if (info && info.textContent === previous) {
+            info.textContent = '';
+            info.style.display = 'none';
+            info.style.color = '';
+        }
+    });
+}

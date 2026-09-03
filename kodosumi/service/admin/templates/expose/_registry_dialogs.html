@@ -30,13 +30,26 @@
             <select id="mig_wallet"></select>
         </div>
         <div class="dialog-field">
+            <label>API base URL (optional)</label>
+            <input type="text" id="mig_api_base_url"
+                   placeholder="Leave empty to keep the URL of the V1 listing">
+            <div class="dialog-readonly" style="font-size: 0.75rem;">
+                The new agent advertises the same URL as the V1 listing unless
+                you set one here. Only set it when another deployment serves
+                the V2 agent: this kodosumi answers on its own path, so a
+                different value is minted on chain and sends buyers elsewhere.
+            </div>
+        </div>
+        <div class="dialog-field">
             <label style="display:flex; align-items:center; gap:8px; text-transform:none;">
                 <input type="checkbox" id="mig_deregister" style="width:auto; margin:0;">
                 <span>Deregister the V1 agent once the new one is confirmed</span>
             </label>
             <div class="dialog-readonly" style="font-size: 0.75rem;">
-                Leave this off to stay listed on both rails. The V1 agent is
-                then kept in the flow metadata and can be deregistered later.
+                Leave this off to keep the V1 agent on chain for a manual burn
+                later. It stays discoverable, but this flow serves one
+                registration: after the switch every job is priced and paid on
+                V2, even for a buyer who found the V1 listing.
             </div>
         </div>
         <div class="dlg-error" id="mig_error" style="display:none;"></div>
