@@ -124,6 +124,22 @@
         appearance: auto;
         -webkit-appearance: auto;
     }
+    /* Beer styles a text input only inside a .field wrapper, so a bare one
+       keeps the user agent's white box while inheriting the dialog's near
+       white text: whatever is typed is white on white. The dialog carries
+       its own <label> above each control, so match the select above rather
+       than adopting the floating label wrapper. */
+    .register-dialog .dialog-field > input[type="text"] {
+        background: var(--surface-variant);
+        color: var(--on-surface);
+        border: 1px solid var(--outline);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 0.85rem;
+        font-family: inherit;
+        width: 100%;
+        box-sizing: border-box;
+    }
     .register-dialog .pricing-row {
         display: flex;
         gap: 10px;
