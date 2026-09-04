@@ -206,7 +206,7 @@ class TestListWallets:
         assert wallets[0]["note"] == ""
         assert wallets[0]["paymentSourceType"] == PAYMENT_SOURCE_TYPE_V2
         fallback_url = client.get.call_args_list[1].args[0]
-        assert "/wallet?paymentSourceId=src1" in fallback_url
+        assert "/wallet/list?paymentSourceId=src1" in fallback_url
         assert "walletType=Selling" in fallback_url
 
     @pytest.mark.asyncio
