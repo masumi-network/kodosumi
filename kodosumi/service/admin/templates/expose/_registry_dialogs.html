@@ -30,14 +30,24 @@
             <select id="mig_wallet"></select>
         </div>
         <div class="dialog-field">
-            <label>API base URL (optional)</label>
+            <label for="mig_api_base_url">API base URL</label>
             <input type="text" id="mig_api_base_url"
-                   placeholder="Leave empty to keep the URL of the V1 listing">
-            <div class="dialog-readonly" style="font-size: 0.75rem;">
-                The new agent advertises the same URL as the V1 listing unless
-                you set one here. Only set it when another deployment serves
-                the V2 agent: this kodosumi answers on its own path, so a
-                different value is minted on chain and sends buyers elsewhere.
+                   oninput="updateMigrateUrlNote()"
+                   aria-required="true"
+                   aria-describedby="mig_api_base_url_note"
+                   placeholder="https://host/sumi/flow">
+            <!-- One line, always true of what the field currently holds.
+                 A fixed helper saying the field is filled with the served
+                 url turns into a lie the moment the operator edits it.
+                 aria-live, because the line is the only thing that changes
+                 when the operator edits a url they cannot see the effect
+                 of until the mint is already permanent. -->
+            <div class="dlg-caution" id="mig_api_base_url_note"
+                 aria-live="polite">
+                <span id="mig_api_base_url_note_text"></span>
+                <button type="button" class="small border"
+                        id="mig_api_base_url_reset" style="display: none;"
+                        onclick="resetMigrateUrl()">Use the served url</button>
             </div>
         </div>
         <div class="dialog-field">
