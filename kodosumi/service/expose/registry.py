@@ -31,7 +31,7 @@ from kodosumi.service.expose.wallet_inventory import (WalletReport,
 logger = logging.getLogger(__name__)
 
 
-# Page size of the /wallet endpoint. The node caps `take` at 100 and its
+# Page size of the /wallet/list endpoint. The node caps `take` at 100 and its
 # cursor is inclusive, so a page repeats the row the cursor names.
 WALLET_PAGE_SIZE = 100
 MAX_WALLET_PAGES = 50
@@ -50,7 +50,7 @@ async def _list_source_selling_wallets(
     report: Optional[WalletReport] = None,
 ) -> List[Dict]:
     """
-    Read selling wallets of one payment source from the /wallet endpoint.
+    Read selling wallets of one payment source from the /wallet/list endpoint.
 
     Payment nodes used to embed SellingWallets in the /payment-source
     response and newer ones do not, so this is the fallback for sources
@@ -68,8 +68,12 @@ async def _list_source_selling_wallets(
     seen_ids = set()
     cursor_id = ""
     for _ in range(MAX_WALLET_PAGES):
+        # /wallet/list, not /wallet. The node reads /wallet as the lookup of
+        # one wallet by id, so it answers a filter-only query with
+        # "id: Invalid input: expected string, received undefined" and
+        # HTTP 400, and every selling wallet then reads as absent.
         url = (
-            f"{masumi.base_url}/wallet"
+            f"{masumi.base_url}/wallet/list"
             f"?paymentSourceId={source_id}&walletType=Selling"
             f"&take={WALLET_PAGE_SIZE}"
         )
@@ -83,7 +87,7 @@ async def _list_source_selling_wallets(
                     f"{source_id}: HTTP {resp.status_code}")
             record_problem(
                 report,
-                f"GET /wallet for payment source {source_id} answered "
+                f"GET /wallet/list for payment source {source_id} answered "
                 f"HTTP {resp.status_code}")
             logger.warning(
                 "Failed to list wallets of payment source %s: %s",
@@ -273,7 +277,7 @@ async def list_wallets(
                             "inventory") from result
                     record_problem(
                         report,
-                        f"GET /wallet for payment source "
+                        f"GET /wallet/list for payment source "
                         f"{sources[index].get('id', '')} failed: "
                         f"{describe_exception(result)}")
                     logger.warning(

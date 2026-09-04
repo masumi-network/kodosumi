@@ -92,7 +92,7 @@ class TestDescribeEmpty:
     def test_a_failed_request_warns_even_with_wallets_in_hand(self):
         report = WalletReport(
             source_count=2, matched_count=2,
-            problems=["GET /wallet for payment source src-v2 answered "
+            problems=["GET /wallet/list for payment source src-v2 answered "
                       "HTTP 503"])
         warning = report.describe_partial()
         assert "may be incomplete" in warning
@@ -150,7 +150,7 @@ class TestListWalletsReport:
         assert wallets == []
         assert report.source_count == 1
         assert report.problems == [
-            "GET /wallet for payment source src-main answered HTTP 403"]
+            "GET /wallet/list for payment source src-main answered HTTP 403"]
 
     @pytest.mark.asyncio
     async def test_a_clean_run_reports_no_problem(self):
@@ -239,7 +239,7 @@ class TestListWalletsReport:
             await list_wallets(_make_config(), report=report)
 
         assert report.problems == [
-            "GET /wallet for payment source src-main failed: ReadTimeout"]
+            "GET /wallet/list for payment source src-main failed: ReadTimeout"]
         assert report.describe_empty("Mainnet").endswith("ReadTimeout")
 
     @pytest.mark.asyncio
@@ -326,7 +326,7 @@ class TestWalletsEndpoint:
             report.source_count = 2
             report.matched_count = 2
             report.problems.append(
-                "GET /wallet for payment source src-v2 answered HTTP 503")
+                "GET /wallet/list for payment source src-v2 answered HTTP 503")
             return [{"walletVkey": "vkey-1",
                      "paymentSourceType": "Web3CardanoV1"}]
 
