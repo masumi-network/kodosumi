@@ -31,8 +31,8 @@ function openRegisterDialog(idx) {
     var tags = Array.isArray(parsed.tags) ? parsed.tags : [];
     document.getElementById('dlg_tags').textContent = tags.join(', ') || '(none)';
 
-    var sumiAddress = '{{ app_server }}';
-    document.getElementById('dlg_api_url').textContent = sumiAddress + '/sumi' + flowUrl;
+    document.getElementById('dlg_api_url').textContent =
+        sumiApiBaseUrl(flowUrl);
 
     // Pre-fill pricing from YAML if available
     var dlgPricingType = document.getElementById('dlg_pricing_type');
@@ -214,6 +214,60 @@ async function submitRegistration() {
 // options the second open already rendered.
 let migrateDialogGeneration = 0;
 
+// The url a buyer calls for this flow. This mirrors sumi_api_base_url()
+// on the server, which is the value a registration is minted with, so the
+// two must not drift: the migrate dialog now sends this string back and it
+// is minted verbatim. The trailing slash matters. KODO_SUMI_ADDRESS is
+// commonly written "http://host/", the server drops the slash and this used
+// to keep it, so the register dialog displayed a url with a doubled slash
+// that was not the one being minted.
+function sumiApiBaseUrl(flowUrl) {
+    var sumiAddress = '{{ app_server }}';
+    return sumiAddress.replace(/\/+$/, '') + '/sumi' + (flowUrl || '');
+}
+
+// The served url of the flow whose migrate dialog is open. Kept so the note
+// and the reset button can compare against it without deriving it twice.
+let migrateDefaultApiBaseUrl = '';
+
+// Say what an edited url costs. This kodosumi answers only on the served
+// path, so any other value has to be an agent that is already deployed
+// here; otherwise the mint is permanent and points buyers at nothing.
+function updateMigrateUrlNote() {
+    var input = document.getElementById('mig_api_base_url');
+    var note = document.getElementById('mig_api_base_url_note');
+    var text = document.getElementById('mig_api_base_url_note_text');
+    var reset = document.getElementById('mig_api_base_url_reset');
+    if (!input || !note || !text) return;
+    var value = input.value.trim();
+    var edited = true;
+    if (!value) {
+        text.textContent = 'The API base URL cannot be empty. '
+            + 'Buyers need a url to call.';
+    } else if (migrateDefaultApiBaseUrl
+               && value !== migrateDefaultApiBaseUrl) {
+        text.textContent = 'This kodosumi serves only '
+            + migrateDefaultApiBaseUrl
+            + '. Set another url only when that agent is already deployed '
+            + 'here, or buyers reach nothing.';
+    } else {
+        // The default. Say what the field is for, rather than leaving the
+        // one explanatory line to appear only once something is wrong.
+        text.textContent = 'Buyers call this url. It is the one this '
+            + 'kodosumi serves for this flow.';
+        edited = false;
+    }
+    note.className = edited ? 'dlg-caution warn' : 'dlg-caution';
+    if (reset) reset.style.display = edited ? '' : 'none';
+}
+
+function resetMigrateUrl() {
+    var input = document.getElementById('mig_api_base_url');
+    if (!input) return;
+    input.value = migrateDefaultApiBaseUrl;
+    updateMigrateUrlNote();
+}
+
 async function openMigrateDialog(idx) {
     var generation = ++migrateDialogGeneration;
     hideRegError(idx);
@@ -254,7 +308,17 @@ async function openMigrateDialog(idx) {
     var errEl = document.getElementById('mig_error');
 
     document.getElementById('mig_deregister').checked = false;
-    document.getElementById('mig_api_base_url').value = '';
+    // Prefilled rather than blank. An empty field used to mean "keep the
+    // url of the V1 listing", which the operator could not read and could
+    // not edit without retyping it. Showing the value that will be minted
+    // is the same default, spelled out.
+    var migSection = document.getElementById('registry_' + idx);
+    migrateDefaultApiBaseUrl = migSection
+        ? sumiApiBaseUrl(migSection.dataset ? migSection.dataset.flowUrl : '')
+        : '';
+    document.getElementById('mig_api_base_url').value =
+        migrateDefaultApiBaseUrl;
+    updateMigrateUrlNote();
     submitBtn.disabled = true;
     errEl.style.display = 'none';
     document.getElementById('migrate-dialog').showModal();
@@ -332,6 +396,26 @@ async function submitMigration() {
     var errEl = document.getElementById('mig_error');
     var metaYaml = textarea ? textarea.value : '';
     var etag = document.getElementById('etag');
+
+    // Refuse an empty url before anything is spent. The field is prefilled
+    // with the served url, so empty means the operator cleared it. The
+    // server still accepts an empty value and falls back to the same url,
+    // for older clients and direct API callers, but a blank field in front
+    // of a permanent mint is a question, not an instruction.
+    var apiBaseUrl = document.getElementById('mig_api_base_url').value.trim();
+    if (!apiBaseUrl) {
+        updateMigrateUrlNote();
+        errEl.style.display = 'block';
+        errEl.style.color = '';
+        errEl.textContent = 'The API base URL cannot be empty. '
+            + 'Use the served url, or type the url of the deployment that '
+            + 'serves the V2 agent.';
+        return;
+    }
+    // Anything past empty is the server's call. It reads the url the way a
+    // buyer's client will, and a second parser here would only disagree
+    // with it. Its refusal is already shown in this dialog.
+
     var generation = beginRegistryRequest(idx);
 
     submitBtn.disabled = true;
@@ -346,8 +430,7 @@ async function submitMigration() {
                 flow_url: flowUrl,
                 wallet_vkey: walletSelect.value,
                 deregister_previous: document.getElementById('mig_deregister').checked,
-                api_base_url:
-                    document.getElementById('mig_api_base_url').value.trim(),
+                api_base_url: apiBaseUrl,
                 meta_yaml: metaYaml,
                 meta_etag: etag ? etag.value : null
             })

@@ -157,5 +157,40 @@
         color: var(--error);
         padding: 8px 0;
     }
+    /* The one line under the API base URL field. It is always present, so
+       the plain form is quiet: it explains what the field is for. The .warn
+       form marks the states the operator has to act on, without borrowing
+       .dlg-error, which reads as a request that already failed. */
+    .register-dialog .dlg-caution {
+        font-size: 0.75rem;
+        color: var(--on-surface-variant);
+        border-inline-start: 2px solid var(--outline-variant);
+        padding: 4px 0 4px 10px;
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .register-dialog .dlg-caution.warn {
+        border-inline-start-color: var(--error);
+    }
+    .register-dialog .dlg-caution > span {
+        flex: 1;
+        min-width: 200px;
+        line-height: 1.45;
+    }
+    /* Quiet on purpose. This is the way back from a mistake, not the action
+       of the dialog: a filled button here outshouted Migrate Agent. */
+    .register-dialog .dlg-caution > button {
+        flex: none;
+        font-size: 0.7rem;
+        block-size: 1.75rem;
+        padding-inline: 0.75rem;
+        text-transform: none;
+        background: transparent;
+        color: var(--on-surface-variant);
+        border-color: var(--outline);
+    }
 </style>
 <script src="/static/js-yaml.min.js"></script>

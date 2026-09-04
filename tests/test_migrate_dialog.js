@@ -25,7 +25,13 @@ assert.notEqual(start, -1);
 // that loads only the first half cannot see the field leave the page.
 const end = dialogSource.indexOf('\nasync function deregisterPrevious(', start);
 assert.ok(end > start);
-const openSource = dialogSource.slice(start, end);
+// The slice carries the Jinja placeholder for the sumi address. Give it a
+// real value, so the url assertions below read as the urls an operator
+// sees, and so the trailing slash the server strips is actually exercised.
+const SUMI_ADDRESS = 'http://node.example/';
+const SERVED_URL = 'http://node.example/sumi/meme-copy';
+const openSource = dialogSource.slice(start, end)
+    .replace("'{{ app_server }}'", JSON.stringify(SUMI_ADDRESS));
 
 // The real generation helpers, not stubs. Stubs that ignore their
 // arguments cannot see submitMigration passing the wrong idx or losing
@@ -74,6 +80,13 @@ async function open(responder) {
         mig_error: makeElement(),
         mig_deregister: makeElement(),
         mig_api_base_url: makeElement(),
+        mig_api_base_url_note: makeElement(),
+        mig_api_base_url_note_text: makeElement(),
+        mig_api_base_url_reset: makeElement(),
+        // The section carries the flow path the served url is built from.
+        // Without a dataset the dialog cannot derive a url at all, and a
+        // prefill assertion would pass on an empty string.
+        registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
         'migrate-dialog': makeElement(),
     };
     const infoLines = [];
@@ -174,16 +187,20 @@ function jsonResponse(payload) {
     assert.match(run.elements.mig_error.textContent, /HTTP 502/);
     assert.doesNotMatch(run.elements.mig_error.textContent, /Add one in the/);
 
-    // 5. The url override starts empty on every open. A fresh element is
-    //    empty anyway, so type into it and reopen: only a real reset can
-    //    clear it. A url left over from an abandoned dialog would be
-    //    minted on chain by the next migration.
+    // 5. The url field is reset to the served url on every open, not to
+    //    empty. Type something else into it and reopen: a url left over
+    //    from an abandoned dialog would otherwise be minted on chain by
+    //    the next migration, and that mint cannot be taken back.
     {
         const elements = {
             mig_current_agent: makeElement(), mig_pricing: makeElement(),
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         const context = {
@@ -209,7 +226,7 @@ function jsonResponse(payload) {
         await context.openMigrateDialog(0);
         console.log('\n5. url override after a reopen:',
                     JSON.stringify(elements.mig_api_base_url.value));
-        assert.equal(elements.mig_api_base_url.value, '');
+        assert.equal(elements.mig_api_base_url.value, SERVED_URL);
         assert.equal(elements.mig_deregister.checked, false);
     }
 
@@ -221,6 +238,10 @@ function jsonResponse(payload) {
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         const v2 = {wallets: [{walletVkey: 'vkey-v2-bbbbbb',
@@ -291,6 +312,10 @@ function jsonResponse(payload) {
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         const info = makeElement();
@@ -357,6 +382,10 @@ function jsonResponse(payload) {
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         const info = makeElement();
@@ -457,6 +486,10 @@ function jsonResponse(payload) {
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         let call = 0;
@@ -511,6 +544,10 @@ function jsonResponse(payload) {
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         const pageInfo = makeElement();
@@ -579,6 +616,10 @@ function jsonResponse(payload) {
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         let releaseFirst;
@@ -717,6 +758,9 @@ function jsonResponse(payload) {
         vm.runInContext(
             helpersSource + '\n' + walletsSource + '\n' + openSource,
             context);
+        // The dialog prefills this on open. These cases call the submit directly,
+        // so fill it the way an operator would have found it.
+        elements.mig_api_base_url.value = SERVED_URL;
         await context.submitMigration();
         console.log('\n16. the network drops mid-submit');
         console.log('   dialog :', elements.mig_error.textContent);
@@ -740,6 +784,10 @@ function jsonResponse(payload) {
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         const context = {
@@ -842,6 +890,9 @@ function jsonResponse(payload) {
         vm.runInContext(
             helpersSource + '\n' + walletsSource + '\n' + openSource,
             context);
+        // The dialog prefills this on open. These cases call the submit directly,
+        // so fill it the way an operator would have found it.
+        elements.mig_api_base_url.value = SERVED_URL;
         const submitting = context.submitMigration();
         context.activeDialogIdx = null;              // Escape
         elements['migrate-dialog'].close();
@@ -957,6 +1008,10 @@ function jsonResponse(payload) {
             mig_wallet: makeElement(), mig_submit: makeElement(),
             mig_error: makeElement(), mig_deregister: makeElement(),
             mig_api_base_url: makeElement(),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
             'migrate-dialog': makeElement(),
         };
         let call = 0;
@@ -1000,5 +1055,100 @@ function jsonResponse(payload) {
         assert.equal(elements.mig_submit.disabled, false);
     }
 
-    console.log('\nall twenty-two dialog cases behaved as expected');
+    // 23. The field opens on the served url, with the address's trailing
+    //     slash gone. The server strips it before it mints, and this value
+    //     is now sent back and minted verbatim, so a doubled slash here
+    //     would become the url on chain.
+    {
+        const run = await open(() => jsonResponse({wallets: [
+            {walletVkey: 'vkey-v2-bbbbbb', walletAddress: 'addr2',
+             note: 'v2 seller', paymentSourceType: 'Web3CardanoV2'},
+        ]}));
+        console.log('\n23. the field opens on the served url');
+        console.log('   value:', JSON.stringify(run.elements.mig_api_base_url.value));
+        console.log('   note :', JSON.stringify(run.elements.mig_api_base_url_note_text.textContent));
+        console.log('   class:', JSON.stringify(run.elements.mig_api_base_url_note.className));
+        assert.equal(run.elements.mig_api_base_url.value, SERVED_URL);
+        assert.doesNotMatch(run.elements.mig_api_base_url.value, /\/\/sumi/);
+        // The line explains the field while the value is still the default,
+        // and carries no warning mark.
+        assert.equal(run.elements.mig_api_base_url_note.className, 'dlg-caution');
+        assert.match(run.elements.mig_api_base_url_note_text.textContent,
+                     /Buyers call this url/);
+        assert.equal(run.elements.mig_api_base_url_reset.style.display, 'none');
+    }
+
+    // 24. An emptied field stops the submit before anything is spent, and
+    //     says so. The server would fall back to the served url, so this is
+    //     the only place the blank is read as a question.
+    {
+        let fetched = false;
+        const elements = {
+            mig_current_agent: makeElement(), mig_pricing: makeElement(),
+            mig_wallet: makeElement({value: 'vkey-v2-bbbbbb'}),
+            mig_submit: makeElement(), mig_error: makeElement(),
+            mig_deregister: makeElement(),
+            mig_api_base_url: makeElement({value: '   '}),
+            mig_api_base_url_note: makeElement(),
+            mig_api_base_url_note_text: makeElement(),
+            mig_api_base_url_reset: makeElement(),
+            registry_0: makeElement({dataset: {flowUrl: '/meme-copy'}}),
+            'migrate-dialog': makeElement(),
+        };
+        const context = {
+            console, exposeName: 'meme-copy', activeDialogIdx: 0,
+            hideRegError() {}, showRegError() {},
+            jsyaml: {load: () => ({})},
+            fetch: async () => { fetched = true; return jsonResponse({}); },
+            document: {
+                querySelector: () => ({value: ''}),
+                querySelectorAll: () => [],
+                getElementById: (id) => elements[id] || null,
+                createElement: () => makeElement(),
+            },
+        };
+        vm.createContext(context);
+        vm.runInContext(
+            helpersSource + '\n' + walletsSource + '\n' + openSource, context);
+        await context.submitMigration();
+        console.log('\n24. an empty url stops the submit');
+        console.log('   fetched:', fetched);
+        console.log('   error  :', elements.mig_error.textContent);
+        assert.equal(fetched, false);
+        assert.match(elements.mig_error.textContent, /cannot be empty/);
+        assert.equal(elements.mig_error.style.display, 'block');
+        // The button must stay usable: the operator has to be able to put a
+        // url back and submit again.
+        assert.equal(elements.mig_submit.disabled, false);
+    }
+
+    // 25. A url that is not the served one is minted as typed, so the
+    //     dialog names what this kodosumi actually answers on, and offers
+    //     the way back.
+    {
+        const run = await open(() => jsonResponse({wallets: [
+            {walletVkey: 'vkey-v2-bbbbbb', walletAddress: 'addr2',
+             note: 'v2 seller', paymentSourceType: 'Web3CardanoV2'},
+        ]}));
+        run.elements.mig_api_base_url.value = 'https://elsewhere.example/sumi/x';
+        run.context.updateMigrateUrlNote();
+        console.log('\n25. an edited url is cautioned, then reset');
+        console.log('   note   :', run.elements.mig_api_base_url_note_text.textContent);
+        assert.equal(run.elements.mig_api_base_url_note.className,
+                     'dlg-caution warn');
+        assert.equal(run.elements.mig_api_base_url_reset.style.display, '');
+        assert.match(run.elements.mig_api_base_url_note_text.textContent,
+                     /serves only http:\/\/node\.example\/sumi\/meme-copy/);
+        assert.match(run.elements.mig_api_base_url_note_text.textContent,
+                     /already deployed here/);
+
+        run.context.resetMigrateUrl();
+        console.log('   after reset:',
+                    JSON.stringify(run.elements.mig_api_base_url.value));
+        assert.equal(run.elements.mig_api_base_url.value, SERVED_URL);
+        assert.equal(run.elements.mig_api_base_url_note.className, 'dlg-caution');
+        assert.equal(run.elements.mig_api_base_url_reset.style.display, 'none');
+    }
+
+    console.log('\nall twenty-five dialog cases behaved as expected');
 })();
