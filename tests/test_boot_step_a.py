@@ -20,6 +20,7 @@ from kodosumi.service.expose.boot import (
     load_serve_config,
     parse_bootstrap,
     run_serve_deploy,
+    _augment_serve_error,
     _step_deploy,
     BootStep,
     MessageType,
@@ -150,6 +151,40 @@ route_prefix: /original-route
 
         assert result["name"] == "new-name"
         assert result["route_prefix"] == "/new-name"
+
+
+class TestAugmentServeError:
+    """Tests for _augment_serve_error() hint generation."""
+
+    def test_attribute_error_hint(self):
+        stderr = (
+            "AttributeError: module 'kodosumi_examples.simple' has no attribute 'app'"
+        )
+        out = _augment_serve_error(stderr)
+        assert "HINT:" in out
+        assert "App.bind()" in out
+        # Original error text is preserved.
+        assert "has no attribute 'app'" in out
+
+    def test_local_runtime_env_hint(self):
+        stderr = "runtime_envs in the Serve config support only remote URIs"
+        out = _augment_serve_error(stderr)
+        assert "HINT:" in out
+        assert "remote URIs" in out
+
+    def test_unknown_error_passthrough(self):
+        stderr = "some totally unrecognized failure"
+        out = _augment_serve_error(stderr)
+        assert out.strip() == "some totally unrecognized failure"
+
+    def test_import_path_type_hint(self):
+        stderr = "applications.0.import_path: Input should be a valid string"
+        out = _augment_serve_error(stderr)
+        assert "HINT:" in out
+        assert "module:attr" in out
+
+    def test_never_raises_on_empty(self):
+        assert _augment_serve_error("", "") == "Unknown error from serve deploy"
 
 
 class TestRunServeDeploy:
@@ -416,3 +451,63 @@ class TestStepDeployIntegration:
             # Verify progress updated
             assert progress.step_name == "Deploy"
             assert progress.activities_done > 0
+
+    @pytest.mark.asyncio
+    async def test_strips_local_runtime_env_before_deploy(self):
+        """Local working_dir/py_modules should be stripped from runtime_env; remote URIs kept."""
+        deploy_configs = []
+        real_yaml_dump = yaml.dump
+
+        def capturing_yaml_dump(data, stream=None, **kwargs):
+            # Capture every config that contains a non-empty applications list —
+            # that's the per-window deploy payload, not the base config write.
+            if isinstance(data, dict) and data.get("applications"):
+                deploy_configs.append(data)
+            return real_yaml_dump(data, stream, **kwargs)
+
+        with patch("kodosumi.service.expose.boot.db") as mock_db, \
+             patch("kodosumi.service.expose.boot.run_serve_deploy") as mock_deploy, \
+             patch("kodosumi.service.expose.boot.load_serve_config") as mock_config, \
+             patch("kodosumi.service.expose.boot.yaml.dump", side_effect=capturing_yaml_dump):
+
+            mock_db.init_database = AsyncMock()
+            mock_db.get_all_exposes = AsyncMock(return_value=[{
+                "name": "my-app",
+                "enabled": True,
+                "bootstrap": (
+                    "import_path: mymod:app\n"
+                    "runtime_env:\n"
+                    "  working_dir: /local/path\n"
+                    "  pip:\n"
+                    "    - requests\n"
+                    "  py_modules:\n"
+                    "    - /local/module\n"
+                    "    - https://remote.example.com/pkg.zip\n"
+                ),
+            }])
+            mock_config.return_value = {"applications": []}
+            mock_deploy.return_value = (0, "success", "")
+
+            progress = BootProgress()
+            async for _ in _step_deploy(progress):
+                pass
+
+        assert deploy_configs, "yaml.dump was never called with a non-empty applications list"
+        app = deploy_configs[0]["applications"][0]
+        rt = app.get("runtime_env", {})
+
+        # Local paths must be gone.
+        assert "working_dir" not in rt, "local working_dir should be stripped"
+        assert "/local/module" not in rt.get("py_modules", []), "local py_module should be stripped"
+
+        # Remote URI must survive.
+        assert "https://remote.example.com/pkg.zip" in rt.get("py_modules", []), "remote py_module should be kept"
+
+        # Unrelated keys must be untouched.
+        assert "pip" in rt, "pip should not be stripped"
+
+        # The original deployed_apps entry must not be mutated.
+        # (Verifies the deep-copy fix — if shallow copy, rt would be empty here.)
+        mock_exposes = mock_db.get_all_exposes.return_value
+        original_rt = yaml.safe_load(mock_exposes[0]["bootstrap"]).get("runtime_env", {})
+        assert "working_dir" in original_rt, "original bootstrap must remain unmutated"
