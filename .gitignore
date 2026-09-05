@@ -165,8 +165,13 @@ cython_debug/
 # kodosumi
 data/
 .vscode
+.idea/
 .claude/*.backup
 .claude/settings.json
+.claude/scheduled_tasks.lock
+.output.txt
+prometheus-*/
+prometheus-*.tar.gz
 proposal/
 
 crews/dev/*.yaml
