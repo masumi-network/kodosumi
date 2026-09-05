@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import inspect
 import json
 import os
@@ -64,11 +65,17 @@ def parse_entry_point(entry_point: str) -> Callable:
     else:
         *mod_list, obj = entry_point.split(".")
         module_name = ".".join(mod_list)
-    module = __import__(module_name)
-    components = module_name.split('.')
-    for comp in components[1:]:
-        module = getattr(module, comp)
-    return getattr(module, obj)
+    # Resolve the module via importlib (i.e. sys.modules) rather than walking
+    # attributes from the top-level package. Attribute-walking breaks when a
+    # package re-exports a name that shadows one of its submodules, e.g. a
+    # ``from .app import fast_app as app`` in ``__init__.py`` makes
+    # ``package.app`` resolve to the bound object instead of the ``app`` module.
+    module = importlib.import_module(module_name)
+    # Support nested attribute access in the object part (e.g. "Class.method").
+    target: Any = module
+    for attr in obj.split("."):
+        target = getattr(target, attr)
+    return target
 
 
 @ray.remote
