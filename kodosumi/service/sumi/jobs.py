@@ -172,11 +172,7 @@ async def _submit_job(
     Returns:
         JobStatusResponse on success, StartJobErrorResponse on failure
     """
-    # DEBUG: Log incoming request BEFORE forwarding to agent
-    with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] start_job: {expose_name}/{meta_name}\n")
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] identifier_from_purchaser: {data.identifier_from_purchaser}\n")
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+    logger.debug("Starting Sumi job for %s/%s", expose_name, meta_name)
 
     # Convert MIP-003 index arrays to string values for option/radio fields
     # Masumi sends [1] for second option, agents expect "Man"
@@ -264,11 +260,10 @@ async def _submit_job(
 
         resp = await proxy_forward(proxy_config)
 
-        # DEBUG: Log agent response
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent response: status={resp.status_code}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent headers: {dict(resp.headers)}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] agent body: {resp.content.decode()[:2000]}\n")
+        logger.debug(
+            "Sumi agent response for %s/%s: status=%s",
+            expose_name, meta_name, resp.status_code,
+        )
 
         if resp.status_code != 200:
             return _error_response(
