@@ -7,7 +7,7 @@ enabling fast dashboard queries without hitting the external API on each load.
 
 import json
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -587,7 +587,7 @@ class MasumiCache:
         Return a per-week summary for the last *weeks* calendar weeks.
 
         Each entry contains:
-        - ``week``      – ISO week label (``YYYY-Www``)
+        - ``week``      – week-start label (``MM/DD``), ordered chronologically
         - ``revenue``   – total delivered amount (base units)
         - ``delivered`` – count of delivered payments
         - ``utxo_fail`` – count of masumi_utxo / masumi_state_error refunds
@@ -622,7 +622,7 @@ class MasumiCache:
                 "total": 0,
             }
 
-        week_buckets: Dict[str, Dict[str, Any]] = {}
+        week_buckets: Dict[date, Dict[str, Any]] = {}
 
         for row in rows:
             raw_ts = row.get("created_at") or ""
@@ -633,11 +633,10 @@ class MasumiCache:
             except (ValueError, AttributeError):
                 continue
 
-            week_start = ts - timedelta(days=ts.weekday())
-            label = week_start.strftime("%m/%d")
-            if label not in week_buckets:
-                week_buckets[label] = _empty_week()
-            bucket = week_buckets[label]
+            week_start = (ts - timedelta(days=ts.weekday())).date()
+            if week_start not in week_buckets:
+                week_buckets[week_start] = _empty_week()
+            bucket = week_buckets[week_start]
 
             amount = row.get("requested_amount") or 0
             cat = classify_payment(row)
@@ -652,13 +651,13 @@ class MasumiCache:
                 bucket["timeout"] += 1
 
         result: List[Dict[str, Any]] = []
-        for label in sorted(week_buckets):
-            b = week_buckets[label]
+        for week_start in sorted(week_buckets):
+            b = week_buckets[week_start]
             total = b["total"]
             rate = b["delivered"] / total if total > 0 else 0.0
             result.append(
                 {
-                    "week": label,
+                    "week": week_start.strftime("%m/%d"),
                     "revenue": b["revenue"],
                     "delivered": b["delivered"],
                     "utxo_fail": b["utxo_fail"],
