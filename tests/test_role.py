@@ -1,16 +1,20 @@
+from unittest.mock import patch
+
 from litestar.testing import TestClient, AsyncTestClient
 import pytest
 from kodosumi.service.app import create_app
 from kodosumi import helper
 from typing import AsyncGenerator
-import ray
+
 
 @pytest.fixture
 async def http_client(tmp_path) -> AsyncGenerator:
     url = f"sqlite+aiosqlite:///{tmp_path}/admin.db"
     app = create_app(ADMIN_DATABASE=url)
-    async with AsyncTestClient(app=app) as client:
-        yield client
+    with patch("kodosumi.helper.ray_init"), patch("kodosumi.helper.ray_shutdown"):
+        async with AsyncTestClient(app=app) as client:
+            yield client
+
 
 @pytest.fixture
 async def auth_client(tmp_path) -> AsyncGenerator:
@@ -19,12 +23,13 @@ async def auth_client(tmp_path) -> AsyncGenerator:
                      EXEC_DIR=str(tmp_path.joinpath("data", "execution")),
                      UPLOAD_DIR=str(tmp_path.joinpath("data", "upload")))
     base_url = "http://kodosumi"
-    async with AsyncTestClient(app=app, base_url=base_url) as client:
-        response = await client.get(
-            "/login", params={"name": "admin", "password": "admin" })
-        assert response.status_code == 200
-        client.cookies = response.cookies
-        yield client
+    with patch("kodosumi.helper.ray_init"), patch("kodosumi.helper.ray_shutdown"):
+        async with AsyncTestClient(app=app, base_url=base_url) as client:
+            response = await client.get(
+                "/login", params={"name": "admin", "password": "admin"})
+            assert response.status_code == 200
+            client.cookies = response.cookies
+            yield client
 
 @pytest.mark.asyncio
 async def test_add_role(tmp_path):

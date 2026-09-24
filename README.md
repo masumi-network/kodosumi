@@ -158,6 +158,22 @@ See the [kodosumi-examples](https://github.com/masumi-network/kodosumi-examples)
 - **hitl** - Human-in-the-loop with locks
 - **prime** - Multi-step workflow
 
+### Expose Bootstrap (copy-paste)
+To deploy an example via the Admin Panel → Expose, create an Expose named `simple` and paste this into the Bootstrap field:
+
+```
+import_path: kodosumi_examples.simple:app
+route_prefix: "/simple"
+```
+
+Notes:
+- Make sure the examples package is importable in the same virtualenv as Kodosumi:
+  - `pip install -e /path/to/kodosumi-examples`
+- The module `kodosumi_examples.simple` must export a top-level bound Serve object named `app` (e.g., `app = App.bind()`).
+- If you see an error like "module 'kodosumi_examples.simple' has no attribute 'app'", open `kodosumi_examples/simple.py` and add `app = App.bind()`, or change `import_path` to the correct exported object (e.g., `:graph`).
+- After Boot completes, the default Ray HTTP port is 8005, so try:
+  - `curl -s http://127.0.0.1:8005/simple` or `http://127.0.0.1:8005/simple/`
+
 ## Documentation
 
 Full documentation at [docs.kodosumi.io](https://docs.kodosumi.io):

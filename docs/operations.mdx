@@ -1,0 +1,146 @@
+---
+title: Operations
+description: Where things run, where to find logs, and how to check that everything is healthy.
+---
+
+This page is an orientation map for running a Kodosumi node: which URLs to open, where every log lives, and the commands to confirm each part of the stack is up. If a service says `RUNNING` but you don't know where to look next, start here.
+
+## The stack at a glance
+
+A running node is three cooperating processes plus the Ray cluster underneath them:
+
+| Layer | What it does | Default address |
+| --- | --- | --- |
+| **Admin panel** (`koco serve` / `koco start`) | Web UI + API: services, runs, deployment | `http://localhost:3370` |
+| **Ray Serve** | Hosts the deployed agent endpoints | `http://localhost:8005` |
+| **Ray cluster + dashboard** | Executes `Runner` actors; replica logs & metrics | dashboard `http://localhost:8265`, GCS `localhost:6379` |
+| **Spooler** | Drains run events from Ray queues into per-run databases | background Ray actor (no port) |
+
+<Note>
+The addresses above are the defaults. They are configurable via `KODO_APP_SERVER`, `KODO_RAY_SERVE_ADDRESS`, `KODO_RAY_DASHBOARD`, and `KODO_RAY_SERVER`. See [Configuration](/config).
+</Note>
+
+## Where to look in the browser
+
+Everything operator-facing lives under the admin panel at `http://localhost:3370` (default login `admin` / `admin`). The left sidebar is the map:
+
+| Sidebar | URL | Use it to |
+| --- | --- | --- |
+| **Services** | `/admin/flow` | Browse and **start** deployed agents. This is the landing page. |
+| **Timeline** | `/admin/timeline/view` | See **every run** (live and past) with status, inputs, and results. |
+| **Analytics** | `/admin/dashboard` | Running agents, errors, and stats over time. |
+| **Control** | `/admin/routes` | Live status of Ray, Serve, and the Spooler. |
+| **Expose** | `/admin/expose` | Manage deployments (boot, refresh, shutdown, registry). |
+| **Masumi** | `/admin/masumi` | Payment / on-chain configuration. |
+
+To run a single service and watch it execute:
+
+<Steps>
+<Step title="Open the form">
+From **Services**, click the service — or go straight to `/inputs/-/<expose>/<flow>/` (for the bundled example: `/inputs/-/simple/simple/`).
+</Step>
+<Step title="Submit">
+Fill the inputs and submit. You are redirected to the run's **Status** page at `/admin/status/view/<fid>`.
+</Step>
+<Step title="Watch it run">
+The Status page streams events live. The **Results** tab shows intermediate and final output; **I-O** shows `stdout`/`stderr` and debug events; **Events** shows the full stream. The run also appears in **Timeline**.
+</Step>
+</Steps>
+
+The **Ray dashboard** (`http://localhost:8265`) is the other browser console worth knowing: its **Serve** tab lists each deployed application, its replicas, and per-replica logs and metrics.
+
+## Where the logs are
+
+### In the UI (easiest)
+
+- **A specific run** → Timeline → click the run, or `/admin/status/view/<fid>` → **I-O** / **Events** tabs.
+- **A deployed service** → Ray dashboard (`:8265`) → **Serve** → pick the app → **Logs**.
+
+### On disk
+
+Application logs live under the data directory (`./data` by default, or `KODO_EXEC_DIR`'s parent):
+
+| File | Contents |
+| --- | --- |
+| `data/app.log` | Admin panel (`koco serve` / `koco start`) |
+| `data/spooler.log` | Spooler |
+| `data/audit.log` | Boot / deployment history (every boot step) |
+| `data/execution/{user_id}/{exec_id}/sqlite3.db` | One database per run — the full event log and result |
+
+Ray writes the **agent's own runtime logs** (anything the flow prints, plus deploy failures) under the Ray session directory:
+
+| Path | Contents |
+| --- | --- |
+| `/tmp/ray/session_latest/logs/serve/replica_<app>_*.log` | The running service's stdout/stderr |
+| `/tmp/ray/session_latest/logs/serve/controller_*.log` | **Deploy/import failures** — the real reason a boot failed |
+
+<Note>
+`session_latest` is a symlink to the active Ray session. If Ray was started with a custom `--temp-dir`, substitute that path (and set `KODO_RAY_SESSION_DIR` so the panel can surface deploy errors inline on the Expose page).
+</Note>
+
+## Health checks
+
+### From the browser
+
+`GET http://localhost:3370/health/` (authenticated) returns Ray, Serve, and Spooler status as JSON. The **Control** page (`/admin/routes`) renders the same information.
+
+### From the CLI
+
+```bash
+cd <your-kodosumi-checkout>
+
+# Ray cluster up?
+.venv/bin/ray status
+
+# Deployed Serve apps — want status: RUNNING and proxies HEALTHY
+.venv/bin/serve status
+
+# Spooler running? (must be up for runs to record in the Timeline)
+.venv/bin/koco spool --status
+
+# Expose records and their last known state
+sqlite3 data/expose.db 'SELECT name, enabled, state FROM expose;'
+
+# Does a deployed route actually serve? (expect 200)
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8005/<expose>/
+```
+
+<Note>
+Avoid trailing `# comments` on shell command lines in `zsh` — it can complain about `bad pattern: #`. The commands still run; move comments to their own line to silence it.
+</Note>
+
+## When something looks wrong
+
+<CardGroup cols={2}>
+<Card title="Service shows RUNNING but the route 404s" icon="triangle-exclamation">
+Check `serve status`. If the app is missing there, the database state is stale — **Refresh** the expose (`/admin/expose` → Refresh) to redeploy and re-sync the state.
+</Card>
+<Card title="A boot failed (DEPLOY_FAILED / UNHEALTHY)" icon="bug">
+The real cause is almost never in the panel summary. Read the controller logs:
+`grep -hiE "fail|traceback|error" /tmp/ray/session_latest/logs/serve/controller_*.log | tail`
+The Expose page also surfaces the last traceback inline on the failed item.
+</Card>
+<Card title="Runs never appear in the Timeline" icon="hourglass-half">
+The spooler is probably down (`/health/` shows `Spooler not found`). Start it: `koco spool --start`. It requires Ray to be running.
+</Card>
+<Card title="Code changes don't take effect" icon="rotate">
+Confirm Kodosumi is installed editable: `pip show kodosumi` should list an *Editable project location*. If not: `pip install -e .` and restart `koco serve`. Existing Ray workers may still hold the old module — start a fresh run (new actor) or restart Ray.
+</Card>
+</CardGroup>
+
+## Related
+
+<CardGroup cols={2}>
+<Card title="Lifecycle" href="/lifecycle" icon="diagram-project">
+How a flow moves from Launch through the Runner, spooler, and Timeline.
+</Card>
+<Card title="Admin Panel" href="/panel" icon="window">
+A screen-by-screen tour of the web interface.
+</Card>
+<Card title="Expose & Deploy" href="/expose" icon="cloud-arrow-up">
+Defining, booting, and refreshing deployments.
+</Card>
+<Card title="Configuration" href="/config" icon="gear">
+Every `KODO_` setting, including ports and directories.
+</Card>
+</CardGroup>
