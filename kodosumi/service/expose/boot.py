@@ -813,6 +813,66 @@ async def validate_expose_meta(
 # Step A: Deploy Functions
 # =============================================================================
 
+def _augment_serve_error(stderr_text: str, stdout_text: str = "") -> str:
+    """
+    Provide actionable hints for common Ray Serve deploy failures by
+    inspecting stderr/stdout text from the `serve deploy` command.
+
+    This is a best-effort helper and should never raise.
+
+    Args:
+        stderr_text: Text captured from stderr
+        stdout_text: Text captured from stdout
+
+    Returns:
+        Augmented error message string
+    """
+    try:
+        text = (stderr_text or "").strip()
+        combined = f"{stderr_text}\n{stdout_text}" if stdout_text else stderr_text
+
+        # Common case: AttributeError for missing top-level bound attr (e.g., :app)
+        # Example:
+        #   AttributeError: module 'kodosumi_examples.simple' has no attribute 'app'
+        m = re.search(r"AttributeError: module '([^']+)' has no attribute '([^']+)'", combined)
+        if m:
+            module, attr = m.group(1), m.group(2)
+            hint = (
+                f"Ray Serve couldn't find '{attr}' in module '{module}'. "
+                f"Ensure your module defines a top-level bound Serve object named '{attr}', e.g.\n\n"
+                f"    from ray import serve\n"
+                f"    @serve.deployment\n"
+                f"    class App:\n"
+                f"        def __call__(self, request):\n"
+                f"            return {{'hello': 'world'}}\n\n"
+                f"    {attr} = App.bind()\n\n"
+                f"Alternatively, point import_path to the actual exported object (e.g., :graph or :deployment_graph)."
+            )
+            return f"{text}\n\nHINT: {hint}"
+
+        # Runtime env local path rejection when using Serve YAML
+        if "runtime_envs in the Serve config support only remote URIs" in combined:
+            hint = (
+                "Your bootstrap/runtime_env includes a local filesystem path. "
+                "Serve YAML only accepts remote URIs (https://, s3://, gs://). "
+                "Either remove runtime_env.working_dir/py_modules, use a remote URI, "
+                "or install your code into the same virtualenv and reference it via import_path."
+            )
+            return f"{text}\n\nHINT: {hint}"
+
+        # Import path type issues
+        if re.search(r"applications\.[0-9]+\.import_path.*(string|str)", combined, re.IGNORECASE):
+            hint = (
+                "import_path must be a string in the form 'module:attr'. "
+                "For example: kodosumi_examples.simple:app"
+            )
+            return f"{text}\n\nHINT: {hint}"
+
+        return text or combined or "Unknown error from serve deploy"
+    except Exception:
+        # Never fail on augmentation
+        return stderr_text or stdout_text or "Unknown error from serve deploy"
+
 def load_serve_config(config_path: str = RAY_SERVE_CONFIG) -> dict:
     """
     Load and parse serve_config.yaml, create default if missing.
@@ -1071,7 +1131,35 @@ async def _step_deploy(
     async def _submit_current_window() -> Optional[str]:
         """Write temp YAML for all deployed_apps and run serve deploy."""
         window_config = dict(base_config)
-        window_config["applications"] = list(deployed_apps.values())
+        # Sanitize runtime_env to avoid Ray Serve validation errors. Ray Serve
+        # only accepts remote URIs for working_dir / py_modules when provided via
+        # Serve YAML; local filesystem paths (e.g. /Users/..) cause pydantic
+        # validation errors, so strip non-remote paths here. runtime_env is
+        # copied first so we never mutate the shared deployed_apps entries.
+        sanitized_apps = []
+        for app in deployed_apps.values():
+            a = dict(app)
+            try:
+                rt = a.get("runtime_env")
+                if isinstance(rt, dict):
+                    rt = dict(rt)
+                    # Drop local working_dir
+                    wd = rt.get("working_dir")
+                    if isinstance(wd, str) and not re.match(r"^(s3|s3a|gs|https?)://", wd):
+                        rt.pop("working_dir", None)
+                    # Drop any local paths from py_modules (keep only remote URIs)
+                    pmods = rt.get("py_modules")
+                    if isinstance(pmods, list):
+                        rt["py_modules"] = [m for m in pmods if isinstance(m, str) and re.match(r"^(s3|s3a|gs|https?)://", m)]
+                        if not rt["py_modules"]:
+                            rt.pop("py_modules", None)
+                    a["runtime_env"] = rt
+            except Exception:
+                # Best-effort sanitization — never fail boot due to this logic
+                pass
+            sanitized_apps.append(a)
+
+        window_config["applications"] = sanitized_apps
         try:
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".yaml", delete=False, prefix="serve_deploy_"
@@ -1094,7 +1182,9 @@ async def _step_deploy(
                 pass
 
         if returncode != 0:
-            return stderr.strip() if stderr else f"Exit code {returncode}"
+            # Provide user-friendly hints for common failures
+            augmented = _augment_serve_error(stderr, stdout)
+            return augmented if augmented else (stderr.strip() if stderr else f"Exit code {returncode}")
         return None
 
     # --- Discover which apps are already deployed in Ray Serve ---
@@ -1258,9 +1348,10 @@ async def _step_deploy(
         deployed_apps = all_app_configs
         error = await _submit_current_window()
         if error:
+            # Standardize error wording to match earlier deploy failures
             yield BootMessage(
-                step=BootStep.DEPLOY, msg_type=MessageType.WARNING,
-                message=f"Final deploy (re-adding failed apps) failed: {error}",
+                step=BootStep.DEPLOY, msg_type=MessageType.ERROR,
+                message=f"serve deploy failed: {error}",
                 progress=progress
             )
         else:
@@ -1766,6 +1857,50 @@ async def _step_register_flows(
         )
         return
 
+    # First: Ask Admin Panel to import all Serve routes in bulk
+    registered_count = 0
+    routes_url = f"{ray_serve_address.rstrip('/')}/-/routes"
+    try:
+        async with httpx.AsyncClient(timeout=30.0, cookies=auth_cookies) as client:
+            resp = await client.post(
+                f"{app_server.rstrip('/')}/flow/register",
+                json={"url": routes_url},
+            )
+            if resp.status_code == 200:
+                try:
+                    payload = resp.json() or []
+                    if isinstance(payload, list):
+                        registered_count = len(payload)
+                    else:
+                        registered_count = 0
+                except Exception:
+                    registered_count = 0
+                yield BootMessage(
+                    step=BootStep.REGISTER,
+                    msg_type=MessageType.ACTIVITY,
+                    message="Registered flows from routes",
+                    target="/-/routes",
+                    result=f"{registered_count} registered",
+                    progress=progress,
+                )
+            else:
+                yield BootMessage(
+                    step=BootStep.REGISTER,
+                    msg_type=MessageType.WARNING,
+                    message="Flow registration failed",
+                    target="/-/routes",
+                    result=f"HTTP {resp.status_code}",
+                    progress=progress,
+                )
+    except Exception as e:
+        yield BootMessage(
+            step=BootStep.REGISTER,
+            msg_type=MessageType.WARNING,
+            message=f"Flow registration error: {e}",
+            target="/-/routes",
+            progress=progress,
+        )
+
     # Discover flows from each app's OpenAPI — parallel (batch of 4)
     all_flows: List[DiscoveredFlow] = []
     batch_size = BOOT_BATCH_SIZE  # reuse same concurrency limit
@@ -1828,7 +1963,7 @@ async def _step_register_flows(
     yield BootMessage(
         step=BootStep.REGISTER,
         msg_type=MessageType.STEP_END,
-        message=f"Flow registration complete ({len(all_flows)} discovered)",
+        message=f"Flow registration complete ({registered_count} registered, {len(all_flows)} discovered)",
         progress=progress,
         data={"discovered_flows": all_flows}
     )
