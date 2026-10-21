@@ -32,9 +32,8 @@ koco spool --status
 # Start Ray cluster (required before deployment)
 dotenv run -- ray start --head
 
-# Run tests
-pytest tests/
-pytest tests/test_flow.py -v  # single test file
+# Run tests (the full suite is slow; the user runs it, see Code Style)
+pytest tests/test_flow_db.py -v  # single test file
 ```
 
 ### CLI Commands
@@ -69,8 +68,9 @@ pytest tests/test_flow.py -v  # single test file
 - `kodosumi/spooler.py` - Background process that collects execution events from Ray queues
 - `kodosumi/config.py` - Settings with `KODO_` env prefix (e.g., `KODO_EXEC_DIR`, `KODO_MASUMI`)
 - `kodosumi/service/expose/` - Expose management system:
-  - `control.py` - API endpoints for CRUD, registry, wallets, exchange, audit
-  - `boot.py` - Boot/shutdown streaming endpoints
+  - `control.py` - Expose CRUD and health endpoints, Admin UI expose pages
+  - `boot_control.py` / `boot.py` - Boot/shutdown streaming endpoints / boot logic
+  - `registry_control.py`, `wallet_control.py`, `exchange_control.py`, `audit_control.py`, `migrate_control.py` - registry, wallets, import/export, audit log, registry migration endpoints
   - `db.py` - SQLite database operations for expose items
   - `models.py` - Pydantic models for expose data
   - `registry.py` - Masumi on-chain registry client (register, deregister, status)
@@ -149,7 +149,8 @@ data/
 
 #### Other Key Endpoints
 - `GET /health/` - System health (Ray, Serve, Spooler, Services)
-- `POST /flow/register` - Register flows from OpenAPI endpoints
+- `GET /flow/register` - List enabled expose sources
+- `PUT /flow/register` - Re-read flow metadata from the expose database (operator only)
 - `GET /flow/` - List registered flows
 - `GET /api/dashboard/*` - Analytics (running agents, errors, timeline, stats)
 
@@ -174,7 +175,7 @@ async def agent_function(inputs: dict, tracer: Tracer):
 ```
 
 ### Monitor Table Event Types
-- `status`: Plain string ("running", "finished", "error") - NOT JSON
+- `status`: Plain string ("starting", "running", "awaiting", "finished", "error"; see `kodosumi/const.py`) - NOT JSON
 - `meta`: JSON object with execution metadata
 - `error`: Can be plain text or JSON - handle both
 - `inputs`, `result`, `action`, `final`: Usually JSON

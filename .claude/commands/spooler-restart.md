@@ -7,7 +7,7 @@ Starte den Spooler neu.
 
 **1. Stoppe Spooler:**
 ```bash
-cd /Users/zimmermannb/git/kodosumi-nextgen/kodosumi && koco spool --stop 2>&1
+koco spool --stop 2>&1
 ```
 
 **2. Warte kurz:**
@@ -17,12 +17,12 @@ sleep 2
 
 **3. Starte Spooler:**
 ```bash
-cd /Users/zimmermannb/git/kodosumi-nextgen/kodosumi && koco spool --start
+koco spool --start
 ```
 
 **4. Verifiziere:**
 ```bash
-sleep 2 && cd /Users/zimmermannb/git/kodosumi-nextgen/kodosumi && koco spool --status
+sleep 2 && koco spool --status
 ```
 
 Gib Zusammenfassung:

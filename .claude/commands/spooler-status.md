@@ -7,7 +7,7 @@ Prüfe den Spooler Status.
 
 Führe aus:
 ```bash
-cd /Users/zimmermannb/git/kodosumi-nextgen/kodosumi && koco spool --status
+koco spool --status
 ```
 
 Gib eine knappe Zusammenfassung:
