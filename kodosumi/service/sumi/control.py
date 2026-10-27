@@ -5,10 +5,8 @@ Provides discovery, availability, and job management for external systems.
 """
 
 import asyncio
-import json
 import logging
 import sqlite3
-import time
 from pathlib import Path
 from typing import Optional, Union
 
@@ -454,14 +452,11 @@ class SumiControl(Controller):
         """
         fid = data.job_id
 
-        # DEBUG: Log incoming provide_input request
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input (MIP-003): job_id={fid}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_schema_hash: {data.input_schema_hash}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+        logger.debug("Sumi provide_input for job %s", fid)
 
         if not data.input_data:
-            return ProvideInputResponse(status="error", input_hash=None)
+            raise HTTPException(status_code=400,
+                                detail="No input_data provided")
 
         # Split keys by lock ID prefix: "lid:field_name" → {lid: {field_name: value}}
         locks_data: dict = {}
@@ -473,13 +468,13 @@ class SumiControl(Controller):
             locks_data.setdefault(lid, {})[field_id] = value
 
         if not locks_data:
-            with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input ERROR: no lock-prefixed keys found\n")
-            return ProvideInputResponse(status="error", input_hash=None)
+            raise HTTPException(
+                status_code=400,
+                detail="input_data keys must be prefixed with the lock id: "
+                       "'<lock-id>:<field>'")
 
-        # DEBUG: Log parsed lock groups
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input locks: {list(locks_data.keys())}\n")
+        logger.debug("Sumi provide_input for job %s: locks %s",
+                     fid, list(locks_data))
 
         # Release each lock via Kodosumi core (find_lock + POST + lease)
         errors = []
@@ -534,12 +529,9 @@ class SumiControl(Controller):
             except Exception as e:
                 errors.append(f"Lock {lid}: {type(e).__name__}: {e}")
 
-        # DEBUG: Log result
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            status = "error" if errors else "success"
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input result: {status}\n")
-            if errors:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input errors: {errors}\n")
+        if errors:
+            logger.debug("Sumi provide_input for job %s: errors %s",
+                         fid, errors)
 
         if errors and len(errors) == len(locks_data):
             # All locks failed — return HTTP 400
