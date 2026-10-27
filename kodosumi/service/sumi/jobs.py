@@ -10,7 +10,9 @@ import json
 import logging
 import sqlite3
 import time
+import unicodedata
 from typing import Literal, Optional, Union
+from urllib.parse import urlparse
 
 from litestar import Request
 from litestar.exceptions import HTTPException
@@ -27,7 +29,8 @@ from kodosumi.service.sumi.flows import (
     _parse_meta_data)
 from kodosumi.service.sumi.hash import create_input_hash
 from kodosumi.service.sumi.models import (
-    JobStatusResponse, StartJobErrorResponse, StartJobRequest)
+    InputSchemaResponse, JobStatusResponse, StartJobErrorResponse,
+    StartJobRequest)
 from kodosumi.service.sumi.schema import convert_mip003_indices_to_values
 
 logger = logging.getLogger(__name__)
@@ -142,6 +145,51 @@ async def _advance_pending_migration(
         return meta_data_dict
 
 
+def _file_input_error(
+    input_data: Optional[dict], schema: InputSchemaResponse
+) -> Optional[str]:
+    """Name a file input the agent cannot fetch, or None.
+
+    The schema advertises file fields with outputFormat "url". A Sumi buyer
+    is anonymous, so the agent cannot read the Kodosumi file store, and a
+    bare file name used to fail with 401 only after the buyer had paid.
+    An empty schema, which a failed schema fetch yields, checks nothing.
+    """
+    for field in schema.input_data or []:
+        if field.type != "file":
+            continue
+        value = (input_data or {}).get(field.id)
+        if not value:
+            continue  # ServeAPI ignores a falsy upload as well
+        # Inside a list ServeAPI passes every string, an empty one included.
+        for item in value if isinstance(value, list) else [value]:
+            if not _is_fetchable_url(item):
+                return (f"{field.id}: expected an http(s) URL of the file, "
+                        f"got {str(item)[:100]!r}")
+    return None
+
+
+def _is_fetchable_url(item) -> bool:
+    """True for an http(s) URL with a host that the agent can fetch."""
+    # urlparse drops tab and newline, so a value with a control character
+    # looks valid here but fails in the agent's HTTP client, as surrounding
+    # whitespace does.
+    if (not isinstance(item, str) or item != item.strip()
+            or any(c < " " or c == "\x7f" for c in item)):
+        return False
+    try:
+        url = urlparse(item)
+        host = url.hostname
+        # The client encodes other whitespace in a path, not in a host.
+        # .port raises on a non-numeric or out-of-range port.
+        return (url.scheme in ("http", "https") and bool(host)
+                and not any(c.isspace() or unicodedata.category(c) == "Cc"
+                            for c in host)
+                and url.port != 0)
+    except ValueError:  # e.g. an unclosed IPv6 bracket
+        return False
+
+
 async def _submit_job(
     expose_name: str,
     meta_name: str,
@@ -174,9 +222,13 @@ async def _submit_job(
     """
     logger.debug("Starting Sumi job for %s/%s", expose_name, meta_name)
 
+    schema = await _fetch_input_schema(ray_serve_address, meta)
+    # Before the agent sees the request: no job, so no payment request.
+    file_error = _file_input_error(data.input_data, schema)
+    if file_error:
+        return StartJobErrorResponse(error=file_error)
     # Convert MIP-003 index arrays to string values for option/radio fields
     # Masumi sends [1] for second option, agents expect "Man"
-    schema = await _fetch_input_schema(ray_serve_address, meta)
     converted_input = convert_mip003_indices_to_values(data.input_data, schema)
 
     service_id = _format_service_id(expose_name, meta_name)

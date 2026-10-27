@@ -5,8 +5,7 @@ A lock bundles several flows behind one endpoint. This controller serves
 its input schema and forwards jobs and inputs to the locked flows.
 """
 
-import json
-import time
+import logging
 
 import ray
 
@@ -23,6 +22,8 @@ from kodosumi.service.sumi.models import (
 from kodosumi.service.sumi.schema import (
     convert_model_to_schema, convert_mip003_indices_to_values,
     create_empty_schema)
+
+logger = logging.getLogger(__name__)
 
 
 class SumiLockControl(Controller):
@@ -136,25 +137,23 @@ class SumiLockControl(Controller):
             lid: Lock ID
             data: ProvideInputRequest with input data
         """
-        # DEBUG: Log incoming HITL input
-        with open("/srv/kodosumi/data/sumi_debug.log", "a") as f:
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] provide_input: {fid}/{lid}\n")
-            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] input_data: {json.dumps(data.input_data, default=str)}\n")
+        logger.debug("Sumi provide_input for lock %s/%s", fid, lid)
 
         try:
             lock, actor = find_lock(fid, lid)
         except LockNotFound as e:
-            return ProvideInputResponse(
-                status="error",
-                input_hash=None,
-            )
+            # e.lid is None: the job is gone. Otherwise the lock expired
+            # or was released.
+            if e.lid is None:
+                detail = f"Job {fid} is no longer running (lock may have expired)"
+            else:
+                detail = f"Lock {lid} not found (expired or already released)"
+            raise HTTPException(status_code=400, detail=detail)
 
         # Check if lock is already released
         if lock.get("result") is not None:
-            return ProvideInputResponse(
-                status="error",
-                input_hash=None,
-            )
+            raise HTTPException(
+                status_code=400, detail=f"Lock {lid} already released")
 
         # Post to lock endpoint
         target = f"{lock['app_url']}/_lock_/{fid}/{lid}"
