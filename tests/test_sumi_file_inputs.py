@@ -64,6 +64,12 @@ class TestFileInputsThatCannotBeFetched:
     @pytest.mark.parametrize("logo", [
         "apple_logo.png",                                  # bare file name
         ["https://cdn.example.com/a.png", "b.png"],        # one bad entry
+        ["https://cdn.example.com/a.png", ""],             # list passes ""
+        ["https://cdn.example.com/a.png", None],           # list passes None
+        "https://cdn.exa\nmple.com/logo.png",              # urlparse drops \n
+        "https://cdn.exa\xa0mple.com/logo.png",            # no-break space
+        "https://cdn.example.com:abc/logo.png",            # bad port
+        "https://cdn.example.com:99999/logo.png",          # port out of range
         "http://",                                         # scheme, no host
         "https://@",                                       # netloc, no host
         "http://[::1",                                     # urlparse raises
@@ -75,7 +81,7 @@ class TestFileInputsThatCannotBeFetched:
         result, forward, runner = await _start(
             {"website": "https://www.apple.com", "logo": logo})
         assert isinstance(result, StartJobErrorResponse)
-        assert "logo" in result.error
+        assert result.error.startswith("logo:")
         # Nothing reached the agent, so no runner and no payment request.
         forward.assert_not_awaited()
         runner.prepare.remote.assert_not_awaited()
@@ -87,6 +93,9 @@ class TestFileInputsThatStillRun:
     @pytest.mark.parametrize("input_data", [
         {"logo": "https://cdn.example.com/logo.png"},
         {"logo": ["https://a.example.com/1.png", "http://b.example.com/2.png"]},
+        {"logo": "HTTPS://cdn.example.com/logo.png"},      # scheme is caseless
+        {"logo": "https://cdn.example.com:8443/my logo.png"},
+        {"logo": "https://cdn.example.com/a\u200cb\xa0c.png"},  # path encodes
         {"logo": ""},                                      # optional, left empty
         {"logo": None},
         {"logo": False},                                   # agent ignores falsy

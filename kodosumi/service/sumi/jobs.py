@@ -10,6 +10,7 @@ import json
 import logging
 import sqlite3
 import time
+import unicodedata
 from typing import Literal, Optional, Union
 from urllib.parse import urlparse
 
@@ -158,9 +159,10 @@ def _file_input_error(
         if field.type != "file":
             continue
         value = (input_data or {}).get(field.id)
+        if not value:
+            continue  # ServeAPI ignores a falsy upload as well
+        # Inside a list ServeAPI passes every string, an empty one included.
         for item in value if isinstance(value, list) else [value]:
-            if not item:
-                continue  # ServeAPI ignores a falsy upload as well
             if not _is_fetchable_url(item):
                 return (f"{field.id}: expected an http(s) URL of the file, "
                         f"got {str(item)[:100]!r}")
@@ -168,17 +170,24 @@ def _file_input_error(
 
 
 def _is_fetchable_url(item) -> bool:
-    """True for an http(s) URL with a host that ServeAPI passes as a URL."""
-    # ServeAPI only passes a value that starts with the scheme, so a value
-    # with surrounding whitespace reaches the agent as a file name.
-    if not isinstance(item, str) or item != item.strip():
+    """True for an http(s) URL with a host that the agent can fetch."""
+    # urlparse drops tab and newline, so a value with a control character
+    # looks valid here but fails in the agent's HTTP client, as surrounding
+    # whitespace does.
+    if (not isinstance(item, str) or item != item.strip()
+            or any(c < " " or c == "\x7f" for c in item)):
         return False
     try:
         url = urlparse(item)
         host = url.hostname
+        # The client encodes other whitespace in a path, not in a host.
+        # .port raises on a non-numeric or out-of-range port.
+        return (url.scheme in ("http", "https") and bool(host)
+                and not any(c.isspace() or unicodedata.category(c) == "Cc"
+                            for c in host)
+                and url.port != 0)
     except ValueError:  # e.g. an unclosed IPv6 bracket
         return False
-    return url.scheme in ("http", "https") and bool(host)
 
 
 async def _submit_job(
