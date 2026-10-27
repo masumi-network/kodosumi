@@ -7,7 +7,7 @@ Analysiere die Spooler Logs auf Fehler und Warnungen.
 
 **1. Lese die letzten 200 Zeilen:**
 
-Lies die Datei: `/Users/zimmermannb/git/kodosumi-nextgen/kodosumi/data/spooler.log`
+Lies die Datei: `data/spooler.log`
 
 Falls die Datei nicht existiert, melde dies.
 

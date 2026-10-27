@@ -7,7 +7,7 @@ Analysiere die Admin Panel Logs auf Fehler und Warnungen.
 
 **1. Lese die letzten 200 Zeilen:**
 
-Lies die Datei: `/Users/zimmermannb/git/kodosumi-nextgen/kodosumi/data/app.log`
+Lies die Datei: `data/app.log`
 
 Falls die Datei nicht existiert, melde dies.
 

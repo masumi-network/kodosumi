@@ -7,12 +7,12 @@ Stoppe den Spooler.
 
 **1. Stoppe Spooler:**
 ```bash
-cd /Users/zimmermannb/git/kodosumi-nextgen/kodosumi && koco spool --stop
+koco spool --stop
 ```
 
 **2. Verifiziere:**
 ```bash
-sleep 1 && cd /Users/zimmermannb/git/kodosumi-nextgen/kodosumi && koco spool --status
+sleep 1 && koco spool --status
 ```
 
 Gib Zusammenfassung:

@@ -12,7 +12,7 @@ ray status 2>&1 | head -5
 
 **2. Spooler:**
 ```bash
-cd /Users/zimmermannb/git/kodosumi-nextgen/kodosumi && koco spool --status 2>&1
+koco spool --status 2>&1
 ```
 
 **3. Admin Panel:**

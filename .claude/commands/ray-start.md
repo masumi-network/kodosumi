@@ -14,7 +14,7 @@ Falls bereits aktiv, melde dies und beende.
 
 **2. Starte Ray:**
 ```bash
-cd /Users/zimmermannb/git/kodosumi-nextgen/kodosumi && dotenv run -- ray start --head
+dotenv run -- ray start --head
 ```
 
 **3. Verifiziere:**

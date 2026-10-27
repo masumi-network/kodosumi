@@ -67,7 +67,7 @@ async def get_execution_data(
 - **JavaScript**: ES6+ with modules (no build step)
 - **CSS**: Beer CSS classes + custom CSS in `<style>` blocks
 - **Templates**: Jinja2 with `{% extends "_frame.html" %}`
-- **Libraries**: D3.js v7 for visualizations (loaded via CDN)
+- **Libraries**: D3.js v7 for visualizations (served locally from `/static/d3.v7.min.js`)
 
 ## Critical Implementation Patterns
 
@@ -257,9 +257,8 @@ curl http://localhost:3370/api/dashboard/running-agents
 # Install in editable mode
 pip install -e .
 
-# Restart server after code changes
-# (or use --reload flag)
-koco start --reload
+# Development server with auto-reload
+koco serve --reload
 ```
 
 ## Useful Commands
@@ -271,15 +270,12 @@ dotenv run -- ray start --head
 # Check Ray status
 ray status
 
-# Deploy services
-koco deploy --run --file ./data/config/config.yaml
-
 # Start admin panel
-koco start --register http://localhost:8000/-/routes
+koco start
 
 # View logs
-tail -f ./data/logs/spooler.log
-tail -f ./data/logs/app.log
+tail -f ./data/spooler.log
+tail -f ./data/app.log
 ```
 
 ## Documentation Links
@@ -302,10 +298,7 @@ tail -f ./data/logs/app.log
 - Raise `NotFoundException` for 404s in Litestar
 
 ### Performance
-- Scan databases in parallel when possible
-- Use time-range filters to limit query scope
-- Consider caching for frequently accessed data
-- Limit result sets (e.g., 100 errors max)
+- Limit result sets (the dashboard endpoints default to `limit=100`)
 
 ## Questions to Ask When Uncertain
 
