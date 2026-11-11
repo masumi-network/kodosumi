@@ -21,14 +21,12 @@ charset-normalizer==3.4.2
 click==8.2.1
 colorful==0.5.7
 distlib==0.4.4
-dnspython==2.7.0; python_version < "3.11"
-dnspython==2.9.2; python_version >= "3.11"
+dnspython==2.9.2
 email_validator==2.2.0
 Faker==37.5.3
 fastapi==0.162.4
 fastapi-utils==0.8.0
-filelock==3.29.0; python_version < "3.11"
-filelock==4.2.10; python_version >= "3.11"
+filelock==4.2.10
 frozenlist==1.7.0
 google-api-core==2.25.1
 google-auth==2.40.3
